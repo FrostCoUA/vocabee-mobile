@@ -3,6 +3,7 @@ package com.vocabee.android.data
 import com.vocabee.android.domain.model.DictionaryTopic
 import com.vocabee.android.domain.model.LanguageOption
 import com.vocabee.android.domain.model.SyncStatus
+import com.vocabee.android.domain.model.WordDetails
 import com.vocabee.android.domain.model.WordEntry
 
 interface VocabularyRepository {
@@ -24,6 +25,7 @@ interface VocabularyRepository {
         source: String,
         translation: String,
         ipa: String? = null,
+        details: WordDetails? = null,
     ): WordEntry?
 }
 
@@ -75,6 +77,7 @@ class FakeVocabularyRepository : VocabularyRepository {
         source: String,
         translation: String,
         ipa: String?,
+        details: WordDetails?,
     ): WordEntry? {
         val topics = topicsByUser[userKey] ?: return null
         val topicIndex = topics.indexOfFirst { topic -> topic.id == topicId }
@@ -95,6 +98,7 @@ class FakeVocabularyRepository : VocabularyRepository {
             source = source,
             translation = translation,
             ipa = ipa,
+            details = details,
             addedAtEpochMillis = now,
             updatedAtEpochMillis = now,
             syncStatus = SyncStatus.PendingCreate,

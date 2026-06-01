@@ -5,6 +5,9 @@ import com.vocabee.android.data.api.VocabeeApi
 import com.vocabee.android.data.api.VocabeeApiException
 import com.vocabee.android.domain.model.TranslationOption
 import com.vocabee.android.domain.model.TranslationOptionNote
+import com.vocabee.android.domain.model.WordDetails
+import com.vocabee.android.domain.model.WordForm
+import com.vocabee.android.domain.model.WordSense
 
 /**
  * Calls the gateway's `/search` endpoint and adapts the response into the
@@ -84,5 +87,21 @@ private fun SearchVariant.toOption(existingTranslations: Set<String>): Translati
         alreadyAdded = existingTranslations.contains(translation),
         learningWord = learningWord,
         ipa = ipa,
+        details = WordDetails(
+            senses = senses.map { sense ->
+                WordSense(
+                    definition = sense.definition,
+                    partOfSpeech = sense.partOfSpeech,
+                    tags = sense.tags,
+                    examples = sense.examples.map { it.text },
+                    synonyms = sense.synonyms,
+                    antonyms = sense.antonyms,
+                )
+            },
+            synonyms = synonyms,
+            antonyms = antonyms,
+            forms = forms.map { WordForm(text = it.text, tags = it.tags) },
+            partOfSpeech = partOfSpeech,
+        ).takeUnless { it.isEmpty },
     )
 }

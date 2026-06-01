@@ -35,6 +35,7 @@ sealed interface VocabeeEvent {
         val source: String,
         val translation: String,
         val ipa: String? = null,
+        val details: com.vocabee.android.domain.model.WordDetails? = null,
     ) : VocabeeEvent
 
     data class SelectSpeakingLanguage(
@@ -68,7 +69,7 @@ class VocabeeStore(
     fun onEvent(event: VocabeeEvent) {
         when (event) {
             is VocabeeEvent.CreateTopic -> createTopic(event.title, event.coverIndex)
-            is VocabeeEvent.AddWord -> addWord(event.topicId, event.source, event.translation, event.ipa)
+            is VocabeeEvent.AddWord -> addWord(event.topicId, event.source, event.translation, event.ipa, event.details)
             is VocabeeEvent.SelectSpeakingLanguage -> selectSpeakingLanguage(event.language)
             is VocabeeEvent.SelectLearningLanguage -> selectLearningLanguage(event.language)
             is VocabeeEvent.SetNotificationsEnabled -> {
@@ -113,6 +114,7 @@ class VocabeeStore(
         source: String,
         translation: String,
         ipa: String?,
+        details: com.vocabee.android.domain.model.WordDetails?,
     ) {
         val cleanedSource = source.trim()
         val cleanedTranslation = translation.trim()
@@ -123,6 +125,7 @@ class VocabeeStore(
             source = cleanedSource,
             translation = cleanedTranslation,
             ipa = ipa?.trim()?.takeIf { it.isNotEmpty() },
+            details = details?.takeUnless { it.isEmpty },
         )
         if (word == null) return
 

@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -295,8 +296,8 @@ private fun MainApp(
                             learnLang = state.learningLanguage.code,
                         )
                     },
-                    onAddWord = { source, translation, ipa ->
-                        store.onEvent(VocabeeEvent.AddWord(topic.id, source, translation, ipa))
+                    onAddWord = { source, translation, ipa, details ->
+                        store.onEvent(VocabeeEvent.AddWord(topic.id, source, translation, ipa, details))
                     },
                     onOpenLanguageSheet = {
                         sheet = PrototypeSheet.LanguageForDictionary(topic.id)
@@ -919,11 +920,14 @@ private fun DetailHeader(
 @Composable
 private fun WordRow(
     word: WordEntry,
-    @Suppress("UNUSED_PARAMETER") accent: Color,
+    accent: Color,
     highlighted: Boolean,
     modifier: Modifier = Modifier,
     onSpeak: () -> Unit,
 ) {
+    val hasDetails = word.details != null && !word.details.isEmpty
+    var expanded by remember(word.id) { mutableStateOf(false) }
+
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
@@ -931,60 +935,204 @@ private fun WordRow(
         shadowElevation = 2.dp,
         border = if (highlighted) BorderStroke(1.dp, PrototypeColor.Yellow) else null,
     ) {
-        Row(
-            modifier = Modifier.padding(15.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(9.dp),
-                ) {
-                    Text(
-                        text = word.source,
-                        color = PrototypeColor.Ink,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 18.sp,
-                        letterSpacing = (-0.18).sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (!word.ipa.isNullOrBlank()) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .clickable(enabled = hasDetails) { expanded = !expanded }
+                    .padding(15.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
                         Text(
-                            text = word.ipa,
-                            color = PrototypeColor.Muted2,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
+                            text = word.source,
+                            color = PrototypeColor.Ink,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 18.sp,
+                            letterSpacing = (-0.18).sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        if (!word.ipa.isNullOrBlank()) {
+                            Text(
+                                text = word.ipa,
+                                color = PrototypeColor.Muted2,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Text(
+                        text = word.translation,
+                        modifier = Modifier.padding(top = 3.dp),
+                        color = PrototypeColor.Muted,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clickable(onClick = onSpeak),
+                    shape = RoundedCornerShape(12.dp),
+                    color = PrototypeColor.Tint,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Sound,
+                            modifier = Modifier.size(17.dp),
+                            color = PrototypeColor.Purple,
+                            strokeWidth = 1.9f,
+                        )
                     }
                 }
-                Text(
-                    text = word.translation,
-                    modifier = Modifier.padding(top = 3.dp),
-                    color = PrototypeColor.Muted,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+
+                if (hasDetails) {
+                    PrototypeLineIcon(
+                        icon = PrototypeIcon.ChevronDown,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .graphicsLayer { rotationZ = if (expanded) 180f else 0f },
+                        color = accent,
+                        strokeWidth = 2f,
+                    )
+                }
             }
 
+            if (expanded && word.details != null) {
+                WordDetailsBlock(
+                    details = word.details,
+                    accent = accent,
+                    modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 15.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WordDetailsBlock(
+    details: com.vocabee.android.domain.model.WordDetails,
+    accent: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(13.dp))
+            .background(
+                Brush.verticalGradient(
+                    listOf(PrototypeColor.ContextCardTop, PrototypeColor.ContextCardBottom),
+                ),
+            )
+            .border(BorderStroke(1.dp, PrototypeColor.ContextCardBorder), RoundedCornerShape(13.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        if (details.senses.isNotEmpty()) {
+            details.senses.take(3).forEachIndexed { index, sense ->
+                WordSenseBlock(index = index, sense = sense, accent = accent)
+            }
+        }
+        if (details.synonyms.isNotEmpty()) {
+            WordChipsRow(label = "Синоніми", values = details.synonyms.take(12), accent = accent)
+        }
+        if (details.antonyms.isNotEmpty()) {
+            WordChipsRow(label = "Антоніми", values = details.antonyms.take(12), accent = PrototypeColor.Orange)
+        }
+        if (details.forms.isNotEmpty()) {
+            WordChipsRow(
+                label = "Форми",
+                values = details.forms.map { it.text }.distinct().take(10),
+                accent = PrototypeColor.Muted,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WordSenseBlock(
+    index: Int,
+    sense: com.vocabee.android.domain.model.WordSense,
+    accent: Color,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Surface(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clickable(onClick = onSpeak),
-                shape = RoundedCornerShape(12.dp),
-                color = PrototypeColor.Tint,
+                shape = CircleShape,
+                color = accent.copy(alpha = 0.12f),
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    PrototypeLineIcon(
-                        icon = PrototypeIcon.Sound,
-                        modifier = Modifier.size(17.dp),
-                        color = PrototypeColor.Purple,
-                        strokeWidth = 1.9f,
+                Text(
+                    text = (index + 1).toString(),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    color = accent,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 12.sp,
+                )
+            }
+            if (!sense.partOfSpeech.isNullOrBlank()) {
+                Text(
+                    text = sense.partOfSpeech,
+                    color = PrototypeColor.Muted2,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+        Text(
+            text = sense.definition,
+            color = PrototypeColor.Ink,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            lineHeight = 19.sp,
+        )
+        sense.examples.take(2).forEach { example ->
+            Text(
+                text = "“$example”",
+                color = PrototypeColor.Muted,
+                fontWeight = FontWeight.Medium,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WordChipsRow(label: String, values: List<String>, accent: Color) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = label,
+            color = PrototypeColor.Muted2,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 11.sp,
+            letterSpacing = 0.5.sp,
+        )
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            values.forEach { value ->
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = accent.copy(alpha = 0.10f),
+                ) {
+                    Text(
+                        text = value,
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                        color = accent,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
                     )
                 }
             }

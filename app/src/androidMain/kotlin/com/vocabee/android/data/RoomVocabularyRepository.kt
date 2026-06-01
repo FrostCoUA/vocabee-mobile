@@ -7,11 +7,19 @@ import com.vocabee.android.data.local.entity.WordEntity
 import com.vocabee.android.domain.model.DictionaryTopic
 import com.vocabee.android.domain.model.LanguageOption
 import com.vocabee.android.domain.model.SyncStatus
+import com.vocabee.android.domain.model.WordDetails
 import com.vocabee.android.domain.model.WordEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import java.util.UUID
 import javax.inject.Inject
+
+private val detailsCodec = Json {
+    ignoreUnknownKeys = true
+    isLenient = true
+    encodeDefaults = false
+}
 
 class RoomVocabularyRepository @Inject constructor(
     private val database: VocabeeDatabase,
@@ -76,6 +84,7 @@ class RoomVocabularyRepository @Inject constructor(
         source: String,
         translation: String,
         ipa: String?,
+        details: WordDetails?,
     ): WordEntry? = runBlocking(Dispatchers.IO) {
         var insertedWord: WordEntity? = null
 
@@ -97,6 +106,9 @@ class RoomVocabularyRepository @Inject constructor(
                 source = source,
                 translation = translation,
                 ipa = ipa,
+                detailsJson = details?.let {
+                    detailsCodec.encodeToString(WordDetails.serializer(), it)
+                },
                 addedAtEpochMillis = now,
                 updatedAtEpochMillis = now,
                 syncStatus = SyncStatus.PendingCreate,
@@ -136,11 +148,16 @@ class RoomVocabularyRepository @Inject constructor(
     }
 
     private fun WordEntity.toDomain(): WordEntry {
+        val details = detailsJson?.let { rawJson ->
+            runCatching { detailsCodec.decodeFromString(WordDetails.serializer(), rawJson) }
+                .getOrNull()
+        }
         return WordEntry(
             id = id,
             source = source,
             translation = translation,
             ipa = ipa,
+            details = details,
             addedAtEpochMillis = addedAtEpochMillis,
             updatedAtEpochMillis = updatedAtEpochMillis,
             syncStatus = syncStatus,

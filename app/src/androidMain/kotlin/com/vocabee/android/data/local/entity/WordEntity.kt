@@ -38,6 +38,13 @@ data class WordEntity(
     val translation: String,
     @ColumnInfo(name = "ipa")
     val ipa: String? = null,
+    /**
+     * Serialized [com.vocabee.android.domain.model.WordDetails] (senses, synonyms,
+     * antonyms, forms). Stored as a single JSON column to avoid spawning child
+     * tables for read-only enrichment that the server can re-supply anytime.
+     */
+    @ColumnInfo(name = "details_json")
+    val detailsJson: String? = null,
     @ColumnInfo(name = "added_at_epoch_millis")
     val addedAtEpochMillis: Long,
     @ColumnInfo(name = "updated_at_epoch_millis")

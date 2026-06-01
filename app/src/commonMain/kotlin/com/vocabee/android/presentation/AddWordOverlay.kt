@@ -88,7 +88,7 @@ internal fun AddWordOverlay(
     origin: AddWordOrigin,
     speechInputController: SpeechInputController,
     searchRemote: suspend (query: String) -> AddWordSearchState,
-    onAddWord: (source: String, translation: String, ipa: String?) -> Unit,
+    onAddWord: (source: String, translation: String, ipa: String?, details: com.vocabee.android.domain.model.WordDetails?) -> Unit,
     onOpenLanguageSheet: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -269,7 +269,7 @@ internal fun AddWordOverlay(
                                 // not the user's raw typing. Otherwise a prefix
                                 // suggestion ("circumstance" shown while typing
                                 // "circum") would persist as "circum".
-                                onAddWord(option.learningWord, option.value, option.ipa)
+                                onAddWord(option.learningWord, option.value, option.ipa, option.details)
                                 addedCount.value = addedCount.value + 1
                                 justAdded.value = option.learningWord
                                 scope.launch {

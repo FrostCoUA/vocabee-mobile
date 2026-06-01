@@ -4,6 +4,7 @@ import com.vocabee.android.data.VocabularyRepository
 import com.vocabee.android.domain.manager.UserSessionManager
 import com.vocabee.android.domain.model.DictionaryTopic
 import com.vocabee.android.domain.model.LanguageOption
+import com.vocabee.android.domain.model.WordDetails
 import com.vocabee.android.domain.model.WordEntry
 
 class LoadUserTopicsUseCase(
@@ -44,6 +45,7 @@ class AddWordUseCase(
         source: String,
         translation: String,
         ipa: String? = null,
+        details: WordDetails? = null,
     ): WordEntry? {
         return repository.addWord(
             userKey = userSessionManager.currentUserKey,
@@ -51,6 +53,7 @@ class AddWordUseCase(
             source = source,
             translation = translation,
             ipa = ipa,
+            details = details,
         )
     }
 }

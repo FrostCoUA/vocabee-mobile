@@ -25,6 +25,10 @@ data class SearchVariant(
     val audioUrl: String? = null,
     val partOfSpeech: List<String> = emptyList(),
     val examples: List<SearchExample> = emptyList(),
+    val senses: List<SearchSense> = emptyList(),
+    val synonyms: List<String> = emptyList(),
+    val antonyms: List<String> = emptyList(),
+    val forms: List<SearchForm> = emptyList(),
     val source: String,
     val origin: String,
     val confidence: Double? = null,
@@ -36,6 +40,22 @@ data class SearchVariant(
 data class SearchExample(
     val text: String,
     val translation: String? = null,
+)
+
+@Serializable
+data class SearchSense(
+    val definition: String,
+    val partOfSpeech: String? = null,
+    val tags: List<String> = emptyList(),
+    val examples: List<SearchExample> = emptyList(),
+    val synonyms: List<String> = emptyList(),
+    val antonyms: List<String> = emptyList(),
+)
+
+@Serializable
+data class SearchForm(
+    val text: String,
+    val tags: List<String> = emptyList(),
 )
 
 @Serializable

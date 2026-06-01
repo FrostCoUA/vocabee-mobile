@@ -11,7 +11,7 @@ import com.vocabee.android.data.local.entity.WordEntity
         TopicEntity::class,
         WordEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(VocabeeTypeConverters::class)
