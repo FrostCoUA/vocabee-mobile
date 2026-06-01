@@ -85,6 +85,8 @@ import com.vocabee.android.platform.SpeechOutputController
 import com.vocabee.android.presentation.AddWordOrigin
 import com.vocabee.android.presentation.AddWordOverlay
 import com.vocabee.android.presentation.AddWordSearchState
+import com.vocabee.android.presentation.WordGroup
+import com.vocabee.android.presentation.groupBySourceWord
 import com.vocabee.android.presentation.AuthScreen
 import com.vocabee.android.presentation.CreateDictionarySheet
 import com.vocabee.android.presentation.HoneycombWatermark
@@ -849,6 +851,9 @@ private fun DictionaryDetailScreen(
     val accent = prototypeTopicTheme(topic.coverIndex).color
     var pillOrigin by remember { mutableStateOf<AddWordOrigin?>(null) }
     val density = LocalDensity.current
+    // Compute groups at the screen scope so the `remember` lives in a
+    // @Composable context (LazyListScope.else { … } below is not Composable).
+    val wordGroups = remember(topic.words) { topic.words.groupBySourceWord() }
 
     Box(
         modifier = Modifier
@@ -876,13 +881,17 @@ private fun DictionaryDetailScreen(
                     )
                 }
             } else {
-                items(topic.words, key = { it.id }) { word ->
-                    WordRow(
-                        word = word,
+                // Group entries by source word so multiple translations of the
+                // same English word collapse into one card. `wordGroups` is
+                // computed at the screen scope (above) because LazyListScope
+                // isn't a Composable context — `remember` can't run here.
+                items(wordGroups, key = { it.anyId }) { group ->
+                    WordGroupRow(
+                        group = group,
                         accent = accent,
-                        highlighted = word.id == recentlyAddedWordId,
+                        highlighted = group.entries.any { it.id == recentlyAddedWordId },
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        onSpeak = { onSpeak(word.source, topic.sourceLanguage.speechTag) },
+                        onSpeak = { onSpeak(group.sourceWord, topic.sourceLanguage.speechTag) },
                     )
                 }
             }
@@ -1024,6 +1033,124 @@ private fun DetailHeader(
                     color = PrototypeColor.White.copy(alpha = 0.82f),
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.5.sp,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Grouped card for one English source word with its 1+ translations stacked
+ * beneath. Replaces the per-row [WordRow] in [DictionaryDetailScreen] so 3
+ * translations of "play" render as one expandable card instead of three
+ * cards with duplicate dictionary blocks.
+ *
+ * The IPA and details (senses, examples, syn/ant, forms) are pulled from
+ * whichever entry in the group has them (typically the first added).
+ */
+@Composable
+private fun WordGroupRow(
+    group: WordGroup,
+    accent: Color,
+    highlighted: Boolean,
+    modifier: Modifier = Modifier,
+    onSpeak: () -> Unit,
+) {
+    val details = group.details
+    val hasDetails = details != null && !details.isEmpty
+    var expanded by remember(group.anyId) { mutableStateOf(false) }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = PrototypeColor.White,
+        shadowElevation = 2.dp,
+        border = if (highlighted) BorderStroke(1.dp, PrototypeColor.Yellow) else null,
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .clickable(enabled = hasDetails) { expanded = !expanded }
+                    .padding(15.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        Text(
+                            text = group.sourceWord,
+                            color = PrototypeColor.Ink,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 18.sp,
+                            letterSpacing = (-0.18).sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        val ipa = group.ipa
+                        if (!ipa.isNullOrBlank()) {
+                            Text(
+                                text = ipa,
+                                color = PrototypeColor.Muted2,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    // Translations comma-joined on one line — keeps the row
+                    // compact when there are several. Mobile users will rarely
+                    // have more than ~5 translations per word; if they do, the
+                    // line truncates with ellipsis and the full list shows in
+                    // the expanded details block.
+                    Text(
+                        text = group.translations.joinToString(", "),
+                        modifier = Modifier.padding(top = 3.dp),
+                        color = PrototypeColor.Muted,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                Surface(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clickable(onClick = onSpeak),
+                    shape = RoundedCornerShape(12.dp),
+                    color = PrototypeColor.Tint,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Sound,
+                            modifier = Modifier.size(17.dp),
+                            color = PrototypeColor.Purple,
+                            strokeWidth = 1.9f,
+                        )
+                    }
+                }
+
+                if (hasDetails) {
+                    PrototypeLineIcon(
+                        icon = PrototypeIcon.ChevronDown,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .graphicsLayer { rotationZ = if (expanded) 180f else 0f },
+                        color = accent,
+                        strokeWidth = 2f,
+                    )
+                }
+            }
+
+            if (expanded && details != null) {
+                WordDetailsBlock(
+                    details = details,
+                    accent = accent,
+                    modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 15.dp),
                 )
             }
         }

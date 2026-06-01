@@ -77,6 +77,39 @@ internal data class AddWordOrigin(
 
 internal enum class AddWordMode { Idle, Recording, Results }
 
+/**
+ * Same English source word, multiple Ukrainian translations. The dictionary
+ * details (IPA, senses, examples, synonyms…) live on the source word and are
+ * identical across all entries in the group, so we surface them once.
+ *
+ * `entries` keeps the original WordEntry rows so existing per-row actions
+ * (remove, highlight on recent add) still work — the UI just renders them
+ * stacked under one header.
+ */
+internal data class WordGroup(
+    val sourceWord: String,
+    val entries: List<com.vocabee.android.domain.model.WordEntry>,
+) {
+    val ipa: String? get() = entries.firstNotNullOfOrNull { it.ipa?.takeIf(String::isNotBlank) }
+    val details: com.vocabee.android.domain.model.WordDetails?
+        get() = entries.firstNotNullOfOrNull { it.details?.takeUnless(com.vocabee.android.domain.model.WordDetails::isEmpty) }
+    val translations: List<String> get() = entries.map { it.translation }
+    val anyId: String get() = entries.first().id
+}
+
+/**
+ * Group topic words by source word (case-insensitive). Order preserved from
+ * the underlying list — newest-added group first.
+ */
+internal fun List<com.vocabee.android.domain.model.WordEntry>.groupBySourceWord(): List<WordGroup> {
+    val grouped = mutableMapOf<String, MutableList<com.vocabee.android.domain.model.WordEntry>>()
+    for (entry in this) {
+        val key = entry.source.trim().lowercase()
+        grouped.getOrPut(key) { mutableListOf() }.add(entry)
+    }
+    return grouped.values.map { WordGroup(sourceWord = it.first().source, entries = it) }
+}
+
 /** Result returned by the async backend search. The overlay drives its loading/error UI off this. */
 internal data class AddWordSearchState(
     val query: String = "",
