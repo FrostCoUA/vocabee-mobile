@@ -265,9 +265,13 @@ internal fun AddWordOverlay(
                             justAddedWord = justAdded,
                             onAdd = { option ->
                                 if (option.alreadyAdded) return@AddWordResultsList
-                                onAddWord(cleanedQuery, option.value)
+                                // Save the canonical learning-word from the variant,
+                                // not the user's raw typing. Otherwise a prefix
+                                // suggestion ("circumstance" shown while typing
+                                // "circum") would persist as "circum".
+                                onAddWord(option.learningWord, option.value)
                                 addedCount.value = addedCount.value + 1
-                                justAdded.value = cleanedQuery
+                                justAdded.value = option.learningWord
                                 scope.launch {
                                     delay(900)
                                     justAdded.value = null
@@ -675,7 +679,7 @@ private fun AddWordResultsList(
                 query = query,
                 option = option,
                 accent = accent,
-                justAdded = justAddedWord.value == query && !option.alreadyAdded,
+                justAdded = justAddedWord.value == option.learningWord && !option.alreadyAdded,
                 onAdd = { onAdd(option) },
             )
         }
@@ -784,28 +788,22 @@ private fun AddWordResultRow(
         }
         when {
             option.alreadyAdded -> {
-                Surface(
-                    shape = RoundedCornerShape(11.dp),
-                    color = PrototypeColor.Purple,
+                // Compact icon-only "added" mark, matching the dimensions of the
+                // primary "+" button so the whole row stays the same height and the
+                // IPA on the left has room to render in full.
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(PrototypeColor.Purple),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                    ) {
-                        PrototypeLineIcon(
-                            icon = PrototypeIcon.Check,
-                            modifier = Modifier.size(15.dp),
-                            color = PrototypeColor.White,
-                            strokeWidth = 2.6f,
-                        )
-                        Text(
-                            text = "вже у словнику",
-                            color = PrototypeColor.White,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 12.5.sp,
-                        )
-                    }
+                    PrototypeLineIcon(
+                        icon = PrototypeIcon.Check,
+                        modifier = Modifier.size(20.dp),
+                        color = PrototypeColor.White,
+                        strokeWidth = 2.6f,
+                    )
                 }
             }
             justAdded -> {

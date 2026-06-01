@@ -909,136 +909,63 @@ private fun DetailHeader(
 @Composable
 private fun WordRow(
     word: WordEntry,
-    accent: Color,
+    @Suppress("UNUSED_PARAMETER") accent: Color,
     highlighted: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    var open by remember(word.id) { mutableStateOf(false) }
+    // Until we persist the real IPA / example sentences from the backend into
+    // local Room storage, the row only shows what we actually know: the source
+    // word and its translation. No fake "/source/" IPA, no AI-stub example.
     Surface(
-        modifier = modifier.fillMaxWidth().clickable { open = !open },
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
         color = PrototypeColor.White,
         shadowElevation = 2.dp,
         border = if (highlighted) BorderStroke(1.dp, PrototypeColor.Yellow) else null,
     ) {
-        Column {
-            Row(
-                modifier = Modifier.padding(15.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Text(
-                            text = word.source,
-                            color = PrototypeColor.Ink,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 18.sp,
-                            letterSpacing = (-0.18).sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = "/${word.source.lowercase()}/",
-                            color = PrototypeColor.Muted2,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    Text(
-                        text = word.translation,
-                        modifier = Modifier.padding(top = 3.dp),
-                        color = PrototypeColor.Muted,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                Surface(
-                    modifier = Modifier.size(38.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = PrototypeColor.Tint,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        PrototypeLineIcon(
-                            icon = PrototypeIcon.Sound,
-                            modifier = Modifier.size(17.dp),
-                            color = PrototypeColor.Purple,
-                            strokeWidth = 1.9f,
-                        )
-                    }
-                }
-                Box(
-                    modifier = Modifier.width(30.dp).height(38.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    PrototypeLineIcon(
-                        icon = PrototypeIcon.ChevronDown,
-                        modifier = Modifier.size(18.dp),
-                        color = accent,
-                        strokeWidth = 2f,
-                    )
-                }
+        Row(
+            modifier = Modifier.padding(15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = word.source,
+                    color = PrototypeColor.Ink,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    letterSpacing = (-0.18).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = word.translation,
+                    modifier = Modifier.padding(top = 3.dp),
+                    color = PrototypeColor.Muted,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            if (open) {
-                Column(
-                    modifier = Modifier
-                        .padding(start = 13.dp, end = 13.dp, bottom = 13.dp)
-                        .clip(RoundedCornerShape(13.dp))
-                        .background(
-                            Brush.verticalGradient(listOf(PrototypeColor.ContextCardTop, PrototypeColor.ContextCardBottom))
-                        )
-                        .border(BorderStroke(1.dp, PrototypeColor.ContextCardBorder), RoundedCornerShape(13.dp))
-                        .padding(horizontal = 14.dp, vertical = 13.dp),
-                ) {
-                    Surface(shape = CircleShape, color = PrototypeColor.Tint) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                            PrototypeLineIcon(
-                                icon = PrototypeIcon.Sparkle,
-                                modifier = Modifier.size(12.dp),
-                                color = PrototypeColor.Purple,
-                                strokeWidth = 1.7f,
-                            )
-                            Text(
-                                text = "AI приклад",
-                                color = PrototypeColor.Purple,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 11.sp,
-                                letterSpacing = 0.33.sp,
-                            )
-                        }
-                    }
-                    Text(
-                        text = aiExample(word.source),
-                        modifier = Modifier.padding(top = 9.dp),
-                        color = PrototypeColor.Ink,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.5.sp,
-                        lineHeight = 21.sp,
-                    )
-                    Text(
-                        text = "Короткий приклад використання слова «${word.translation}».",
-                        modifier = Modifier.padding(top = 4.dp),
-                        color = PrototypeColor.Muted,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 13.5.sp,
-                        lineHeight = 20.sp,
+
+            Surface(
+                modifier = Modifier.size(38.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = PrototypeColor.Tint,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    PrototypeLineIcon(
+                        icon = PrototypeIcon.Sound,
+                        modifier = Modifier.size(17.dp),
+                        color = PrototypeColor.Purple,
+                        strokeWidth = 1.9f,
                     )
                 }
             }
         }
     }
 }
-
-private fun aiExample(word: String): String = "Use $word in a short sentence."
 
 @Composable
 private fun DetailEmptyState(accent: Color, modifier: Modifier = Modifier) {
