@@ -710,14 +710,10 @@ private fun AddWordResultsList(
 }
 
 private fun footerCaptionFor(tier: String?, maxResults: Int?): String {
-    val base = "Переклади та приклади згенеровано AI"
-    if (tier == null || maxResults == null) return base
-    return when (tier) {
-        "anonymous" -> "$base · до $maxResults варіантів (увійди для більше)"
-        "registered" -> "$base · до $maxResults варіантів"
-        "premium" -> "$base · преміум · до $maxResults варіантів"
-        else -> base
-    }
+    // Per-tier caps were lifted server-side — anonymous/registered/premium all
+    // see whatever the provider returns. Keep the AI-attribution line; drop the
+    // misleading "до N варіантів" + "увійди для більше" copy.
+    return "Переклади та приклади згенеровано AI"
 }
 
 @Composable
