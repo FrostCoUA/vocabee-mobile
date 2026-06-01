@@ -4,7 +4,6 @@ import com.vocabee.android.data.VocabularyRepository
 import com.vocabee.android.domain.manager.UserSessionManager
 import com.vocabee.android.domain.model.DictionaryTopic
 import com.vocabee.android.domain.model.LanguageOption
-import com.vocabee.android.domain.model.TranslationOption
 import com.vocabee.android.domain.model.WordEntry
 
 class LoadUserTopicsUseCase(
@@ -54,13 +53,3 @@ class AddWordUseCase(
     }
 }
 
-class GetTranslationOptionsUseCase(
-    private val repository: VocabularyRepository,
-) {
-    operator fun invoke(
-        topic: DictionaryTopic,
-        input: String,
-    ): List<TranslationOption> {
-        return repository.translationOptionsFor(topic, input)
-    }
-}

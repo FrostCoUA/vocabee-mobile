@@ -45,7 +45,6 @@ enum class VocabeeString {
     TranslationNoteAlternative,
     TranslationNoteAdditional,
     TranslationNoteAlreadyAdded,
-    TranslationNoteMlKitOnDevice,
     UpdatedToday,
     UpdatedYesterday,
     SampleSentenceDefault,
@@ -169,7 +168,6 @@ private object EnglishVocabeeStringResolver : VocabeeStringResolver {
             VocabeeString.TranslationNoteAlternative -> "alternative"
             VocabeeString.TranslationNoteAdditional -> "another option"
             VocabeeString.TranslationNoteAlreadyAdded -> "added earlier · %1\$s"
-            VocabeeString.TranslationNoteMlKitOnDevice -> "ML Kit · on-device"
             VocabeeString.UpdatedToday -> "today"
             VocabeeString.UpdatedYesterday -> "yesterday"
             VocabeeString.SampleSentenceDefault -> "Use %1\$s in a short sentence."

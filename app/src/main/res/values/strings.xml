@@ -41,7 +41,6 @@
     <string name="translation_note_alternative">alternative</string>
     <string name="translation_note_additional">another option</string>
     <string name="translation_note_already_added">added earlier · %1$s</string>
-    <string name="translation_note_mlkit_on_device">ML Kit · on-device</string>
     <string name="updated_today">today</string>
     <string name="updated_yesterday">yesterday</string>
     <string name="sample_sentence_default">Use %1$s in a short sentence.</string>
@@ -100,9 +99,6 @@
     <string name="voice_error_timeout">Did not hear a word</string>
     <string name="voice_error_server">Recognition service is unavailable</string>
     <string name="voice_error_generic">Voice input error</string>
-    <string name="mlkit_error_unsupported_pair">ML Kit does not support this language pair</string>
-    <string name="mlkit_error_translate_failed">ML Kit could not translate the word</string>
-    <string name="mlkit_error_model_download_failed">Could not download the ML Kit model</string>
     <plurals name="topic_count">
         <item quantity="one">%d topic</item>
         <item quantity="other">%d topics</item>

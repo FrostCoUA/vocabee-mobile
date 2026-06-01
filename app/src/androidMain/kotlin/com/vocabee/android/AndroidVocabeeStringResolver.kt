@@ -69,7 +69,6 @@ private val VocabeeString.resId: Int
         VocabeeString.TranslationNoteAlternative -> R.string.translation_note_alternative
         VocabeeString.TranslationNoteAdditional -> R.string.translation_note_additional
         VocabeeString.TranslationNoteAlreadyAdded -> R.string.translation_note_already_added
-        VocabeeString.TranslationNoteMlKitOnDevice -> R.string.translation_note_mlkit_on_device
         VocabeeString.UpdatedToday -> R.string.updated_today
         VocabeeString.UpdatedYesterday -> R.string.updated_yesterday
         VocabeeString.SampleSentenceDefault -> R.string.sample_sentence_default

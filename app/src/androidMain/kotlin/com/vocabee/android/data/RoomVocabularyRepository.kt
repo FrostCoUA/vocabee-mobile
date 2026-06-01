@@ -7,8 +7,6 @@ import com.vocabee.android.data.local.entity.WordEntity
 import com.vocabee.android.domain.model.DictionaryTopic
 import com.vocabee.android.domain.model.LanguageOption
 import com.vocabee.android.domain.model.SyncStatus
-import com.vocabee.android.domain.model.TranslationOption
-import com.vocabee.android.domain.model.TranslationOptionNote
 import com.vocabee.android.domain.model.WordEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -120,20 +118,6 @@ class RoomVocabularyRepository @Inject constructor(
         insertedWord?.toDomain()
     }
 
-    override fun translationOptionsFor(
-        topic: DictionaryTopic,
-        input: String,
-    ): List<TranslationOption> {
-        val existingWord = topic.findExistingWord(input) ?: return emptyList()
-        return listOf(
-            TranslationOption(
-                value = existingWord.translation,
-                note = TranslationOptionNote.AlreadyAdded(existingWord.source),
-                alreadyAdded = true,
-            ),
-        )
-    }
-
     private fun TopicEntity.toDomain(words: List<WordEntity>): DictionaryTopic {
         return DictionaryTopic(
             id = id,
@@ -167,19 +151,6 @@ class RoomVocabularyRepository @Inject constructor(
             shortName = code.uppercase(),
             speechTag = code,
         )
-    }
-
-    private fun DictionaryTopic.findExistingWord(query: String): WordEntry? {
-        val normalizedQuery = query.trim().lowercase()
-        if (normalizedQuery.isBlank()) return null
-
-        return words.firstOrNull { word ->
-            word.source.equals(normalizedQuery, ignoreCase = true) ||
-                word.translation.equals(normalizedQuery, ignoreCase = true)
-        } ?: words.firstOrNull { word ->
-            word.source.lowercase().contains(normalizedQuery) ||
-                word.translation.lowercase().contains(normalizedQuery)
-        }
     }
 
     private fun migrateLegacyLanguageDirection(userKey: String) {

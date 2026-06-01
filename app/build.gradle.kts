@@ -52,7 +52,6 @@ kotlin {
             implementation(libs.hilt.android)
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.ktor.client.okhttp)
-            implementation(libs.mlkit.translate)
         }
 
         commonTest.dependencies {

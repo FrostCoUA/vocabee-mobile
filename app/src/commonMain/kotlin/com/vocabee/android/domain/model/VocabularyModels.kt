@@ -56,6 +56,5 @@ sealed interface TranslationOptionNote {
     data object Primary : TranslationOptionNote
     data object Alternative : TranslationOptionNote
     data object Additional : TranslationOptionNote
-    data object MlKitOnDevice : TranslationOptionNote
     data class AlreadyAdded(val source: String) : TranslationOptionNote
 }

@@ -41,7 +41,6 @@
     <string name="translation_note_alternative">альтернатива</string>
     <string name="translation_note_additional">еще один вариант</string>
     <string name="translation_note_already_added">добавлено ранее · %1$s</string>
-    <string name="translation_note_mlkit_on_device">ML Kit · на устройстве</string>
     <string name="updated_today">сегодня</string>
     <string name="updated_yesterday">вчера</string>
     <string name="sample_sentence_default">Составьте короткое предложение со словом %1$s.</string>
@@ -100,9 +99,6 @@
     <string name="voice_error_timeout">Не услышали слово</string>
     <string name="voice_error_server">Сервис распознавания недоступен</string>
     <string name="voice_error_generic">Ошибка голосового ввода</string>
-    <string name="mlkit_error_unsupported_pair">ML Kit не поддерживает эту пару языков</string>
-    <string name="mlkit_error_translate_failed">ML Kit не смог перевести слово</string>
-    <string name="mlkit_error_model_download_failed">Не удалось загрузить модель ML Kit</string>
     <plurals name="topic_count">
         <item quantity="one">%d тема</item>
         <item quantity="few">%d темы</item>

@@ -3,8 +3,6 @@ package com.vocabee.android.data
 import com.vocabee.android.domain.model.DictionaryTopic
 import com.vocabee.android.domain.model.LanguageOption
 import com.vocabee.android.domain.model.SyncStatus
-import com.vocabee.android.domain.model.TranslationOption
-import com.vocabee.android.domain.model.TranslationOptionNote
 import com.vocabee.android.domain.model.WordEntry
 
 interface VocabularyRepository {
@@ -26,11 +24,6 @@ interface VocabularyRepository {
         source: String,
         translation: String,
     ): WordEntry?
-
-    fun translationOptionsFor(
-        topic: DictionaryTopic,
-        input: String,
-    ): List<TranslationOption>
 }
 
 class FakeVocabularyRepository : VocabularyRepository {
@@ -113,33 +106,6 @@ class FakeVocabularyRepository : VocabularyRepository {
             },
         )
         return word
-    }
-
-    override fun translationOptionsFor(
-        topic: DictionaryTopic,
-        input: String,
-    ): List<TranslationOption> {
-        val existingWord = topic.findExistingWord(input) ?: return emptyList()
-        return listOf(
-            TranslationOption(
-                value = existingWord.translation,
-                note = TranslationOptionNote.AlreadyAdded(existingWord.source),
-                alreadyAdded = true,
-            ),
-        )
-    }
-
-    private fun DictionaryTopic.findExistingWord(query: String): WordEntry? {
-        val normalizedQuery = query.trim().lowercase()
-        if (normalizedQuery.isBlank()) return null
-
-        return words.firstOrNull { word ->
-            word.source.equals(normalizedQuery, ignoreCase = true) ||
-                word.translation.equals(normalizedQuery, ignoreCase = true)
-        } ?: words.firstOrNull { word ->
-            word.source.lowercase().contains(normalizedQuery) ||
-            word.translation.lowercase().contains(normalizedQuery)
-        }
     }
 
     private fun nextTimestamp(): Long = timestampCounter++
