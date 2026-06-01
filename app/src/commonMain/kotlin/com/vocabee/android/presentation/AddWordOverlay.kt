@@ -128,14 +128,16 @@ internal fun AddWordOverlay(
     }
 
     // Debounced backend search: every keystroke / voice result re-runs the search
-    // 250ms after the user pauses typing. Empty input → cleared state (idle mic UI).
+    // 1s after the user pauses typing. `isLoading=true` is set immediately so the
+    // spinner is visible throughout the wait — the LaunchedEffect cancels and
+    // restarts on each new character, keeping the spinner pinned while typing.
     LaunchedEffect(cleanedQuery) {
         if (cleanedQuery.isEmpty()) {
             searchState = AddWordSearchState()
             return@LaunchedEffect
         }
         searchState = searchState.copy(query = cleanedQuery, isLoading = true, errorMessage = null)
-        delay(250)
+        delay(1000)
         searchState = searchRemote(cleanedQuery)
     }
 
