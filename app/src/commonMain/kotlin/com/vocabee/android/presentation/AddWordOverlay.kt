@@ -744,21 +744,25 @@ private fun AddWordResultRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = query.lowercase(),
+                    // Canonical word from the gateway response, not the user's raw
+                    // typing — so "circumstanc" still renders "circumstance".
+                    text = option.learningWord,
                     color = PrototypeColor.Ink,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 17.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = "/${query.lowercase()}/",
-                    color = PrototypeColor.Muted2,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (option.ipa != null) {
+                    Text(
+                        text = option.ipa,
+                        color = PrototypeColor.Muted2,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 PrototypeLineIcon(
                     icon = PrototypeIcon.Sparkle,
                     modifier = Modifier.size(11.dp),

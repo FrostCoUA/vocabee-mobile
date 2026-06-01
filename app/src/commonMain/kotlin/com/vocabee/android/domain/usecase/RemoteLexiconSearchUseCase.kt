@@ -82,5 +82,7 @@ private fun SearchVariant.toOption(existingTranslations: Set<String>): Translati
         value = translation,
         note = note,
         alreadyAdded = existingTranslations.contains(translation),
+        learningWord = learningWord,
+        ipa = ipa,
     )
 }

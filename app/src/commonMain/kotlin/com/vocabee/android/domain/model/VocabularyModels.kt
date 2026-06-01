@@ -47,9 +47,18 @@ sealed interface TopicUpdatedLabel {
 }
 
 data class TranslationOption(
+    /** Translation text — what gets stored as `WordEntry.translation` when added. */
     val value: String,
     val note: TranslationOptionNote,
     val alreadyAdded: Boolean = false,
+    /**
+     * Canonical word in the language the user is LEARNING — rendered as the headword
+     * in the Add Word result row. Falls back to [value] when the source doesn't have
+     * a separate canonical form (e.g. on local options without a backend response).
+     */
+    val learningWord: String = value,
+    /** IPA transcription for [learningWord]. Null when none is known. */
+    val ipa: String? = null,
 )
 
 sealed interface TranslationOptionNote {
