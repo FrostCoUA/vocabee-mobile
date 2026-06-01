@@ -1,6 +1,12 @@
 package com.vocabee.android.presentation
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.StartOffset
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -89,14 +95,20 @@ internal fun AddWordOverlay(
     speechInputController: SpeechInputController,
     searchRemote: suspend (query: String) -> AddWordSearchState,
     onAddWord: (source: String, translation: String, ipa: String?, details: com.vocabee.android.domain.model.WordDetails?) -> Unit,
-    onOpenLanguageSheet: () -> Unit,
+    onRemoveWord: (translation: String) -> Unit,
     onClose: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     val cleanedQuery = query.trim()
     var searchState by remember { mutableStateOf(AddWordSearchState()) }
     val addedCount = remember { mutableStateOf(0) }
-    val justAdded = remember { mutableStateOf<String?>(null) }
+
+    // Live set of translations currently in this topic — recomputed on every recompose so
+    // tapping "+" or "✓" flips the per-row state immediately (the host re-renders us with
+    // a fresh `topic` after the store update).
+    val existingTranslations = remember(topic.words) {
+        topic.words.map { it.translation.trim().lowercase() }.toSet()
+    }
 
     var partialText by remember { mutableStateOf("") }
     var heardText by remember { mutableStateOf("") }
@@ -218,7 +230,6 @@ internal fun AddWordOverlay(
             ) {
                 AddWordHeader(
                     topic = topic,
-                    onOpenLanguage = onOpenLanguageSheet,
                     onClose = ::close,
                 )
 
@@ -241,12 +252,9 @@ internal fun AddWordOverlay(
                         .padding(horizontal = 18.dp, vertical = 10.dp),
                 ) {
                     when {
-                        isListening -> AddWordRecordingState(
-                            onStart = ::startListening,
-                            onStop = { scope.launch { stopListeningWithGrace() } },
-                        )
-                        cleanedQuery.isBlank() -> AddWordIdleState(
+                        isListening || cleanedQuery.isBlank() -> MicStage(
                             accent = accent,
+                            isListening = isListening,
                             speechError = speechError,
                             onStart = ::startListening,
                             onStop = { scope.launch { stopListeningWithGrace() } },
@@ -262,20 +270,17 @@ internal fun AddWordOverlay(
                             tier = searchState.tier,
                             maxResults = searchState.maxResults,
                             accent = accent,
-                            justAddedWord = justAdded,
+                            existingTranslations = existingTranslations,
                             onAdd = { option ->
-                                if (option.alreadyAdded) return@AddWordResultsList
                                 // Save the canonical learning-word from the variant,
                                 // not the user's raw typing. Otherwise a prefix
                                 // suggestion ("circumstance" shown while typing
                                 // "circum") would persist as "circum".
                                 onAddWord(option.learningWord, option.value, option.ipa, option.details)
                                 addedCount.value = addedCount.value + 1
-                                justAdded.value = option.learningWord
-                                scope.launch {
-                                    delay(900)
-                                    justAdded.value = null
-                                }
+                            },
+                            onRemove = { option ->
+                                onRemoveWord(option.value)
                             },
                         )
                     }
@@ -293,7 +298,6 @@ internal fun AddWordOverlay(
 @Composable
 private fun AddWordHeader(
     topic: DictionaryTopic,
-    onOpenLanguage: () -> Unit,
     onClose: () -> Unit,
 ) {
     Row(
@@ -319,10 +323,12 @@ private fun AddWordHeader(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        // Read-only language pair indicator. Was a dropdown opening the language
+        // sheet — dropped because language for a topic isn't editable here (it's
+        // baked in at topic-create time). Just two flags + arrow now.
         Surface(
             shape = RoundedCornerShape(11.dp),
             color = PrototypeColor.NeutralSurface,
-            modifier = Modifier.clickable(onClick = onOpenLanguage),
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
@@ -337,12 +343,6 @@ private fun AddWordHeader(
                     strokeWidth = 2f,
                 )
                 Text(languageFlag(topic.targetLanguage.code), fontSize = 16.sp)
-                PrototypeLineIcon(
-                    icon = PrototypeIcon.ChevronDown,
-                    modifier = Modifier.size(13.dp),
-                    color = PrototypeColor.Muted2,
-                    strokeWidth = 2.2f,
-                )
             }
         }
         Box(
@@ -439,74 +439,67 @@ private fun AddWordSearchField(
     }
 }
 
+/**
+ * Single composable that hosts both the idle and recording states. We previously
+ * had two separate column layouts — when the user pressed the mic, the waveform
+ * appeared ABOVE the button and pushed the whole column down, making the mic
+ * "jump". Now the waveform slot is always present (fixed 80dp + 30dp spacer),
+ * just empty when idle, so the mic stays nailed to the same vertical position.
+ */
 @Composable
-private fun AddWordIdleState(
+private fun MicStage(
     accent: Color,
+    isListening: Boolean,
     speechError: String?,
     onStart: () -> Unit,
     onStop: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        HoldToTalkButton(
-            color = accent,
-            listening = false,
-            onStart = onStart,
-            onStop = onStop,
-        )
-        Text(
-            text = if (speechError == null) "Продиктуй слово" else "Не вдалося розпізнати",
-            modifier = Modifier.padding(top = 22.dp),
-            color = PrototypeColor.Ink,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 18.sp,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            text = speechError ?: "або почни вводити його у поле вгорі",
-            modifier = Modifier.padding(top = 6.dp),
-            color = PrototypeColor.Muted,
-            fontWeight = FontWeight.Medium,
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center,
-        )
+    val micColor = if (isListening) PrototypeColor.Orange else accent
+    val primary = when {
+        isListening -> "Слухаю…"
+        speechError != null -> "Не вдалося розпізнати"
+        else -> "Продиктуй слово"
     }
-}
+    val secondary = when {
+        isListening -> "торкнись, щоб зупинити"
+        else -> speechError ?: "або почни вводити його у поле вгорі"
+    }
 
-@Composable
-private fun AddWordRecordingState(
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-) {
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        VoiceWaveform()
+        // Reserved waveform slot — same height whether or not we're listening,
+        // so the mic doesn't move between states.
+        Box(
+            modifier = Modifier.height(80.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (isListening) VoiceWaveform()
+        }
         Spacer(modifier = Modifier.height(30.dp))
         HoldToTalkButton(
-            color = PrototypeColor.Orange,
-            listening = true,
+            color = micColor,
+            listening = isListening,
             onStart = onStart,
             onStop = onStop,
         )
         Text(
-            text = "Слухаю…",
-            modifier = Modifier.padding(top = 24.dp),
+            text = primary,
+            modifier = Modifier.padding(top = if (isListening) 24.dp else 22.dp),
             color = PrototypeColor.Ink,
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 17.sp,
+            fontSize = if (isListening) 17.sp else 18.sp,
+            textAlign = TextAlign.Center,
         )
         Text(
-            text = "торкнись, щоб зупинити",
-            modifier = Modifier.padding(top = 5.dp),
+            text = secondary,
+            modifier = Modifier.padding(top = if (isListening) 5.dp else 6.dp),
             color = PrototypeColor.Muted,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.5.sp,
+            fontWeight = if (isListening) FontWeight.SemiBold else FontWeight.Medium,
+            fontSize = if (isListening) 13.5.sp else 14.sp,
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -561,21 +554,46 @@ private fun HoldToTalkButton(
     }
 }
 
+/**
+ * Animated waveform — 28 bars pulsing between 8dp and 56dp height with a staggered
+ * phase, matching the prototype's CSS `@keyframes waveBar` (0.7s ease-in-out
+ * alternate, delay = (k * 45) mod 600 ms).
+ *
+ * One [rememberInfiniteTransition] drives all bars; per-bar phase comes from a
+ * [StartOffset] so we don't pay for 28 independent transitions.
+ */
 @Composable
 private fun VoiceWaveform() {
-    val heights = listOf(16, 24, 34, 48, 28, 56, 18, 42, 52, 22, 38, 58, 26, 46, 20, 54, 32, 44, 16, 36, 50, 24, 56, 30, 40, 18, 34, 48)
+    val transition = rememberInfiniteTransition(label = "voice-waveform")
+    val barCount = 28
+    val cycleMillis = 700
+
     Row(
         modifier = Modifier.height(80.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        heights.forEach { h ->
+        repeat(barCount) { index ->
+            val offsetMillis = (index * 45) % 600
+            val progress by transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = cycleMillis, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse,
+                    initialStartOffset = StartOffset(offsetMillis),
+                ),
+                label = "bar-$index",
+            )
+            // Match prototype range: 8dp → 56dp, opacity 0.5 → 1.0.
+            val barHeight = (8f + progress * 48f).dp
+            val barAlpha = 0.5f + progress * 0.5f
             Box(
                 modifier = Modifier
                     .width(5.dp)
-                    .height(h.dp)
+                    .height(barHeight)
                     .clip(CircleShape)
-                    .background(PrototypeColor.Orange),
+                    .background(PrototypeColor.Orange.copy(alpha = barAlpha)),
             )
         }
     }
@@ -642,8 +660,9 @@ private fun AddWordResultsList(
     tier: String?,
     maxResults: Int?,
     accent: Color,
-    justAddedWord: MutableState<String?>,
+    existingTranslations: Set<String>,
     onAdd: (TranslationOption) -> Unit,
+    onRemove: (TranslationOption) -> Unit,
 ) {
     if (results.isEmpty()) {
         Column(
@@ -675,12 +694,19 @@ private fun AddWordResultsList(
         contentPadding = PaddingValues(bottom = 18.dp),
     ) {
         items(results, key = { it.value }) { option ->
+            // Live "is this translation in the topic right now?" check. Either the
+            // server marked it `alreadyAdded` at search time, OR the user just
+            // tapped "+" on it during this overlay session and the topic state
+            // updated. Both flow through the same set so the toggle is instant.
+            val isAdded = option.alreadyAdded ||
+                existingTranslations.contains(option.value.trim().lowercase())
             AddWordResultRow(
                 query = query,
                 option = option,
                 accent = accent,
-                justAdded = justAddedWord.value == option.learningWord && !option.alreadyAdded,
+                isAdded = isAdded,
                 onAdd = { onAdd(option) },
+                onRemove = { onRemove(option) },
             )
         }
         item {
@@ -721,14 +747,12 @@ private fun AddWordResultRow(
     query: String,
     option: TranslationOption,
     accent: Color,
-    justAdded: Boolean,
+    isAdded: Boolean,
     onAdd: () -> Unit,
+    onRemove: () -> Unit,
 ) {
-    val rowBg = when {
-        option.alreadyAdded -> Color(0xFFF6F7FB)
-        else -> PrototypeColor.White
-    }
-    val rowBorder = if (option.alreadyAdded) Color.Transparent else PrototypeColor.Line
+    val rowBg = if (isAdded) Color(0xFFF6F7FB) else PrototypeColor.White
+    val rowBorder = if (isAdded) Color.Transparent else PrototypeColor.Line
 
     Row(
         modifier = Modifier
@@ -782,62 +806,23 @@ private fun AddWordResultRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        when {
-            option.alreadyAdded -> {
-                // Compact icon-only "added" mark, matching the dimensions of the
-                // primary "+" button so the whole row stays the same height and the
-                // IPA on the left has room to render in full.
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(PrototypeColor.Purple),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    PrototypeLineIcon(
-                        icon = PrototypeIcon.Check,
-                        modifier = Modifier.size(20.dp),
-                        color = PrototypeColor.White,
-                        strokeWidth = 2.6f,
-                    )
-                }
-            }
-            justAdded -> {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    PrototypeLineIcon(
-                        icon = PrototypeIcon.Check,
-                        modifier = Modifier.size(16.dp),
-                        color = PrototypeColor.Green,
-                        strokeWidth = 2.4f,
-                    )
-                    Text(
-                        text = "додано",
-                        color = PrototypeColor.Green,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 13.5.sp,
-                    )
-                }
-            }
-            else -> {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(accent)
-                        .clickable(onClick = onAdd),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    PrototypeLineIcon(
-                        icon = PrototypeIcon.Plus,
-                        modifier = Modifier.size(20.dp),
-                        color = PrototypeColor.White,
-                        strokeWidth = 2.6f,
-                    )
-                }
-            }
+        // 44×44 toggle button — same geometry whether adding or removing so the
+        // row doesn't jump when state flips. Purple ✓ when in the dictionary
+        // (click to remove), accent + when not (click to add).
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (isAdded) PrototypeColor.Purple else accent)
+                .clickable(onClick = if (isAdded) onRemove else onAdd),
+            contentAlignment = Alignment.Center,
+        ) {
+            PrototypeLineIcon(
+                icon = if (isAdded) PrototypeIcon.Check else PrototypeIcon.Plus,
+                modifier = Modifier.size(20.dp),
+                color = PrototypeColor.White,
+                strokeWidth = 2.6f,
+            )
         }
     }
 }

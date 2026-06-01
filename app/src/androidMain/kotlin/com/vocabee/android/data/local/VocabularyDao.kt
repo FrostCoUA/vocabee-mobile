@@ -57,18 +57,21 @@ interface VocabularyDao {
         topicId: String,
     ): TopicEntity?
 
+    /**
+     * Reject only EXACT (source, translation) pair duplicates. The same
+     * English source can map to multiple Ukrainian translations (different
+     * senses of "play": "грати", "гра", "вистава" …) — we want all of them.
+     * Previously this also blocked source-vs-source matches, which silently
+     * dropped every variant after the first.
+     */
     @Query(
         """
         SELECT COUNT(*)
         FROM vocabulary_words
         WHERE user_key = :userKey
             AND topic_id = :topicId
-            AND (
-                LOWER(source) = LOWER(:source)
-                OR LOWER(translation) = LOWER(:source)
-                OR LOWER(source) = LOWER(:translation)
-                OR LOWER(translation) = LOWER(:translation)
-            )
+            AND LOWER(source) = LOWER(:source)
+            AND LOWER(translation) = LOWER(:translation)
         """,
     )
     fun duplicateWordCount(
@@ -98,6 +101,27 @@ interface VocabularyDao {
         updatedAtEpochMillis: Long,
         syncStatus: SyncStatus,
     )
+
+    /**
+     * Hard-delete by translation. We use translation rather than id because the
+     * caller (Add Word overlay) keys off `option.value` (= the translation text)
+     * and doesn't otherwise hold a word id. Local-only delete for now; once
+     * topic-word sync is wired, switch to a soft delete with
+     * `sync_status = PendingDelete` so the server picks it up.
+     */
+    @Query(
+        """
+        DELETE FROM vocabulary_words
+        WHERE user_key = :userKey
+            AND topic_id = :topicId
+            AND LOWER(translation) = LOWER(:translation)
+        """,
+    )
+    fun deleteWordByTranslation(
+        userKey: String,
+        topicId: String,
+        translation: String,
+    ): Int
 
     @Query(
         """

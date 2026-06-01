@@ -1,5 +1,6 @@
 package com.vocabee.android
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -66,6 +67,8 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import com.vocabee.android.data.preferences.InMemoryPreferencesManager
+import com.vocabee.android.data.preferences.PreferencesManager
 import com.vocabee.android.domain.model.DictionaryTopic
 import com.vocabee.android.domain.model.LanguageOption
 import com.vocabee.android.domain.model.TopicUpdatedLabel
@@ -87,6 +90,7 @@ import com.vocabee.android.presentation.CreateDictionarySheet
 import com.vocabee.android.presentation.HoneycombWatermark
 import com.vocabee.android.presentation.LanguageSelectScreen
 import com.vocabee.android.presentation.LanguageSheet
+import com.vocabee.android.presentation.PrototypeBottomSheet
 import com.vocabee.android.presentation.OnboardingScreen
 import com.vocabee.android.presentation.PrimaryPillButton
 import com.vocabee.android.presentation.PrototypeColor
@@ -148,13 +152,26 @@ fun VocabeeApp(
     speechInputController: SpeechInputController = NoSpeechInputController,
     speechOutputController: SpeechOutputController = NoSpeechOutputController,
     remoteLexiconSearch: RemoteLexiconSearchUseCase? = null,
+    preferencesManager: PreferencesManager = InMemoryPreferencesManager(),
+    onExitApp: () -> Unit = {},
 ) {
     VocabeeTheme {
-        var flow by remember { mutableStateOf(AppFlow.Splash) }
+        // First-launch gate: once the user finishes the onboarding → auth →
+        // language picker chain we set `hasCompletedOnboarding = true` and
+        // every subsequent launch goes Splash → Main, skipping all three.
+        // The splash still plays on every launch as the visual intro.
+        val skipFirstLaunchFlow = remember { preferencesManager.hasCompletedOnboarding }
+        var flow by remember {
+            mutableStateOf(AppFlow.Splash)
+        }
         val state = store.state
 
         when (flow) {
-            AppFlow.Splash -> SplashScreen(onDone = { flow = AppFlow.Onboarding })
+            AppFlow.Splash -> SplashScreen(
+                onDone = {
+                    flow = if (skipFirstLaunchFlow) AppFlow.Main else AppFlow.Onboarding
+                },
+            )
             AppFlow.Onboarding -> OnboardingScreen(onDone = { flow = AppFlow.Auth })
             AppFlow.Auth -> AuthScreen(onDone = { flow = AppFlow.LanguageSelect })
             AppFlow.LanguageSelect -> LanguageSelectScreen(
@@ -168,6 +185,9 @@ fun VocabeeApp(
                     state.supportedLanguages.firstOrNull { it.code == learnCode }?.let {
                         store.onEvent(VocabeeEvent.SelectLearningLanguage(it))
                     }
+                    // Persist the "we're done with first launch" flag so the
+                    // next cold start jumps straight from splash to main.
+                    preferencesManager.hasCompletedOnboarding = true
                     flow = AppFlow.Main
                 },
             )
@@ -176,6 +196,7 @@ fun VocabeeApp(
                 speechInputController = speechInputController,
                 speechOutputController = speechOutputController,
                 remoteLexiconSearch = remoteLexiconSearch,
+                onExitApp = onExitApp,
             )
         }
     }
@@ -187,6 +208,7 @@ private fun MainApp(
     speechInputController: SpeechInputController,
     speechOutputController: SpeechOutputController,
     remoteLexiconSearch: RemoteLexiconSearchUseCase?,
+    onExitApp: () -> Unit,
 ) {
     val state = store.state
     val backStack = rememberNavBackStack(
@@ -201,10 +223,33 @@ private fun MainApp(
     var addWordOrigin by remember { mutableStateOf<AddWordOrigin?>(null) }
     var addWordTopicId by remember { mutableStateOf<String?>(null) }
     val addWordTopic = addWordTopicId?.let { id -> state.topics.firstOrNull { it.id == id } }
+    var exitSheetVisible by remember { mutableStateOf(false) }
 
     fun openRoot(route: VocabeeRoute) {
         backStack.clear()
         backStack.add(route)
+    }
+
+    // Centralised back handling: cascade through every dismissible layer before
+    // the user can leave the app. Order = priority.
+    //   1. AddWord overlay open      → close it
+    //   2. A bottom sheet open       → close it
+    //   3. Nav stack deeper than home → pop one entry
+    //   4. At home (stack size = 1)  → show "exit Vocabee?" sheet
+    // ModalBottomSheet (used by sheet/exitSheetVisible) installs its own
+    // BackHandler internally which takes priority when visible, so this
+    // BackHandler is only consulted when no sheet is open. We still handle
+    // `sheet != null` here as a safety net.
+    BackHandler {
+        when {
+            addWordOrigin != null -> {
+                addWordOrigin = null
+                addWordTopicId = null
+            }
+            sheet != null -> sheet = null
+            backStack.size > 1 -> backStack.removeLastOrNull()
+            else -> exitSheetVisible = true
+        }
     }
 
     Scaffold(
@@ -299,8 +344,8 @@ private fun MainApp(
                     onAddWord = { source, translation, ipa, details ->
                         store.onEvent(VocabeeEvent.AddWord(topic.id, source, translation, ipa, details))
                     },
-                    onOpenLanguageSheet = {
-                        sheet = PrototypeSheet.LanguageForDictionary(topic.id)
+                    onRemoveWord = { translation ->
+                        store.onEvent(VocabeeEvent.RemoveWord(topic.id, translation))
                     },
                     onClose = {
                         addWordOrigin = null
@@ -362,6 +407,74 @@ private fun MainApp(
                         }
                         sheet = null
                     },
+                )
+            }
+        }
+
+        if (exitSheetVisible) {
+            ExitConfirmationSheet(
+                onDismiss = { exitSheetVisible = false },
+                onConfirm = {
+                    exitSheetVisible = false
+                    onExitApp()
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ExitConfirmationSheet(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    PrototypeBottomSheet(
+        title = "Закрити Vocabee?",
+        onDismiss = onDismiss,
+    ) {
+        Text(
+            text = "Прогрес збережено локально — нічого не загубиться.",
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.Medium,
+            fontSize = 15.sp,
+            modifier = Modifier.padding(bottom = 22.dp),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 22.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(PrototypeColor.NeutralSurface)
+                    .clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "Залишитися",
+                    color = PrototypeColor.Ink,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(PrototypeColor.Purple)
+                    .clickable(onClick = onConfirm),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "Закрити",
+                    color = PrototypeColor.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
                 )
             }
         }

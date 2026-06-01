@@ -132,6 +132,37 @@ class RoomVocabularyRepository @Inject constructor(
         insertedWord?.toDomain()
     }
 
+    override fun removeWordByTranslation(
+        userKey: String,
+        topicId: String,
+        translation: String,
+    ): Boolean = runBlocking(Dispatchers.IO) {
+        var deleted = false
+        database.runInTransaction {
+            val topic = vocabularyDao.topicById(userKey, topicId) ?: return@runInTransaction
+            val affected = vocabularyDao.deleteWordByTranslation(
+                userKey = userKey,
+                topicId = topicId,
+                translation = translation,
+            )
+            if (affected == 0) return@runInTransaction
+            val now = System.currentTimeMillis()
+            val nextStatus = if (topic.syncStatus == SyncStatus.PendingCreate) {
+                SyncStatus.PendingCreate
+            } else {
+                SyncStatus.PendingUpdate
+            }
+            vocabularyDao.updateTopicAfterWordInsert(
+                userKey = userKey,
+                topicId = topicId,
+                updatedAtEpochMillis = now,
+                syncStatus = nextStatus,
+            )
+            deleted = true
+        }
+        deleted
+    }
+
     private fun TopicEntity.toDomain(words: List<WordEntity>): DictionaryTopic {
         return DictionaryTopic(
             id = id,

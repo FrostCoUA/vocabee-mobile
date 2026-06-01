@@ -58,3 +58,16 @@ class AddWordUseCase(
     }
 }
 
+class RemoveWordUseCase(
+    private val repository: VocabularyRepository,
+    private val userSessionManager: UserSessionManager,
+) {
+    operator fun invoke(topicId: String, translation: String): Boolean {
+        return repository.removeWordByTranslation(
+            userKey = userSessionManager.currentUserKey,
+            topicId = topicId,
+            translation = translation,
+        )
+    }
+}
+

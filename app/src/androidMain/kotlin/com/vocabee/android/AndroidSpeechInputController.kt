@@ -34,13 +34,17 @@ class AndroidSpeechInputController(
         }
 
         if (!hasRecordAudioPermission()) {
+            // Fire the system request and bail without an onError. MainActivity
+            // also asks proactively on cold start, but if the user denied that
+            // time and then taps the mic, we want a quiet re-prompt — not a
+            // big red "Не вдалося розпізнати". The user sees the system dialog,
+            // grants, and taps mic again; the second tap proceeds normally.
             ActivityCompat.requestPermissions(
                 activity,
                 arrayOf(Manifest.permission.RECORD_AUDIO),
                 REQUEST_RECORD_AUDIO,
             )
             onListeningChanged(false)
-            onError(activity.getString(R.string.voice_error_microphone_permission))
             return
         }
 
@@ -97,6 +101,19 @@ class AndroidSpeechInputController(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            // Android's stock silence-detection is very aggressive (~1.5s) — users
+            // type-pause-think and the recognizer fires onEndOfSpeech / onResults
+            // before they're done. Push the thresholds out so a slow speaker has
+            // room to finish. The recognizer also won't end before MINIMUM_LENGTH.
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 4_000L)
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                3_000L,
+            )
+            putExtra(
+                RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+                3_000L,
+            )
         }
 
         onListeningChanged(true)

@@ -27,6 +27,17 @@ interface VocabularyRepository {
         ipa: String? = null,
         details: WordDetails? = null,
     ): WordEntry?
+
+    /**
+     * Remove a word identified by its translation text (case-insensitive). Returns
+     * `true` when something was actually deleted, `false` when the topic had no
+     * matching row.
+     */
+    fun removeWordByTranslation(
+        userKey: String,
+        topicId: String,
+        translation: String,
+    ): Boolean
 }
 
 class FakeVocabularyRepository : VocabularyRepository {
@@ -84,10 +95,11 @@ class FakeVocabularyRepository : VocabularyRepository {
         if (topicIndex == -1) return null
 
         val topic = topics[topicIndex]
+        // Reject only EXACT (source, translation) pair duplicates — the same
+        // English source can map to several Ukrainian variants and we want
+        // them all. (Matches the Room repository's behaviour.)
         val exists = topic.words.any { word ->
-            word.source.equals(source, ignoreCase = true) ||
-                word.translation.equals(source, ignoreCase = true) ||
-                word.source.equals(translation, ignoreCase = true) ||
+            word.source.equals(source, ignoreCase = true) &&
                 word.translation.equals(translation, ignoreCase = true)
         }
         if (exists) return null
@@ -113,6 +125,31 @@ class FakeVocabularyRepository : VocabularyRepository {
             },
         )
         return word
+    }
+
+    override fun removeWordByTranslation(
+        userKey: String,
+        topicId: String,
+        translation: String,
+    ): Boolean {
+        val topics = topicsByUser[userKey] ?: return false
+        val topicIndex = topics.indexOfFirst { it.id == topicId }
+        if (topicIndex == -1) return false
+        val topic = topics[topicIndex]
+        val target = translation.trim().lowercase()
+        val remaining = topic.words.filterNot { it.translation.trim().lowercase() == target }
+        if (remaining.size == topic.words.size) return false
+        val now = nextTimestamp()
+        topics[topicIndex] = topic.copy(
+            words = remaining,
+            updatedAtEpochMillis = now,
+            syncStatus = if (topic.syncStatus == SyncStatus.PendingCreate) {
+                SyncStatus.PendingCreate
+            } else {
+                SyncStatus.PendingUpdate
+            },
+        )
+        return true
     }
 
     private fun nextTimestamp(): Long = timestampCounter++

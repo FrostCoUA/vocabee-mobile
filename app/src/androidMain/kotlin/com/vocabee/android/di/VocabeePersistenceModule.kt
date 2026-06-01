@@ -5,6 +5,8 @@ import androidx.room.Room
 import com.vocabee.android.data.RoomVocabularyRepository
 import com.vocabee.android.data.VocabularyRepository
 import com.vocabee.android.data.local.VocabeeDatabase
+import com.vocabee.android.data.preferences.AndroidPreferencesManager
+import com.vocabee.android.data.preferences.PreferencesManager
 import com.vocabee.android.domain.manager.StaticUserSessionManager
 import com.vocabee.android.domain.manager.UserSessionManager
 import dagger.Binds
@@ -23,6 +25,12 @@ abstract class VocabeeRepositoryModule {
     abstract fun bindVocabularyRepository(
         repository: RoomVocabularyRepository,
     ): VocabularyRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPreferencesManager(
+        manager: AndroidPreferencesManager,
+    ): PreferencesManager
 }
 
 @Module
