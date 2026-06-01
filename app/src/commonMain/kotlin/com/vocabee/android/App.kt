@@ -75,7 +75,9 @@ import com.vocabee.android.navigation.VocabeeRoute
 import com.vocabee.android.navigation.selectedTabFor
 import com.vocabee.android.navigation.vocabeeSavedStateConfiguration
 import com.vocabee.android.platform.NoSpeechInputController
+import com.vocabee.android.platform.NoSpeechOutputController
 import com.vocabee.android.platform.SpeechInputController
+import com.vocabee.android.platform.SpeechOutputController
 import com.vocabee.android.presentation.AddWordOrigin
 import com.vocabee.android.presentation.AddWordOverlay
 import com.vocabee.android.presentation.AddWordSearchState
@@ -143,6 +145,7 @@ internal enum class ProfileLanguageTarget { Speaking, Learning }
 fun VocabeeApp(
     store: VocabeeStore = VocabeeStore(),
     speechInputController: SpeechInputController = NoSpeechInputController,
+    speechOutputController: SpeechOutputController = NoSpeechOutputController,
     remoteLexiconSearch: RemoteLexiconSearchUseCase? = null,
 ) {
     VocabeeTheme {
@@ -170,6 +173,7 @@ fun VocabeeApp(
             AppFlow.Main -> MainApp(
                 store = store,
                 speechInputController = speechInputController,
+                speechOutputController = speechOutputController,
                 remoteLexiconSearch = remoteLexiconSearch,
             )
         }
@@ -180,6 +184,7 @@ fun VocabeeApp(
 private fun MainApp(
     store: VocabeeStore,
     speechInputController: SpeechInputController,
+    speechOutputController: SpeechOutputController,
     remoteLexiconSearch: RemoteLexiconSearchUseCase?,
 ) {
     val state = store.state
@@ -247,6 +252,9 @@ private fun MainApp(
                                     addWordOrigin = origin
                                     addWordTopicId = topic.id
                                 },
+                                onSpeak = { text, languageTag ->
+                                    speechOutputController.speak(text, languageTag)
+                                },
                             )
                         }
                     }
@@ -287,8 +295,8 @@ private fun MainApp(
                             learnLang = state.learningLanguage.code,
                         )
                     },
-                    onAddWord = { source, translation ->
-                        store.onEvent(VocabeeEvent.AddWord(topic.id, source, translation))
+                    onAddWord = { source, translation, ipa ->
+                        store.onEvent(VocabeeEvent.AddWord(topic.id, source, translation, ipa))
                     },
                     onOpenLanguageSheet = {
                         sheet = PrototypeSheet.LanguageForDictionary(topic.id)
@@ -722,6 +730,7 @@ private fun DictionaryDetailScreen(
     onBack: () -> Unit,
     onOpenLanguageSheet: () -> Unit,
     onAddWordPill: (AddWordOrigin) -> Unit,
+    onSpeak: (text: String, languageTag: String) -> Unit,
 ) {
     val accent = prototypeTopicTheme(topic.coverIndex).color
     var pillOrigin by remember { mutableStateOf<AddWordOrigin?>(null) }
@@ -759,6 +768,7 @@ private fun DictionaryDetailScreen(
                         accent = accent,
                         highlighted = word.id == recentlyAddedWordId,
                         modifier = Modifier.padding(horizontal = 16.dp),
+                        onSpeak = { onSpeak(word.source, topic.sourceLanguage.speechTag) },
                     )
                 }
             }
@@ -912,10 +922,8 @@ private fun WordRow(
     @Suppress("UNUSED_PARAMETER") accent: Color,
     highlighted: Boolean,
     modifier: Modifier = Modifier,
+    onSpeak: () -> Unit,
 ) {
-    // Until we persist the real IPA / example sentences from the backend into
-    // local Room storage, the row only shows what we actually know: the source
-    // word and its translation. No fake "/source/" IPA, no AI-stub example.
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
@@ -929,15 +937,30 @@ private fun WordRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = word.source,
-                    color = PrototypeColor.Ink,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 18.sp,
-                    letterSpacing = (-0.18).sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
+                    Text(
+                        text = word.source,
+                        color = PrototypeColor.Ink,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 18.sp,
+                        letterSpacing = (-0.18).sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (!word.ipa.isNullOrBlank()) {
+                        Text(
+                            text = word.ipa,
+                            color = PrototypeColor.Muted2,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 Text(
                     text = word.translation,
                     modifier = Modifier.padding(top = 3.dp),
@@ -950,7 +973,9 @@ private fun WordRow(
             }
 
             Surface(
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier
+                    .size(38.dp)
+                    .clickable(onClick = onSpeak),
                 shape = RoundedCornerShape(12.dp),
                 color = PrototypeColor.Tint,
             ) {

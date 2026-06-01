@@ -43,12 +43,14 @@ class AddWordUseCase(
         topicId: String,
         source: String,
         translation: String,
+        ipa: String? = null,
     ): WordEntry? {
         return repository.addWord(
             userKey = userSessionManager.currentUserKey,
             topicId = topicId,
             source = source,
             translation = translation,
+            ipa = ipa,
         )
     }
 }

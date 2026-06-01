@@ -23,6 +23,7 @@ interface VocabularyRepository {
         topicId: String,
         source: String,
         translation: String,
+        ipa: String? = null,
     ): WordEntry?
 }
 
@@ -73,6 +74,7 @@ class FakeVocabularyRepository : VocabularyRepository {
         topicId: String,
         source: String,
         translation: String,
+        ipa: String?,
     ): WordEntry? {
         val topics = topicsByUser[userKey] ?: return null
         val topicIndex = topics.indexOfFirst { topic -> topic.id == topicId }
@@ -92,6 +94,7 @@ class FakeVocabularyRepository : VocabularyRepository {
             id = "${topic.id}-word-${++wordCounter}",
             source = source,
             translation = translation,
+            ipa = ipa,
             addedAtEpochMillis = now,
             updatedAtEpochMillis = now,
             syncStatus = SyncStatus.PendingCreate,

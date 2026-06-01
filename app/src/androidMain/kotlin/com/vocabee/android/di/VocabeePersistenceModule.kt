@@ -37,7 +37,13 @@ object VocabeePersistenceModule {
             context,
             VocabeeDatabase::class.java,
             "vocabee.db",
-        ).build()
+        )
+            // Dev-mode: schema bumps wipe local data. We don't write proper Room
+            // migrations yet because the server is the source of truth once auth
+            // is wired in — a destructive bump here just makes the local cache
+            // rebuild on next launch.
+            .fallbackToDestructiveMigration(dropAllTables = true)
+            .build()
     }
 
     @Provides

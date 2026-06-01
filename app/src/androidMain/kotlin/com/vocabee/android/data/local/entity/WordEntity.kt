@@ -36,6 +36,8 @@ data class WordEntity(
     val source: String,
     @ColumnInfo(name = "translation")
     val translation: String,
+    @ColumnInfo(name = "ipa")
+    val ipa: String? = null,
     @ColumnInfo(name = "added_at_epoch_millis")
     val addedAtEpochMillis: Long,
     @ColumnInfo(name = "updated_at_epoch_millis")

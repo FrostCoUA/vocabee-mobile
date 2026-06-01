@@ -21,12 +21,18 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val speechInputController = remember { AndroidSpeechInputController(this) }
+            val speechOutputController = remember { AndroidSpeechOutputController(this) }
             val stringResolver = remember { AndroidVocabeeStringResolver(this) }
             val colorResolver = remember { AndroidVocabeeColorResolver(this) }
 
             DisposableEffect(speechInputController) {
                 onDispose {
                     speechInputController.destroy()
+                }
+            }
+            DisposableEffect(speechOutputController) {
+                onDispose {
+                    speechOutputController.shutdown()
                 }
             }
 
@@ -37,6 +43,7 @@ class MainActivity : ComponentActivity() {
                 VocabeeApp(
                     store = viewModel.store,
                     speechInputController = speechInputController,
+                    speechOutputController = speechOutputController,
                     remoteLexiconSearch = viewModel.remoteLexiconSearch,
                 )
             }

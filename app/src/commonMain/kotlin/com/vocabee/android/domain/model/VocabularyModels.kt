@@ -20,6 +20,8 @@ data class WordEntry(
     val id: String,
     val source: String,
     val translation: String,
+    /** IPA transcription for [source], when the gateway knew one. Null if not. */
+    val ipa: String? = null,
     val addedAtEpochMillis: Long = 0L,
     val updatedAtEpochMillis: Long = addedAtEpochMillis,
     val syncStatus: SyncStatus = SyncStatus.PendingCreate,

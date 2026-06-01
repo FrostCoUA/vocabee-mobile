@@ -75,6 +75,7 @@ class RoomVocabularyRepository @Inject constructor(
         topicId: String,
         source: String,
         translation: String,
+        ipa: String?,
     ): WordEntry? = runBlocking(Dispatchers.IO) {
         var insertedWord: WordEntity? = null
 
@@ -95,6 +96,7 @@ class RoomVocabularyRepository @Inject constructor(
                 topicId = topicId,
                 source = source,
                 translation = translation,
+                ipa = ipa,
                 addedAtEpochMillis = now,
                 updatedAtEpochMillis = now,
                 syncStatus = SyncStatus.PendingCreate,
@@ -138,6 +140,7 @@ class RoomVocabularyRepository @Inject constructor(
             id = id,
             source = source,
             translation = translation,
+            ipa = ipa,
             addedAtEpochMillis = addedAtEpochMillis,
             updatedAtEpochMillis = updatedAtEpochMillis,
             syncStatus = syncStatus,
