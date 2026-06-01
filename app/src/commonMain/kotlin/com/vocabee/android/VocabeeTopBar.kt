@@ -88,16 +88,17 @@ internal fun VocabeeTopBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(TopBarHeight)
-                    .background(Color.Transparent),
+                    .background(vocabeeColor(VocabeeColor.Transparent)),
             )
             return
         }
         VocabeeTopBarDisplayMode.Visible -> Unit
     }
 
+    val transparentColor = vocabeeColor(VocabeeColor.Transparent)
     val colors = TopAppBarDefaults.topAppBarColors(
-        containerColor = Color.Transparent,
-        scrolledContainerColor = Color.Transparent,
+        containerColor = transparentColor,
+        scrolledContainerColor = transparentColor,
     )
 
     when (config.type) {

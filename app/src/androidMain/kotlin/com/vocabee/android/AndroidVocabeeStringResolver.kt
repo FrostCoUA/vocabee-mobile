@@ -40,6 +40,9 @@ private val VocabeeString.resId: Int
         VocabeeString.EmptyDictionarySubtitle -> R.string.empty_dictionary_subtitle
         VocabeeString.EmptyDictionaryCreateFirst -> R.string.empty_dictionary_create_first
         VocabeeString.NewDictionary -> R.string.new_dictionary
+        VocabeeString.NewTopicTile -> R.string.new_topic_tile
+        VocabeeString.TopicTileStart -> R.string.topic_tile_start
+        VocabeeString.TopicPracticeCta -> R.string.topic_practice_cta
         VocabeeString.EmptyTopicTitle -> R.string.empty_topic_title
         VocabeeString.EmptyTopicSubtitle -> R.string.empty_topic_subtitle
         VocabeeString.TopicActionPractice -> R.string.topic_action_practice
@@ -52,11 +55,6 @@ private val VocabeeString.resId: Int
         VocabeeString.TranslationHint -> R.string.translation_hint
         VocabeeString.KeyboardFoundCount -> R.string.keyboard_found_count
         VocabeeString.KeyboardTapToAdd -> R.string.keyboard_tap_to_add
-        VocabeeString.KeyboardSuggestion -> R.string.keyboard_suggestion
-        VocabeeString.KeyboardSuggestionAirplane -> R.string.keyboard_suggestion_airplane
-        VocabeeString.KeyboardSuggestionDepart -> R.string.keyboard_suggestion_depart
-        VocabeeString.KeyboardSuggestionLuggage -> R.string.keyboard_suggestion_luggage
-        VocabeeString.KeyboardSuggestionTicket -> R.string.keyboard_suggestion_ticket
         VocabeeString.TranslationOptionSource -> R.string.translation_option_source
         VocabeeString.VoiceSpeakPrompt -> R.string.voice_speak_prompt
         VocabeeString.VoiceHoldMic -> R.string.voice_hold_mic
@@ -74,12 +72,6 @@ private val VocabeeString.resId: Int
         VocabeeString.TranslationNoteMlKitOnDevice -> R.string.translation_note_mlkit_on_device
         VocabeeString.UpdatedToday -> R.string.updated_today
         VocabeeString.UpdatedYesterday -> R.string.updated_yesterday
-        VocabeeString.SampleSentenceDepart -> R.string.sample_sentence_depart
-        VocabeeString.SampleSentenceBoardingPass -> R.string.sample_sentence_boarding_pass
-        VocabeeString.SampleSentenceOverheadBin -> R.string.sample_sentence_overhead_bin
-        VocabeeString.SampleSentenceTurbulence -> R.string.sample_sentence_turbulence
-        VocabeeString.SampleSentenceLuggage -> R.string.sample_sentence_luggage
-        VocabeeString.SampleSentenceAirport -> R.string.sample_sentence_airport
         VocabeeString.SampleSentenceDefault -> R.string.sample_sentence_default
         VocabeeString.PracticeEyebrow -> R.string.practice_eyebrow
         VocabeeString.PracticeTitle -> R.string.practice_title

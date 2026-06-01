@@ -16,6 +16,9 @@ enum class VocabeeString {
     EmptyDictionarySubtitle,
     EmptyDictionaryCreateFirst,
     NewDictionary,
+    NewTopicTile,
+    TopicTileStart,
+    TopicPracticeCta,
     EmptyTopicTitle,
     EmptyTopicSubtitle,
     TopicActionPractice,
@@ -28,11 +31,6 @@ enum class VocabeeString {
     TranslationHint,
     KeyboardFoundCount,
     KeyboardTapToAdd,
-    KeyboardSuggestion,
-    KeyboardSuggestionAirplane,
-    KeyboardSuggestionDepart,
-    KeyboardSuggestionLuggage,
-    KeyboardSuggestionTicket,
     TranslationOptionSource,
     VoiceSpeakPrompt,
     VoiceHoldMic,
@@ -50,12 +48,6 @@ enum class VocabeeString {
     TranslationNoteMlKitOnDevice,
     UpdatedToday,
     UpdatedYesterday,
-    SampleSentenceDepart,
-    SampleSentenceBoardingPass,
-    SampleSentenceOverheadBin,
-    SampleSentenceTurbulence,
-    SampleSentenceLuggage,
-    SampleSentenceAirport,
     SampleSentenceDefault,
     PracticeEyebrow,
     PracticeTitle,
@@ -145,9 +137,12 @@ private object EnglishVocabeeStringResolver : VocabeeStringResolver {
             VocabeeString.HomeTitle -> "My dictionaries"
             VocabeeString.EmptyDictionaryTitleLine1 -> "Your dictionaries"
             VocabeeString.EmptyDictionaryTitleLine2 -> "will appear here"
-            VocabeeString.EmptyDictionarySubtitle -> "Create a topic, for example \"Air travel\", and add words with the keyboard or voice."
+            VocabeeString.EmptyDictionarySubtitle -> "Create a topic and add words with the keyboard or voice."
             VocabeeString.EmptyDictionaryCreateFirst -> "Create first"
             VocabeeString.NewDictionary -> "New dictionary"
+            VocabeeString.NewTopicTile -> "New topic"
+            VocabeeString.TopicTileStart -> "Start"
+            VocabeeString.TopicPracticeCta -> "Practice"
             VocabeeString.EmptyTopicTitle -> "The list is empty"
             VocabeeString.EmptyTopicSubtitle -> "Add the first word with the keyboard or voice"
             VocabeeString.TopicActionPractice -> "ϟ Start practice"
@@ -160,11 +155,6 @@ private object EnglishVocabeeStringResolver : VocabeeStringResolver {
             VocabeeString.TranslationHint -> "%1\$s → %2\$s · translation will appear below"
             VocabeeString.KeyboardFoundCount -> "FOUND · %1\$d"
             VocabeeString.KeyboardTapToAdd -> "TAP ⊕ TO ADD"
-            VocabeeString.KeyboardSuggestion -> "try \"%1\$s\""
-            VocabeeString.KeyboardSuggestionAirplane -> "plane"
-            VocabeeString.KeyboardSuggestionDepart -> "depart"
-            VocabeeString.KeyboardSuggestionLuggage -> "luggage"
-            VocabeeString.KeyboardSuggestionTicket -> "ticket"
             VocabeeString.TranslationOptionSource -> "from: %1\$s"
             VocabeeString.VoiceSpeakPrompt -> "speak..."
             VocabeeString.VoiceHoldMic -> "Hold the microphone"
@@ -182,12 +172,6 @@ private object EnglishVocabeeStringResolver : VocabeeStringResolver {
             VocabeeString.TranslationNoteMlKitOnDevice -> "ML Kit · on-device"
             VocabeeString.UpdatedToday -> "today"
             VocabeeString.UpdatedYesterday -> "yesterday"
-            VocabeeString.SampleSentenceDepart -> "The flight departs at 9:30."
-            VocabeeString.SampleSentenceBoardingPass -> "Please show me your boarding pass."
-            VocabeeString.SampleSentenceOverheadBin -> "Put your bag in the overhead bin."
-            VocabeeString.SampleSentenceTurbulence -> "There may be turbulence during the flight."
-            VocabeeString.SampleSentenceLuggage -> "My luggage is already checked in."
-            VocabeeString.SampleSentenceAirport -> "We arrived at the airport early."
             VocabeeString.SampleSentenceDefault -> "Use %1\$s in a short sentence."
             VocabeeString.PracticeEyebrow -> "KNOWLEDGE CHECK"
             VocabeeString.PracticeTitle -> "Practice"
@@ -218,9 +202,9 @@ private object EnglishVocabeeStringResolver : VocabeeStringResolver {
             VocabeeString.NewTopicCreate -> "Create"
             VocabeeString.NewTopicTitle -> "New dictionary"
             VocabeeString.NewTopicSubtitle -> "Name the topic and choose a cover color."
-            VocabeeString.NewTopicPlaceholder -> "Work in IT"
+            VocabeeString.NewTopicPlaceholder -> "Topic name"
             VocabeeString.CoverColor -> "COLOR"
-            VocabeeString.NewTopicPreviewTitle -> "Work in IT"
+            VocabeeString.NewTopicPreviewTitle -> "Topic name"
             VocabeeString.LanguageNameUkrainian -> "Ukrainian"
             VocabeeString.LanguageNameEnglish -> "English"
             VocabeeString.LanguageNameRussian -> "Russian"

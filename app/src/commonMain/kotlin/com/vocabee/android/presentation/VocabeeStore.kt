@@ -5,11 +5,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.vocabee.android.data.FakeVocabularyRepository
 import com.vocabee.android.data.VocabularyRepository
+import com.vocabee.android.domain.manager.StaticUserSessionManager
+import com.vocabee.android.domain.manager.UserSessionManager
 import com.vocabee.android.domain.model.DictionaryTopic
 import com.vocabee.android.domain.model.LanguageOption
 import com.vocabee.android.domain.model.TranslationOption
 import com.vocabee.android.domain.model.TranslationOptionNote
-import com.vocabee.android.domain.model.WordEntry
+import com.vocabee.android.domain.usecase.AddWordUseCase
+import com.vocabee.android.domain.usecase.CreateTopicUseCase
+import com.vocabee.android.domain.usecase.GetTranslationOptionsUseCase
+import com.vocabee.android.domain.usecase.LoadUserTopicsUseCase
 import com.vocabee.android.platform.MachineTranslationProvider
 import com.vocabee.android.platform.NoMachineTranslationProvider
 
@@ -18,7 +23,7 @@ data class VocabeeState(
     val userLanguage: LanguageOption,
     val learningLanguage: LanguageOption,
     val topics: List<DictionaryTopic>,
-    val topicCounter: Int = 10,
+    val topicCounter: Int = 0,
     val recentlyAddedWordId: String? = null,
     val notificationsEnabled: Boolean = true,
     val darkThemeEnabled: Boolean = false,
@@ -67,8 +72,14 @@ sealed interface VocabeeEvent {
 
 class VocabeeStore(
     private val repository: VocabularyRepository = FakeVocabularyRepository(),
+    private val userSessionManager: UserSessionManager = StaticUserSessionManager(),
     private val machineTranslationProvider: MachineTranslationProvider = NoMachineTranslationProvider,
 ) {
+    private val loadUserTopicsUseCase = LoadUserTopicsUseCase(repository, userSessionManager)
+    private val createTopicUseCase = CreateTopicUseCase(repository, userSessionManager)
+    private val addWordUseCase = AddWordUseCase(repository, userSessionManager)
+    private val getTranslationOptionsUseCase = GetTranslationOptionsUseCase(repository)
+
     var state by mutableStateOf(initialState())
         private set
 
@@ -94,7 +105,8 @@ class VocabeeStore(
         topic: DictionaryTopic,
         input: String,
     ): List<TranslationOption> {
-        val baseOptions = repository.translationOptionsFor(topic, input)
+        val baseOptions = getTranslationOptionsUseCase(topic, input)
+        val builtInOption = builtInTranslationOptionFor(topic, input)
         val machineTranslatedText = state.machineTranslations[translationKey(topic, input)]
             ?.translatedText
             ?.takeIf { it.isNotBlank() }
@@ -108,6 +120,7 @@ class VocabeeStore(
         return mergeTranslationOptions(
             baseOptions = baseOptions,
             machineOption = machineOption,
+            builtInOption = builtInOption,
         )
     }
 
@@ -117,7 +130,7 @@ class VocabeeStore(
             supportedLanguages = supportedLanguages,
             userLanguage = supportedLanguages.first { it.code == "uk" },
             learningLanguage = supportedLanguages.first { it.code == "en" },
-            topics = repository.initialTopics(),
+            topics = loadUserTopicsUseCase(),
         )
     }
 
@@ -128,17 +141,14 @@ class VocabeeStore(
         val cleanedTitle = title.trim()
         if (cleanedTitle.isBlank()) return
 
-        val nextCounter = state.topicCounter + 1
-        val newTopic = DictionaryTopic(
-            id = "topic-$nextCounter",
+        createTopicUseCase(
             title = cleanedTitle,
-            sourceLanguage = state.userLanguage,
-            targetLanguage = state.learningLanguage,
+            sourceLanguage = state.learningLanguage,
+            targetLanguage = state.userLanguage,
             coverIndex = coverIndex,
         )
         state = state.copy(
-            topicCounter = nextCounter,
-            topics = state.topics + newTopic,
+            topics = loadUserTopicsUseCase(),
         )
     }
 
@@ -147,35 +157,20 @@ class VocabeeStore(
         source: String,
         translation: String,
     ) {
-        val topic = state.topics.firstOrNull { it.id == topicId } ?: return
         val cleanedSource = source.trim()
         val cleanedTranslation = translation.trim()
         if (cleanedSource.isBlank() || cleanedTranslation.isBlank()) return
 
-        val exists = topic.words.any { word ->
-            word.source.equals(cleanedSource, ignoreCase = true) ||
-                word.translation.equals(cleanedSource, ignoreCase = true) ||
-                word.source.equals(cleanedTranslation, ignoreCase = true) ||
-                word.translation.equals(cleanedTranslation, ignoreCase = true)
-        }
-        if (exists) return
-
-        val wordId = "${topic.id}-word-${topic.words.size + 1}"
-        val updatedTopic = topic.copy(
-            words = listOf(
-                WordEntry(
-                    id = wordId,
-                    source = cleanedSource,
-                    translation = cleanedTranslation,
-                )
-            ) + topic.words,
+        val word = addWordUseCase(
+            topicId = topicId,
+            source = cleanedSource,
+            translation = cleanedTranslation,
         )
+        if (word == null) return
 
         state = state.copy(
-            topics = state.topics.map { currentTopic ->
-                if (currentTopic.id == topic.id) updatedTopic else currentTopic
-            },
-            recentlyAddedWordId = wordId,
+            topics = loadUserTopicsUseCase(),
+            recentlyAddedWordId = word.id,
         )
     }
 
@@ -277,15 +272,60 @@ class VocabeeStore(
     private fun mergeTranslationOptions(
         baseOptions: List<TranslationOption>,
         machineOption: TranslationOption?,
+        builtInOption: TranslationOption?,
     ): List<TranslationOption> {
-        if (machineOption == null) return baseOptions
+        if (machineOption == null && builtInOption == null) return baseOptions
 
         val existingWordOption = baseOptions.firstOrNull()?.takeIf { it.alreadyAdded }
         val otherOptions = if (existingWordOption == null) baseOptions else baseOptions.drop(1)
 
-        return listOfNotNull(existingWordOption, machineOption)
+        return listOfNotNull(existingWordOption, machineOption, builtInOption)
             .plus(otherOptions)
             .distinctBy { option -> option.value.lowercase() }
             .take(3)
     }
+}
+
+private val prototypeBuiltInTranslations = mapOf(
+    "resilience" to "стійкість",
+    "reluctant" to "неохочий",
+    "remote" to "віддалений",
+    "remarkable" to "визначний",
+    "luggage" to "багаж",
+    "delay" to "затримка",
+    "departure" to "відправлення",
+    "destination" to "пункт призначення",
+    "nourish" to "живити",
+    "savory" to "пікантний",
+    "tender" to "ніжний",
+    "brittle" to "крихкий",
+    "negotiate" to "вести переговори",
+    "revenue" to "дохід",
+    "stakeholder" to "зацікавлена сторона",
+    "leverage" to "важіль впливу",
+    "deadline" to "кінцевий термін",
+    "curious" to "допитливий",
+    "whisper" to "шепотіти",
+    "gloomy" to "похмурий",
+    "vivid" to "яскравий",
+    "linger" to "затримуватися",
+    "fragile" to "тендітний",
+    "generous" to "щедрий",
+    "glimpse" to "проблиск",
+    "wander" to "блукати",
+    "cozy" to "затишний",
+    "brave" to "хоробрий",
+    "gentle" to "лагідний",
+)
+
+private fun builtInTranslationOptionFor(
+    topic: DictionaryTopic,
+    input: String,
+): TranslationOption? {
+    if (topic.sourceLanguage.code != "en" || topic.targetLanguage.code != "uk") return null
+    val translatedText = prototypeBuiltInTranslations[input.trim().lowercase()] ?: return null
+    return TranslationOption(
+        value = translatedText,
+        note = TranslationOptionNote.Primary,
+    )
 }

@@ -1,5 +1,7 @@
 package com.vocabee.android.domain.model
 
+const val DEFAULT_LOCAL_USER_KEY = "local-user"
+
 data class LanguageOption(
     val code: String,
     val name: String,
@@ -7,19 +9,33 @@ data class LanguageOption(
     val speechTag: String,
 )
 
+enum class SyncStatus {
+    PendingCreate,
+    PendingUpdate,
+    Synced,
+    PendingDelete,
+}
+
 data class WordEntry(
     val id: String,
     val source: String,
     val translation: String,
+    val addedAtEpochMillis: Long = 0L,
+    val updatedAtEpochMillis: Long = addedAtEpochMillis,
+    val syncStatus: SyncStatus = SyncStatus.PendingCreate,
 )
 
 data class DictionaryTopic(
     val id: String,
+    val userKey: String = DEFAULT_LOCAL_USER_KEY,
     val title: String,
     val sourceLanguage: LanguageOption,
     val targetLanguage: LanguageOption,
     val updatedLabel: TopicUpdatedLabel = TopicUpdatedLabel.Today,
     val coverIndex: Int = 0,
+    val createdAtEpochMillis: Long = 0L,
+    val updatedAtEpochMillis: Long = createdAtEpochMillis,
+    val syncStatus: SyncStatus = SyncStatus.PendingCreate,
     val words: List<WordEntry> = emptyList(),
 )
 

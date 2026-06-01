@@ -1,21 +1,23 @@
 package com.vocabee.android
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -29,23 +31,12 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FabPosition
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -55,138 +46,148 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
-import com.vocabee.android.domain.model.DictionaryTopic
-import com.vocabee.android.domain.model.LanguageOption
-import com.vocabee.android.domain.model.TranslationOption
-import com.vocabee.android.domain.model.TranslationOptionNote
-import com.vocabee.android.domain.model.TopicUpdatedLabel
-import com.vocabee.android.domain.model.WordEntry
-import com.vocabee.android.navigation.AppTab
-import com.vocabee.android.navigation.LanguagePickerTarget
-import com.vocabee.android.navigation.VocabeeRoute
-import com.vocabee.android.navigation.selectedTabFor
-import com.vocabee.android.navigation.vocabeeSavedStateConfiguration
-import com.vocabee.android.platform.MachineTranslationProvider
-import com.vocabee.android.platform.NoMachineTranslationProvider
-import com.vocabee.android.platform.NoSpeechInputController
-import com.vocabee.android.platform.SpeechInputController
-import com.vocabee.android.presentation.VocabeeEvent
-import com.vocabee.android.presentation.VocabeeStore
+import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
+import com.vocabee.android.domain.model.DictionaryTopic
+import com.vocabee.android.domain.model.LanguageOption
+import com.vocabee.android.domain.model.TopicUpdatedLabel
+import com.vocabee.android.domain.model.WordEntry
+import com.vocabee.android.navigation.AppTab
+import com.vocabee.android.navigation.VocabeeRoute
+import com.vocabee.android.navigation.selectedTabFor
+import com.vocabee.android.navigation.vocabeeSavedStateConfiguration
+import com.vocabee.android.platform.NoSpeechInputController
+import com.vocabee.android.platform.SpeechInputController
+import com.vocabee.android.presentation.AddWordOrigin
+import com.vocabee.android.presentation.AddWordOverlay
+import com.vocabee.android.presentation.AuthScreen
+import com.vocabee.android.presentation.CreateDictionarySheet
+import com.vocabee.android.presentation.HoneycombWatermark
+import com.vocabee.android.presentation.LanguageSelectScreen
+import com.vocabee.android.presentation.LanguageSheet
+import com.vocabee.android.presentation.OnboardingScreen
+import com.vocabee.android.presentation.PrimaryPillButton
+import com.vocabee.android.presentation.PrototypeColor
+import com.vocabee.android.presentation.PrototypeIcon
+import com.vocabee.android.presentation.PrototypeLineIcon
+import com.vocabee.android.presentation.PrototypeLogo
+import com.vocabee.android.presentation.SplashScreen
+import com.vocabee.android.presentation.VocabeeEvent
+import com.vocabee.android.presentation.VocabeeStore
+import com.vocabee.android.presentation.languageFlag
+import com.vocabee.android.presentation.languageName
+import com.vocabee.android.presentation.prototypeTopicTheme
 
-private val Honey = Color(0xFFFFC247)
-private val Ink = Color(0xFF1D2329)
-private val Meadow = Color(0xFF2F8F6B)
-private val Sky = Color(0xFF4B7BEC)
-private val Paper = Color(0xFFFFFBF3)
-private val SoftLine = Color(0xFFE7DED0)
+internal enum class AppFlow { Splash, Onboarding, Auth, LanguageSelect, Main }
 
-private object VocabeePadding {
-    object Horizontal {
-        val Small = 12.dp
-        val Medium = 20.dp
-        val Large = 24.dp
-    }
+internal sealed interface PrototypeSheet {
+    data object CreateDictionary : PrototypeSheet
+    data class LanguageForDictionary(val dictionaryId: String) : PrototypeSheet
+    data class LanguageForProfile(val target: ProfileLanguageTarget) : PrototypeSheet
+}
 
-    object Vertical {
-        val Small = 8.dp
-        val Medium = 12.dp
-        val Large = 28.dp
+internal enum class ProfileLanguageTarget { Speaking, Learning }
+
+@Composable
+fun VocabeeApp(
+    store: VocabeeStore = VocabeeStore(),
+    speechInputController: SpeechInputController = NoSpeechInputController,
+) {
+    VocabeeTheme {
+        var flow by remember { mutableStateOf(AppFlow.Splash) }
+        val state = store.state
+
+        when (flow) {
+            AppFlow.Splash -> SplashScreen(onDone = { flow = AppFlow.Onboarding })
+            AppFlow.Onboarding -> OnboardingScreen(onDone = { flow = AppFlow.Auth })
+            AppFlow.Auth -> AuthScreen(onDone = { flow = AppFlow.LanguageSelect })
+            AppFlow.LanguageSelect -> LanguageSelectScreen(
+                supportedLanguages = state.supportedLanguages,
+                initialSpeak = state.userLanguage.code,
+                initialLearn = state.learningLanguage.code,
+                onDone = { speakCode, learnCode ->
+                    state.supportedLanguages.firstOrNull { it.code == speakCode }?.let {
+                        store.onEvent(VocabeeEvent.SelectSpeakingLanguage(it))
+                    }
+                    state.supportedLanguages.firstOrNull { it.code == learnCode }?.let {
+                        store.onEvent(VocabeeEvent.SelectLearningLanguage(it))
+                    }
+                    flow = AppFlow.Main
+                },
+            )
+            AppFlow.Main -> MainApp(
+                store = store,
+                speechInputController = speechInputController,
+            )
+        }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VocabeeApp(
-    speechInputController: SpeechInputController = NoSpeechInputController,
-    machineTranslationProvider: MachineTranslationProvider = NoMachineTranslationProvider,
+private fun MainApp(
+    store: VocabeeStore,
+    speechInputController: SpeechInputController,
 ) {
-    VocabeeTheme {
-        val store = remember(machineTranslationProvider) {
-            VocabeeStore(machineTranslationProvider = machineTranslationProvider)
-        }
-        val state = store.state
-        var showNewTopicDialog by remember { mutableStateOf(false) }
+    val state = store.state
+    val backStack = rememberNavBackStack(
+        vocabeeSavedStateConfiguration,
+        VocabeeRoute.DictionaryHome,
+    )
+    val currentRoute = backStack.lastOrNull() as? VocabeeRoute
+    val selectedTab = selectedTabFor(currentRoute)
+    val showBottomBar = AppTab.entries.any { tab -> tab.route == currentRoute }
 
-        val backStack = rememberNavBackStack(
-            vocabeeSavedStateConfiguration,
-            VocabeeRoute.DictionaryHome,
-        )
-        val currentRoute = backStack.lastOrNull() as? VocabeeRoute
-        val selectedTab = selectedTabFor(currentRoute)
+    var sheet by remember { mutableStateOf<PrototypeSheet?>(null) }
+    var addWordOrigin by remember { mutableStateOf<AddWordOrigin?>(null) }
+    var addWordTopicId by remember { mutableStateOf<String?>(null) }
+    val addWordTopic = addWordTopicId?.let { id -> state.topics.firstOrNull { it.id == id } }
 
-        fun openRoot(route: VocabeeRoute) {
-            backStack.clear()
-            backStack.add(route)
-        }
+    fun openRoot(route: VocabeeRoute) {
+        backStack.clear()
+        backStack.add(route)
+    }
 
-        if (showNewTopicDialog) {
-            NewTopicSheet(
-                sourceLanguage = state.userLanguage,
-                targetLanguage = state.learningLanguage,
-                onDismiss = { showNewTopicDialog = false },
-                onCreate = { title, coverIndex ->
-                    store.onEvent(
-                        VocabeeEvent.CreateTopic(
-                            title = title,
-                            coverIndex = coverIndex,
-                        )
-                    )
-                    showNewTopicDialog = false
-                },
-            )
-        }
-
-        Scaffold(
-            bottomBar = {
-                if (currentRoute !is VocabeeRoute.VoiceInput && currentRoute !is VocabeeRoute.KeyboardInput) {
-                    VocabeeBottomBar(
-                        selectedTab = selectedTab,
-                        onTabClick = { tab -> openRoot(tab.route) },
-                    )
-                }
-            },
-            floatingActionButton = {
-                if (selectedTab == AppTab.Dictionary && currentRoute == VocabeeRoute.DictionaryHome) {
-                    NewDictionaryFloatingButton(
-                        compact = state.topics.isEmpty(),
-                        onClick = { showNewTopicDialog = true },
-                    )
-                }
-            },
-            floatingActionButtonPosition = FabPosition.End,
-            containerColor = Paper,
-        ) { innerPadding ->
+    Scaffold(
+        bottomBar = {
+            if (showBottomBar && addWordOrigin == null) {
+                VocabeeBottomBar(
+                    selectedTab = selectedTab,
+                    onTabClick = { tab -> openRoot(tab.route) },
+                )
+            }
+        },
+        containerColor = PrototypeColor.White,
+        contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             NavDisplay(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .statusBarsPadding(),
+                modifier = Modifier.fillMaxSize(),
                 backStack = backStack,
                 onBack = {
-                    if (backStack.size > 1) {
-                        backStack.removeLastOrNull()
-                    }
+                    if (backStack.size > 1) backStack.removeLastOrNull()
                 },
                 entryProvider = entryProvider {
                     entry<VocabeeRoute.DictionaryHome> {
-                        DictionaryHomeScreen(
+                        DictionariesHomeScreen(
                             topics = state.topics,
-                            userLanguage = state.userLanguage,
-                            learningLanguage = state.learningLanguage,
-                            onCreateClick = { showNewTopicDialog = true },
+                            onCreateClick = { sheet = PrototypeSheet.CreateDictionary },
                             onTopicClick = { topicId ->
                                 backStack.add(VocabeeRoute.TopicDetail(topicId))
                             },
@@ -198,86 +199,22 @@ fun VocabeeApp(
                         if (topic == null) {
                             MissingTopicScreen(onBack = { backStack.removeLastOrNull() })
                         } else {
-                            TopicDetailScreen(
+                            DictionaryDetailScreen(
                                 topic = topic,
                                 recentlyAddedWordId = state.recentlyAddedWordId,
                                 onBack = { backStack.removeLastOrNull() },
-                                onKeyboardInputClick = {
-                                    backStack.add(VocabeeRoute.KeyboardInput(topic.id))
+                                onOpenLanguageSheet = {
+                                    sheet = PrototypeSheet.LanguageForDictionary(topic.id)
                                 },
-                                onVoiceInputClick = {
-                                    backStack.add(VocabeeRoute.VoiceInput(topic.id))
-                                },
-                            )
-                        }
-                    }
-
-                    entry<VocabeeRoute.KeyboardInput> { route ->
-                        val topic = state.topics.firstOrNull { it.id == route.topicId }
-                        if (topic == null) {
-                            MissingTopicScreen(onBack = { backStack.removeLastOrNull() })
-                        } else {
-                            KeyboardInputScreen(
-                                topic = topic,
-                                translationOptionsFor = store::translationOptionsFor,
-                                onRequestMachineTranslation = { input ->
-                                    store.onEvent(
-                                        VocabeeEvent.RequestMachineTranslation(
-                                            topicId = topic.id,
-                                            input = input,
-                                        )
-                                    )
-                                },
-                                onBack = { backStack.removeLastOrNull() },
-                                onAddWord = { source, translation ->
-                                    store.onEvent(
-                                        VocabeeEvent.AddWord(
-                                            topicId = topic.id,
-                                            source = source,
-                                            translation = translation,
-                                        )
-                                    )
-                                    backStack.removeLastOrNull()
+                                onAddWordPill = { origin ->
+                                    addWordOrigin = origin
+                                    addWordTopicId = topic.id
                                 },
                             )
                         }
                     }
 
-                    entry<VocabeeRoute.VoiceInput> { route ->
-                        val topic = state.topics.firstOrNull { it.id == route.topicId }
-                        if (topic == null) {
-                            MissingTopicScreen(onBack = { backStack.removeLastOrNull() })
-                        } else {
-                            VoiceInputScreen(
-                                topic = topic,
-                                speechInputController = speechInputController,
-                                translationOptionsFor = store::translationOptionsFor,
-                                onRequestMachineTranslation = { input ->
-                                    store.onEvent(
-                                        VocabeeEvent.RequestMachineTranslation(
-                                            topicId = topic.id,
-                                            input = input,
-                                        )
-                                    )
-                                },
-                                onBack = { backStack.removeLastOrNull() },
-                                onAddWord = { source, translation ->
-                                    store.onEvent(
-                                        VocabeeEvent.AddWord(
-                                            topicId = topic.id,
-                                            source = source,
-                                            translation = translation,
-                                        )
-                                    )
-                                    backStack.removeLastOrNull()
-                                },
-                            )
-                        }
-                    }
-
-                    entry<VocabeeRoute.Practice> {
-                        PracticeScreen(topics = state.topics)
-                    }
+                    entry<VocabeeRoute.Practice> { PracticeScreen(topics = state.topics) }
 
                     entry<VocabeeRoute.Settings> {
                         ProfileScreen(
@@ -286,43 +223,96 @@ fun VocabeeApp(
                             learningLanguage = state.learningLanguage,
                             notificationsEnabled = state.notificationsEnabled,
                             darkThemeEnabled = state.darkThemeEnabled,
-                            onNotificationsChanged = { enabled ->
-                                store.onEvent(VocabeeEvent.SetNotificationsEnabled(enabled))
-                            },
-                            onDarkThemeChanged = { enabled ->
-                                store.onEvent(VocabeeEvent.SetDarkThemeEnabled(enabled))
-                            },
-                            onSpeakingClick = {
-                                backStack.add(VocabeeRoute.LanguagePicker(LanguagePickerTarget.Speaking))
-                            },
-                            onLearningClick = {
-                                backStack.add(VocabeeRoute.LanguagePicker(LanguagePickerTarget.Learning))
-                            },
-                        )
-                    }
-
-                    entry<VocabeeRoute.LanguagePicker> { route ->
-                        val selectedLanguage = when (route.target) {
-                            LanguagePickerTarget.Speaking -> state.userLanguage
-                            LanguagePickerTarget.Learning -> state.learningLanguage
-                        }
-                        LanguagePickerScreen(
-                            target = route.target,
-                            supportedLanguages = state.supportedLanguages,
-                            selectedLanguage = selectedLanguage,
-                            onBack = { backStack.removeLastOrNull() },
-                            onDone = { option ->
-                                val event = when (route.target) {
-                                    LanguagePickerTarget.Speaking -> VocabeeEvent.SelectSpeakingLanguage(option)
-                                    LanguagePickerTarget.Learning -> VocabeeEvent.SelectLearningLanguage(option)
-                                }
-                                store.onEvent(event)
-                                backStack.removeLastOrNull()
-                            },
+                            onNotificationsChanged = { store.onEvent(VocabeeEvent.SetNotificationsEnabled(it)) },
+                            onDarkThemeChanged = { store.onEvent(VocabeeEvent.SetDarkThemeEnabled(it)) },
+                            onSpeakingClick = { sheet = PrototypeSheet.LanguageForProfile(ProfileLanguageTarget.Speaking) },
+                            onLearningClick = { sheet = PrototypeSheet.LanguageForProfile(ProfileLanguageTarget.Learning) },
                         )
                     }
                 },
             )
+
+            // Add Word full-screen overlay (above tab bar)
+            val origin = addWordOrigin
+            val topic = addWordTopic
+            if (origin != null && topic != null) {
+                AddWordOverlay(
+                    topic = topic,
+                    accent = prototypeTopicTheme(topic.coverIndex).color,
+                    origin = origin,
+                    speechInputController = speechInputController,
+                    suggestionsFor = { input -> store.translationOptionsFor(topic, input) },
+                    onRequestMachineTranslation = { input ->
+                        store.onEvent(VocabeeEvent.RequestMachineTranslation(topic.id, input))
+                    },
+                    onAddWord = { source, translation ->
+                        store.onEvent(VocabeeEvent.AddWord(topic.id, source, translation))
+                    },
+                    onOpenLanguageSheet = {
+                        sheet = PrototypeSheet.LanguageForDictionary(topic.id)
+                    },
+                    onClose = {
+                        addWordOrigin = null
+                        addWordTopicId = null
+                    },
+                )
+            }
+        }
+
+        when (val s = sheet) {
+            null -> Unit
+            PrototypeSheet.CreateDictionary -> CreateDictionarySheet(
+                sourceLanguageCode = state.learningLanguage.code,
+                targetLanguageCode = state.userLanguage.code,
+                existingDictionariesCount = state.topics.size,
+                onDismiss = { sheet = null },
+                onCreate = { title, coverIndex ->
+                    store.onEvent(VocabeeEvent.CreateTopic(title = title, coverIndex = coverIndex))
+                    sheet = null
+                    val createdTopic = store.state.topics.lastOrNull()
+                    if (createdTopic != null) {
+                        backStack.add(VocabeeRoute.TopicDetail(createdTopic.id))
+                    }
+                },
+            )
+            is PrototypeSheet.LanguageForDictionary -> {
+                val dict = state.topics.firstOrNull { it.id == s.dictionaryId }
+                if (dict != null) {
+                    LanguageSheet(
+                        title = "Мова словника",
+                        subtitle = "Лише для цього словника. За замовчуванням використовується мова з профілю.",
+                        selectedCode = dict.sourceLanguage.code,
+                        excludeCode = dict.targetLanguage.code,
+                        onDismiss = { sheet = null },
+                        onPick = { _ ->
+                            // Per-dictionary language override is a future feature;
+                            // for now just dismiss — the spec marks this as de-emphasized.
+                            sheet = null
+                        },
+                    )
+                }
+            }
+            is PrototypeSheet.LanguageForProfile -> {
+                val target = s.target
+                val current = if (target == ProfileLanguageTarget.Speaking) state.userLanguage else state.learningLanguage
+                val exclude = if (target == ProfileLanguageTarget.Speaking) state.learningLanguage else state.userLanguage
+                LanguageSheet(
+                    title = if (target == ProfileLanguageTarget.Speaking) "Я розмовляю" else "Я вивчаю",
+                    subtitle = null,
+                    selectedCode = current.code,
+                    excludeCode = exclude.code,
+                    onDismiss = { sheet = null },
+                    onPick = { code ->
+                        state.supportedLanguages.firstOrNull { it.code == code }?.let { picked ->
+                            when (target) {
+                                ProfileLanguageTarget.Speaking -> store.onEvent(VocabeeEvent.SelectSpeakingLanguage(picked))
+                                ProfileLanguageTarget.Learning -> store.onEvent(VocabeeEvent.SelectLearningLanguage(picked))
+                            }
+                        }
+                        sheet = null
+                    },
+                )
+            }
         }
     }
 }
@@ -330,265 +320,91 @@ fun VocabeeApp(
 @Composable
 private fun VocabeeTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = androidx.compose.material3.lightColorScheme(
-            primary = Meadow,
-            onPrimary = Color.White,
-            secondary = Sky,
-            onSecondary = Color.White,
-            tertiary = Honey,
-            onTertiary = Ink,
-            background = Paper,
-            onBackground = Ink,
-            surface = Color.White,
-            onSurface = Ink,
-            surfaceVariant = Color(0xFFF3EDE2),
-            onSurfaceVariant = Color(0xFF5C645E),
-            outline = SoftLine,
+        colorScheme = lightColorScheme(
+            primary = PrototypeColor.Purple,
+            onPrimary = PrototypeColor.White,
+            secondary = PrototypeColor.Blue,
+            onSecondary = PrototypeColor.White,
+            tertiary = PrototypeColor.Yellow,
+            onTertiary = PrototypeColor.Ink,
+            background = PrototypeColor.Background,
+            onBackground = PrototypeColor.Ink,
+            surface = PrototypeColor.White,
+            onSurface = PrototypeColor.Ink,
+            surfaceVariant = PrototypeColor.Line2,
+            onSurfaceVariant = PrototypeColor.Muted,
+            outline = PrototypeColor.Line,
         ),
         content = content,
     )
 }
 
-private data class TopicVisual(
-    val background: Color,
-    val bubble: Color,
-    val accent: Color,
-    val glyph: String,
-)
-
-private val topicVisuals = listOf(
-    TopicVisual(Color(0xFFFFC9A8), Color(0xFFFFE1CD), Color(0xFF8A4829), "◐"),
-    TopicVisual(Color(0xFFD4E8C0), Color(0xFFE5F2D8), Color(0xFF486E3A), "▣"),
-    TopicVisual(Color(0xFFC4DDF0), Color(0xFFD9EAF8), Color(0xFF294D73), "✈"),
-    TopicVisual(Color(0xFFEFC4D0), Color(0xFFF7D8E2), Color(0xFF91405A), "✦"),
-    TopicVisual(Color(0xFFF8E197), Color(0xFFFFEEC0), Color(0xFF806425), "◆"),
-    TopicVisual(Color(0xFFABDCCF), Color(0xFFC7ECE3), Color(0xFF246F61), "⌂"),
-    TopicVisual(Color(0xFFD9CEF2), Color(0xFFEAE1FA), Color(0xFF554281), "+"),
-    TopicVisual(Color(0xFFFFBBA6), Color(0xFFFFD7CB), Color(0xFF9A4B32), "●"),
-    TopicVisual(Color(0xFFE4D4AA), Color(0xFFF0E6C7), Color(0xFF705B2B), "◇"),
-    TopicVisual(Color(0xFFC8B8E5), Color(0xFFE0D6F1), Color(0xFF5A4A82), "◎"),
-)
-
-private fun topicVisual(index: Int): TopicVisual {
-    return topicVisuals[index % topicVisuals.size]
-}
+/* ============================================================
+ * Dictionaries home
+ * ============================================================ */
 
 @Composable
-private fun DictionaryHomeScreen(
+private fun DictionariesHomeScreen(
     topics: List<DictionaryTopic>,
-    userLanguage: LanguageOption,
-    learningLanguage: LanguageOption,
     onCreateClick: () -> Unit,
     onTopicClick: (String) -> Unit,
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = VocabeePadding.Horizontal.Large,
-            top = VocabeePadding.Vertical.Large,
-            end = VocabeePadding.Horizontal.Large,
-            bottom = 14.dp,
-        ),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    val totalWords = topics.sumOf { it.words.size }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(PrototypeColor.White),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            HomeTopControls(
-                userLanguage = userLanguage,
-                learningLanguage = learningLanguage,
-            )
-        }
-
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Column(
-                modifier = Modifier.padding(top = 26.dp, bottom = if (topics.isEmpty()) 0.dp else 18.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = vocabeeString(
-                        VocabeeString.HomeSummary,
-                        vocabeeQuantityString(VocabeeQuantityString.TopicCount, topics.size, topics.size).uppercase(),
-                        vocabeeQuantityString(
-                            VocabeeQuantityString.WordCount,
-                            topics.sumOf { it.words.size },
-                            topics.sumOf { it.words.size },
-                        ).uppercase(),
-                    ),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color(0xFF948A7D),
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = vocabeeString(VocabeeString.HomeTitle),
-                    style = MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Serif),
-                    color = Color(0xFF363029),
-                    fontWeight = FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-
-        if (topics.isEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                EmptyDictionaryState(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(390.dp),
-                    onCreateClick = onCreateClick,
-                )
-            }
-        }
-
-        itemsIndexed(
-            items = topics,
-            key = { _, topic -> topic.id },
-        ) { index, topic ->
-            TopicTile(
-                topic = topic,
-                visual = topicVisual(topic.coverIndex),
-                onClick = { onTopicClick(topic.id) },
-            )
-        }
-
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Spacer(modifier = Modifier.height(10.dp))
-        }
-    }
-}
-
-@Composable
-private fun EmptyDictionaryState(
-    modifier: Modifier = Modifier,
-    onCreateClick: () -> Unit,
-) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Box(
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
             modifier = Modifier
-                .size(132.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFFFFDCC6)),
-            contentAlignment = Alignment.Center,
+                .fillMaxSize()
+                .statusBarsPadding(),
+            contentPadding = PaddingValues(start = 22.dp, top = 14.dp, end = 22.dp, bottom = 104.dp),
+            horizontalArrangement = Arrangement.spacedBy(13.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp),
         ) {
-            Surface(
-                modifier = Modifier.size(72.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = Color.White,
-                shadowElevation = 5.dp,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "A",
-                        style = MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Serif),
-                        color = Color(0xFF8A4829),
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                HomeHeader(topicCount = topics.size, totalWords = totalWords)
+            }
+
+            if (topics.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    EmptyHomeState(
+                        modifier = Modifier.fillMaxWidth().height(470.dp),
+                        onCreateClick = onCreateClick,
+                    )
+                }
+            } else {
+                itemsIndexed(
+                    items = topics.reversed(),
+                    key = { _, topic -> topic.id },
+                ) { _, topic ->
+                    DictionaryCard(
+                        topic = topic,
+                        onClick = { onTopicClick(topic.id) },
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(26.dp))
-        Text(
-            text = vocabeeString(VocabeeString.EmptyDictionaryTitleLine1),
-            style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Serif),
-            color = Color(0xFF363029),
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = vocabeeString(VocabeeString.EmptyDictionaryTitleLine2),
-            style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Serif),
-            color = Color(0xFF363029),
-            fontWeight = FontWeight.Bold,
-        )
-
-        Spacer(modifier = Modifier.height(18.dp))
-        Text(
-            text = vocabeeString(VocabeeString.EmptyDictionarySubtitle),
-            modifier = Modifier.widthIn(max = 250.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color(0xFF756B60),
-            textAlign = TextAlign.Center,
-        )
-
-        Spacer(modifier = Modifier.height(22.dp))
-        Button(
-            onClick = onCreateClick,
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFF26C2F),
-                contentColor = Color.White,
-            ),
-            contentPadding = PaddingValues(
-                horizontal = VocabeePadding.Horizontal.Medium,
-                vertical = VocabeePadding.Vertical.Medium,
-            ),
-        ) {
-            Text("+", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = vocabeeString(VocabeeString.EmptyDictionaryCreateFirst),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-    }
-}
-
-@Composable
-private fun HomeTopControls(
-    userLanguage: LanguageOption,
-    learningLanguage: LanguageOption,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Surface(
-            color = Color(0xFFF4EFE8),
-            shape = CircleShape,
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 15.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        if (topics.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 20.dp, bottom = 20.dp)
+                    .size(62.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(PrototypeColor.Purple)
+                    .clickable(onClick = onCreateClick),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = userLanguage.shortName,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Ink,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "→",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF9D9286),
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = learningLanguage.shortName,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFFE96C35),
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        Surface(
-            modifier = Modifier.size(44.dp),
-            color = Color(0xFFF4EFE8),
-            shape = CircleShape,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(
-                    text = "⌕",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = Ink,
-                    fontWeight = FontWeight.SemiBold,
+                PrototypeLineIcon(
+                    icon = PrototypeIcon.Plus,
+                    modifier = Modifier.size(26.dp),
+                    color = PrototypeColor.White,
+                    strokeWidth = 2.4f,
                 )
             }
         }
@@ -596,69 +412,666 @@ private fun HomeTopControls(
 }
 
 @Composable
-private fun TopicTile(
-    topic: DictionaryTopic,
-    visual: TopicVisual,
-    onClick: () -> Unit,
-) {
+private fun HomeHeader(topicCount: Int, totalWords: Int) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp, bottom = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column {
+                Text(
+                    text = "Привіт, Надіє 👋",
+                    color = PrototypeColor.Muted,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.5.sp,
+                )
+                Text(
+                    text = "Словники",
+                    modifier = Modifier.padding(top = 3.dp),
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = PrototypeColor.Ink,
+                    letterSpacing = (-1.02).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            PrototypeLogo(modifier = Modifier.size(30.dp))
+        }
+
+        if (topicCount > 0) {
+            Row(
+                modifier = Modifier.padding(bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
+                MetricText(value = topicCount.toString(), unit = if (topicCount == 1) "словник" else "словники")
+                Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(PrototypeColor.Muted2))
+                MetricText(value = totalWords.toString(), unit = "слів зібрано")
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetricText(value: String, unit: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = value,
+            color = PrototypeColor.Ink,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+        )
+        Text(
+            text = " $unit",
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+        )
+    }
+}
+
+@Composable
+private fun DictionaryCard(topic: DictionaryTopic, onClick: () -> Unit) {
+    val theme = prototypeTopicTheme(topic.coverIndex)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(0.88f)
-            .clip(RoundedCornerShape(20.dp))
-            .background(visual.background)
-            .clickable(onClick = onClick)
-            .padding(16.dp),
+            .height(162.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(theme.color)
+            .clickable(onClick = onClick),
     ) {
-        Box(
+        HoneycombWatermark(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .size(78.dp)
-                .clip(CircleShape)
-                .background(visual.bubble),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = visual.glyph,
-                style = MaterialTheme.typography.titleLarge,
-                color = visual.accent,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-
-        Text(
-            text = wordCountLabel(topic.words.size),
-            modifier = Modifier.align(Alignment.TopStart),
-            style = MaterialTheme.typography.labelMedium,
-            color = visual.accent.copy(alpha = 0.74f),
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+                .offset(x = 26.dp, y = (-26).dp)
+                .size(120.dp),
         )
 
-        Column(
-            modifier = Modifier.align(Alignment.BottomStart),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+        Box(modifier = Modifier.fillMaxSize().padding(18.dp)) {
+            if (topic.updatedLabel is TopicUpdatedLabel.Today) {
+                Surface(
+                    modifier = Modifier.align(Alignment.TopStart),
+                    shape = CircleShape,
+                    color = PrototypeColor.Yellow,
+                ) {
+                    Text(
+                        text = "сьогодні",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        color = PrototypeColor.YellowText,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 11.5.sp,
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
+                Text(
+                    text = topic.title,
+                    color = PrototypeColor.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 17.5.sp,
+                    lineHeight = 21.sp,
+                    letterSpacing = (-0.175).sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(
+                    modifier = Modifier.padding(top = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = PrototypeColor.White.copy(alpha = 0.22f),
+                    ) {
+                        Text(
+                            text = "${topic.words.size} слів",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            color = PrototypeColor.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.5.sp,
+                        )
+                    }
+                    if (topic.updatedLabel !is TopicUpdatedLabel.Today) {
+                        Text(
+                            text = updatedLabelText(topic.updatedLabel),
+                            color = PrototypeColor.White.copy(alpha = 0.82f),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun updatedLabelText(label: TopicUpdatedLabel): String = when (label) {
+    TopicUpdatedLabel.Today -> "сьогодні"
+    TopicUpdatedLabel.Yesterday -> "вчора"
+    is TopicUpdatedLabel.DaysAgo -> "${label.count} дні тому"
+    is TopicUpdatedLabel.WeeksAgo -> "${label.count} тижні тому"
+}
+
+@Composable
+private fun EmptyHomeState(modifier: Modifier = Modifier, onCreateClick: () -> Unit) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        EmptyDictionariesIllustration(modifier = Modifier.size(width = 190.dp, height = 160.dp))
+        Spacer(modifier = Modifier.height(18.dp))
+        Text(
+            text = "Поки що порожньо",
+            fontSize = 21.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = PrototypeColor.Ink,
+            letterSpacing = (-0.21).sp,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "Створи свій перший тематичний словник — і починай збирати слова.",
+            modifier = Modifier.padding(top = 9.dp).widthIn(max = 280.dp),
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.Medium,
+            fontSize = 15.sp,
+            lineHeight = 23.sp,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(22.dp))
+        Row(
+            modifier = Modifier
+                .height(54.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(PrototypeColor.Purple)
+                .clickable(onClick = onCreateClick)
+                .padding(horizontal = 22.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
         ) {
-            Text(
-                text = topic.title,
-                style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Serif),
-                color = visual.accent,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+            PrototypeLineIcon(
+                icon = PrototypeIcon.Plus,
+                modifier = Modifier.size(19.dp),
+                color = PrototypeColor.White,
+                strokeWidth = 2.2f,
             )
             Text(
-                text = topicUpdatedLabel(topic.updatedLabel),
-                style = MaterialTheme.typography.bodySmall,
-                color = visual.accent.copy(alpha = 0.58f),
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                text = "Створити словник",
+                color = PrototypeColor.White,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 16.sp,
             )
         }
     }
 }
+
+@Composable
+private fun EmptyDictionariesIllustration(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val sx = size.width / 200f
+        val sy = size.height / 170f
+        fun x(v: Float) = v * sx
+        fun y(v: Float) = v * sy
+        fun rect(left: Float, top: Float, w: Float, h: Float, r: Float, color: Color, stroke: Color? = null) {
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(x(left), y(top)),
+                size = Size(x(w), y(h)),
+                cornerRadius = CornerRadius(x(r), y(r)),
+            )
+            if (stroke != null) {
+                drawRoundRect(
+                    color = stroke,
+                    topLeft = Offset(x(left), y(top)),
+                    size = Size(x(w), y(h)),
+                    cornerRadius = CornerRadius(x(r), y(r)),
+                    style = Stroke(width = x(1.5f)),
+                )
+            }
+        }
+
+        rect(44f, 92f, 112f, 40f, 13f, PrototypeColor.EmptyCardLight)
+        rect(36f, 60f, 128f, 42f, 13f, PrototypeColor.Tint)
+        rect(28f, 26f, 144f, 46f, 14f, PrototypeColor.White, PrototypeColor.EmptyCardStroke)
+        drawCircle(PrototypeColor.Yellow, radius = x(8f), center = Offset(x(150f), y(49f)))
+        drawRoundRect(
+            color = PrototypeColor.EmptyCardTextDark,
+            topLeft = Offset(x(74f), y(42f)),
+            size = Size(x(64f), y(8f)),
+            cornerRadius = CornerRadius(x(4f), y(4f)),
+        )
+        drawRoundRect(
+            color = PrototypeColor.EmptyCardTextLight,
+            topLeft = Offset(x(74f), y(55f)),
+            size = Size(x(40f), y(7f)),
+            cornerRadius = CornerRadius(x(3.5f), y(3.5f)),
+        )
+        val hexPts = listOf(
+            Offset(12f, 0f), Offset(6f, 10f), Offset(-6f, 10f),
+            Offset(-12f, 0f), Offset(-6f, -10f), Offset(6f, -10f),
+        )
+        val hexPath = Path().apply {
+            val cx = x(52f)
+            val cy = y(49f)
+            moveTo(cx + x(hexPts.first().x), cy + y(hexPts.first().y))
+            hexPts.drop(1).forEach { p -> lineTo(cx + x(p.x), cy + y(p.y)) }
+            close()
+        }
+        drawPath(hexPath, PrototypeColor.EmptyCardHex)
+    }
+}
+
+/* ============================================================
+ * Dictionary detail
+ * ============================================================ */
+
+@Composable
+private fun DictionaryDetailScreen(
+    topic: DictionaryTopic,
+    recentlyAddedWordId: String?,
+    onBack: () -> Unit,
+    onOpenLanguageSheet: () -> Unit,
+    onAddWordPill: (AddWordOrigin) -> Unit,
+) {
+    val accent = prototypeTopicTheme(topic.coverIndex).color
+    var pillOrigin by remember { mutableStateOf<AddWordOrigin?>(null) }
+    val density = LocalDensity.current
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(PrototypeColor.Background),
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                DetailHeader(
+                    topic = topic,
+                    accent = accent,
+                    onBack = onBack,
+                    onOpenLanguage = onOpenLanguageSheet,
+                )
+            }
+            if (topic.words.isEmpty()) {
+                item {
+                    DetailEmptyState(
+                        accent = accent,
+                        modifier = Modifier.fillMaxWidth().height(420.dp),
+                    )
+                }
+            } else {
+                items(topic.words, key = { it.id }) { word ->
+                    WordRow(
+                        word = word,
+                        accent = accent,
+                        highlighted = word.id == recentlyAddedWordId,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+            }
+        }
+
+        // Add Word pill
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 22.dp)
+                .fillMaxWidth()
+                .height(58.dp)
+                .clip(RoundedCornerShape(19.dp))
+                .background(accent)
+                .clickable {
+                    val origin = pillOrigin
+                    if (origin != null) onAddWordPill(origin)
+                }
+                .onGloballyPositioned { coords ->
+                    val pos = coords.positionInRoot()
+                    val sz = coords.size
+                    pillOrigin = AddWordOrigin(
+                        left = with(density) { pos.x.toDp() },
+                        top = with(density) { pos.y.toDp() },
+                        width = with(density) { sz.width.toDp() },
+                        height = with(density) { sz.height.toDp() },
+                    )
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                PrototypeLineIcon(
+                    icon = PrototypeIcon.Plus,
+                    modifier = Modifier.size(21.dp),
+                    color = PrototypeColor.White,
+                    strokeWidth = 2.4f,
+                )
+                Text(
+                    text = "Додати слово",
+                    color = PrototypeColor.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 17.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailHeader(
+    topic: DictionaryTopic,
+    accent: Color,
+    onBack: () -> Unit,
+    onOpenLanguage: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = accent,
+        shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
+    ) {
+        Box {
+            HoneycombWatermark(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 20.dp, y = (-10).dp)
+                    .size(120.dp),
+                color = PrototypeColor.White.copy(alpha = 0.18f),
+            )
+            Column(
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .padding(start = 18.dp, top = 2.dp, end = 18.dp, bottom = 24.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        modifier = Modifier.size(40.dp).clickable(onClick = onBack),
+                        shape = RoundedCornerShape(13.dp),
+                        color = PrototypeColor.White.copy(alpha = 0.18f),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            PrototypeLineIcon(
+                                icon = PrototypeIcon.ChevronLeft,
+                                modifier = Modifier.size(22.dp),
+                                color = PrototypeColor.White,
+                                strokeWidth = 2.2f,
+                            )
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(13.dp),
+                        color = PrototypeColor.White.copy(alpha = 0.16f),
+                        modifier = Modifier.clickable(onClick = onOpenLanguage),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(languageFlag(topic.sourceLanguage.code), fontSize = 15.sp)
+                            PrototypeLineIcon(
+                                icon = PrototypeIcon.ArrowRight,
+                                modifier = Modifier.size(13.dp),
+                                color = PrototypeColor.White.copy(alpha = 0.8f),
+                                strokeWidth = 2f,
+                            )
+                            Text(languageFlag(topic.targetLanguage.code), fontSize = 15.sp)
+                            PrototypeLineIcon(
+                                icon = PrototypeIcon.ChevronDown,
+                                modifier = Modifier.size(14.dp),
+                                color = PrototypeColor.White.copy(alpha = 0.8f),
+                                strokeWidth = 2.2f,
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    text = topic.title,
+                    color = PrototypeColor.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 28.sp,
+                    letterSpacing = (-0.56).sp,
+                    lineHeight = 32.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${topic.words.size} слів · ${updatedLabelText(topic.updatedLabel)}",
+                    modifier = Modifier.padding(top = 9.dp),
+                    color = PrototypeColor.White.copy(alpha = 0.82f),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.5.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WordRow(
+    word: WordEntry,
+    accent: Color,
+    highlighted: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    var open by remember(word.id) { mutableStateOf(false) }
+    Surface(
+        modifier = modifier.fillMaxWidth().clickable { open = !open },
+        shape = RoundedCornerShape(18.dp),
+        color = PrototypeColor.White,
+        shadowElevation = 2.dp,
+        border = if (highlighted) BorderStroke(1.dp, PrototypeColor.Yellow) else null,
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.padding(15.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text(
+                            text = word.source,
+                            color = PrototypeColor.Ink,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 18.sp,
+                            letterSpacing = (-0.18).sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "/${word.source.lowercase()}/",
+                            color = PrototypeColor.Muted2,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Text(
+                        text = word.translation,
+                        modifier = Modifier.padding(top = 3.dp),
+                        color = PrototypeColor.Muted,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                Surface(
+                    modifier = Modifier.size(38.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = PrototypeColor.Tint,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Sound,
+                            modifier = Modifier.size(17.dp),
+                            color = PrototypeColor.Purple,
+                            strokeWidth = 1.9f,
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier.width(30.dp).height(38.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PrototypeLineIcon(
+                        icon = PrototypeIcon.ChevronDown,
+                        modifier = Modifier.size(18.dp),
+                        color = accent,
+                        strokeWidth = 2f,
+                    )
+                }
+            }
+            if (open) {
+                Column(
+                    modifier = Modifier
+                        .padding(start = 13.dp, end = 13.dp, bottom = 13.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(
+                            Brush.verticalGradient(listOf(PrototypeColor.ContextCardTop, PrototypeColor.ContextCardBottom))
+                        )
+                        .border(BorderStroke(1.dp, PrototypeColor.ContextCardBorder), RoundedCornerShape(13.dp))
+                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                ) {
+                    Surface(shape = CircleShape, color = PrototypeColor.Tint) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            PrototypeLineIcon(
+                                icon = PrototypeIcon.Sparkle,
+                                modifier = Modifier.size(12.dp),
+                                color = PrototypeColor.Purple,
+                                strokeWidth = 1.7f,
+                            )
+                            Text(
+                                text = "AI приклад",
+                                color = PrototypeColor.Purple,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 11.sp,
+                                letterSpacing = 0.33.sp,
+                            )
+                        }
+                    }
+                    Text(
+                        text = aiExample(word.source),
+                        modifier = Modifier.padding(top = 9.dp),
+                        color = PrototypeColor.Ink,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.5.sp,
+                        lineHeight = 21.sp,
+                    )
+                    Text(
+                        text = "Короткий приклад використання слова «${word.translation}».",
+                        modifier = Modifier.padding(top = 4.dp),
+                        color = PrototypeColor.Muted,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.5.sp,
+                        lineHeight = 20.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun aiExample(word: String): String = "Use $word in a short sentence."
+
+@Composable
+private fun DetailEmptyState(accent: Color, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(horizontal = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        EmptyWordsIllustration(modifier = Modifier.size(width = 170.dp, height = 130.dp))
+        Text(
+            text = "Ще немає слів",
+            modifier = Modifier.padding(top = 18.dp),
+            fontSize = 21.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = PrototypeColor.Ink,
+            letterSpacing = (-0.21).sp,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "Натисни «+ Додати слово» нижче — введи або продиктуй слово, а решту підкаже AI.",
+            modifier = Modifier.padding(top = 9.dp).widthIn(max = 280.dp),
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.Medium,
+            fontSize = 15.sp,
+            lineHeight = 23.sp,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        PrototypeLineIcon(
+            icon = PrototypeIcon.ArrowRight,
+            modifier = Modifier.size(34.dp),
+            color = accent.copy(alpha = 0.72f),
+            strokeWidth = 2.2f,
+        )
+    }
+}
+
+@Composable
+private fun EmptyWordsIllustration(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val sx = size.width / 200f
+        val sy = size.height / 150f
+        fun x(v: Float) = v * sx
+        fun y(v: Float) = v * sy
+        drawRoundRect(
+            color = PrototypeColor.EmptyCardSoft,
+            topLeft = Offset(x(40f), y(34f)),
+            size = Size(x(120f), y(84f)),
+            cornerRadius = CornerRadius(x(14f), y(14f)),
+        )
+        drawRoundRect(
+            color = PrototypeColor.EmptyCardStroke2,
+            topLeft = Offset(x(40f), y(34f)),
+            size = Size(x(120f), y(84f)),
+            cornerRadius = CornerRadius(x(14f), y(14f)),
+            style = Stroke(width = x(1.5f)),
+        )
+        listOf(
+            Triple(58f, 56f, 62f) to 8f,
+            Triple(58f, 72f, 84f) to 8f,
+            Triple(58f, 88f, 48f) to 8f,
+        ).forEachIndexed { idx, (rect, h) ->
+            drawRoundRect(
+                color = if (idx == 0) PrototypeColor.EmptyCardWordDark else PrototypeColor.EmptyCardWordLight,
+                topLeft = Offset(x(rect.first), y(rect.second)),
+                size = Size(x(rect.third), y(h)),
+                cornerRadius = CornerRadius(x(4f), y(4f)),
+            )
+        }
+    }
+}
+
+/* ============================================================
+ * Bottom bar
+ * ============================================================ */
 
 @Composable
 private fun VocabeeBottomBar(
@@ -668,82 +1081,25 @@ private fun VocabeeBottomBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .background(PrototypeColor.White)
+            .border(BorderStroke(1.dp, PrototypeColor.Line), RoundedCornerShape(0.dp))
             .navigationBarsPadding()
-            .padding(start = 18.dp, end = 18.dp, bottom = 10.dp)
-            .height(74.dp),
+            .height(66.dp),
     ) {
-        Surface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(64.dp),
-            shape = RoundedCornerShape(24.dp),
-            color = Color.White,
-            shadowElevation = 12.dp,
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = VocabeePadding.Horizontal.Small),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                AppTab.entries.forEach { tab ->
-                    BottomTabButton(
-                        tab = tab,
-                        selected = selectedTab == tab,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onTabClick(tab) },
-                    )
-                }
+            AppTab.entries.forEach { tab ->
+                BottomTabButton(
+                    tab = tab,
+                    selected = selectedTab == tab,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onTabClick(tab) },
+                )
             }
         }
     }
-}
-
-@Composable
-private fun NewDictionaryFloatingButton(
-    compact: Boolean,
-    onClick: () -> Unit,
-) {
-    if (compact) {
-        FloatingActionButton(
-            onClick = onClick,
-            modifier = Modifier.size(56.dp),
-            shape = CircleShape,
-            containerColor = Color(0xFFF26C2F),
-            contentColor = Color.White,
-        ) {
-            Text(
-                text = "+",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Normal,
-            )
-        }
-        return
-    }
-
-    ExtendedFloatingActionButton(
-        onClick = onClick,
-        modifier = Modifier.height(56.dp),
-        shape = RoundedCornerShape(28.dp),
-        containerColor = Color(0xFFF26C2F),
-        contentColor = Color.White,
-        icon = {
-            Text(
-                text = "+",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Normal,
-            )
-        },
-        text = {
-            Text(
-                text = vocabeeString(VocabeeString.NewDictionary),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-    )
 }
 
 @Composable
@@ -753,811 +1109,146 @@ private fun BottomTabButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val contentColor = if (selected) Color(0xFFE96C35) else Color(0xFF8E857B)
-    val backgroundColor = if (selected) Color(0xFFFFF0E7) else Color.Transparent
-
-    Row(
-        modifier = Modifier
-            .then(modifier)
-            .height(42.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(backgroundColor)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = tab.icon,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = contentColor,
-        )
-        if (selected) {
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = vocabeeString(tab.labelKey),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = contentColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
-private fun TopicDetailScreen(
-    topic: DictionaryTopic,
-    recentlyAddedWordId: String?,
-    onBack: () -> Unit,
-    onKeyboardInputClick: () -> Unit,
-    onVoiceInputClick: () -> Unit,
-) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 84.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item {
-                TopicDetailHeader(
-                    topic = topic,
-                    onBack = onBack,
-                )
-            }
-
-            if (topic.words.isEmpty()) {
-                item {
-                    EmptyStateCard(
-                        title = vocabeeString(VocabeeString.EmptyTopicTitle),
-                        subtitle = vocabeeString(VocabeeString.EmptyTopicSubtitle),
-                    )
-                }
-            } else {
-                items(topic.words, key = { it.id }) { word ->
-                    DictionaryWordCard(
-                        word = word,
-                        highlighted = word.id == recentlyAddedWordId,
-                modifier = Modifier.padding(horizontal = VocabeePadding.Horizontal.Medium),
-                    )
-                }
-            }
-        }
-
-        TopicInputDock(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 18.dp, vertical = 10.dp),
-            onKeyboardInputClick = onKeyboardInputClick,
-            onVoiceInputClick = onVoiceInputClick,
-        )
-    }
-}
-
-@Composable
-private fun TopicDetailHeader(
-    topic: DictionaryTopic,
-    onBack: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color(0xFFC4DDF0),
-        shape = RoundedCornerShape(bottomStart = 0.dp, bottomEnd = 0.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(
-                start = VocabeePadding.Horizontal.Medium,
-                top = 16.dp,
-                end = VocabeePadding.Horizontal.Medium,
-                bottom = 18.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            VocabeeTopBar(
-                navigationContainerColor = Color.White.copy(alpha = 0.8f),
-                navigationContentColor = Color(0xFF294D73),
-                onNavigateBack = onBack,
-                actions = listOf(
-                    VocabeeTopBarAction.Custom {
-                        Surface(
-                            modifier = Modifier.size(34.dp),
-                            shape = CircleShape,
-                            color = Color.White.copy(alpha = 0.62f),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text("⌁", style = MaterialTheme.typography.titleMedium, color = Color(0xFF294D73))
-                            }
-                        }
-                    },
-                ),
-            )
-            Text(
-                text = vocabeeString(
-                    VocabeeString.HomeSummary,
-                    wordCountLabel(topic.words.size),
-                    topicUpdatedLabel(topic.updatedLabel),
-                ).uppercase(),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF4D7296),
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = topic.title,
-                style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Serif),
-                color = Color(0xFF294D73),
-                fontWeight = FontWeight.Medium,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TopicActionPill(text = vocabeeString(VocabeeString.TopicActionPractice))
-                TopicActionPill(text = vocabeeString(VocabeeString.TopicActionShuffle))
-            }
-        }
-    }
-}
-
-@Composable
-private fun TopicActionPill(text: String) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = Color(0xFFE6F2FB),
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFF294D73),
-            fontWeight = FontWeight.Bold,
-        )
-    }
-}
-
-@Composable
-private fun DictionaryWordCard(
-    word: WordEntry,
-    highlighted: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = Color.White,
-        border = BorderStroke(
-            width = if (highlighted) 1.dp else 0.dp,
-            color = if (highlighted) Color(0xFFF26C2F) else Color.Transparent,
-        ),
-    ) {
-        Box {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = VocabeePadding.Vertical.Medium),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = word.translation,
-                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Serif),
-                    color = Color(0xFF363029),
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = wordPronunciation(word.translation),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF8F857B),
-                )
-                Text(
-                    text = word.source,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF363029),
-                    fontWeight = FontWeight.Medium,
-                )
-                Text(
-                    text = "\"${sampleSentence(word.translation)}\"",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFB0A69A),
-                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                )
-            }
-            if (highlighted) {
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 8.dp, end = 10.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFFF26C2F),
-                ) {
-                    Text(
-                        text = vocabeeString(VocabeeString.JustAdded),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TopicInputDock(
-    modifier: Modifier = Modifier,
-    onKeyboardInputClick: () -> Unit,
-    onVoiceInputClick: () -> Unit,
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        color = Color.White,
-        shadowElevation = 8.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(
-                start = VocabeePadding.Horizontal.Small,
-                top = VocabeePadding.Vertical.Small,
-                end = 8.dp,
-                bottom = VocabeePadding.Vertical.Small,
-            ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFFF8F2EA))
-                    .clickable(onClick = onKeyboardInputClick)
-                    .padding(horizontal = VocabeePadding.Horizontal.Small),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("⌨", style = MaterialTheme.typography.labelMedium, color = Color(0xFF8F857B))
-                Text(
-                    text = vocabeeString(VocabeeString.KeyboardInputPlaceholder),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF8F857B),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Surface(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clickable(onClick = onVoiceInputClick),
-                shape = CircleShape,
-                color = Color(0xFFF26C2F),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = vocabeeString(VocabeeString.Mic),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun KeyboardInputScreen(
-    topic: DictionaryTopic,
-    translationOptionsFor: (DictionaryTopic, String) -> List<TranslationOption>,
-    onRequestMachineTranslation: (String) -> Unit,
-    onBack: () -> Unit,
-    onAddWord: (String, String) -> Unit,
-) {
-    var input by remember(topic.id) { mutableStateOf("") }
-    val focusRequester = remember { FocusRequester() }
-    val cleanedInput = input.trim()
-    val suggestions = translationOptionsFor(topic, cleanedInput)
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
-
-    LaunchedEffect(topic.id, cleanedInput) {
-        if (cleanedInput.isNotBlank()) {
-            onRequestMachineTranslation(cleanedInput)
-        }
-    }
-
+    val color = if (selected) PrototypeColor.Purple else PrototypeColor.Muted2
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
-            .background(Paper)
-            .padding(horizontal = VocabeePadding.Horizontal.Medium, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        VocabeeTopBar(
-            title = {
-                Text(
-                    text = topic.title.uppercase(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF948A7D),
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            },
-            navigationIcon = VocabeeNavigationIcon.Close,
-            navigationContainerColor = Color.White,
-            navigationContentColor = Color(0xFF8F857B),
-            onNavigateBack = onBack,
-            actions = listOf(
-                VocabeeTopBarAction.Text(
-                    text = vocabeeString(VocabeeString.Done),
-                    textColor = Color(0xFFE96C35),
-                    action = onBack,
-                ),
-            ),
-        )
-
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = if (cleanedInput.isBlank()) {
-                    vocabeeString(VocabeeString.KeyboardEnterWord)
-                } else {
-                    vocabeeString(VocabeeString.KeyboardSearchTranslations)
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFFE96C35),
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = vocabeeString(
-                    VocabeeString.TranslationHint,
-                    topic.sourceLanguage.shortName.lowercase(),
-                    topic.targetLanguage.shortName.lowercase(),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF8F857B),
-            )
-        }
-
-        OutlinedTextField(
-            value = input,
-            onValueChange = { input = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester),
-            placeholder = { Text(vocabeeString(VocabeeString.KeyboardInputPlaceholder)) },
-            singleLine = true,
-            trailingIcon = {
-                if (input.isNotBlank()) {
-                    Text(
-                        text = "×",
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable { input = "" }
-                            .padding(8.dp),
-                        color = Color(0xFF8F857B),
-                    )
-                }
-            },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            shape = RoundedCornerShape(12.dp),
-        )
-
-        if (cleanedInput.isBlank()) {
-            KeyboardPromptList(
-                suggestions = listOf(
-                    vocabeeString(VocabeeString.KeyboardSuggestionAirplane),
-                    vocabeeString(VocabeeString.KeyboardSuggestionDepart),
-                    vocabeeString(VocabeeString.KeyboardSuggestionLuggage),
-                    vocabeeString(VocabeeString.KeyboardSuggestionTicket),
-                ),
-                onSuggestionClick = { input = it },
-            )
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = vocabeeString(VocabeeString.KeyboardFoundCount, suggestions.size),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF948A7D),
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = vocabeeString(VocabeeString.KeyboardTapToAdd),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFE96C35),
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                suggestions.forEach { option ->
-                    KeyboardTranslationOptionRow(
-                        source = cleanedInput,
-                        option = option,
-                        onClick = {
-                            if (!option.alreadyAdded) {
-                                onAddWord(cleanedInput, option.value)
-                            }
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun KeyboardPromptList(
-    suggestions: List<String>,
-    onSuggestionClick: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        suggestions.forEach { suggestion ->
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSuggestionClick(suggestion) },
-                shape = RoundedCornerShape(10.dp),
-                color = Color.White,
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = VocabeePadding.Horizontal.Small, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Surface(
-                        modifier = Modifier.size(22.dp),
-                        shape = RoundedCornerShape(7.dp),
-                        color = Color(0xFFF4EFE8),
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text("→", style = MaterialTheme.typography.labelSmall, color = Color(0xFF8F857B))
-                        }
-                    }
-                    Text(
-                        text = vocabeeString(VocabeeString.KeyboardSuggestion, suggestion),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF756B60),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun KeyboardTranslationOptionRow(
-    source: String,
-    option: TranslationOption,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = Color.White,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = VocabeePadding.Horizontal.Small, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = option.value,
-                    style = MaterialTheme.typography.titleSmall.copy(fontFamily = FontFamily.Serif),
-                    color = Color(0xFF363029),
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = vocabeeString(VocabeeString.TranslationOptionSource, source),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF756B60),
-                )
-                Text(
-                    text = "\"${sampleSentence(option.value)}\"",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFB0A69A),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Surface(
-                modifier = Modifier
-                    .size(34.dp)
-                    .then(
-                        if (option.alreadyAdded) {
-                            Modifier
-                        } else {
-                            Modifier.clickable(onClick = onClick)
-                        }
-                    ),
-                shape = CircleShape,
-                color = if (option.alreadyAdded) Color(0xFFEDE1D0) else Color(0xFFF26C2F),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = if (option.alreadyAdded) "✓" else "+",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = if (option.alreadyAdded) Color(0xFF8F806F) else Color.White,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun VoiceInputScreen(
-    topic: DictionaryTopic,
-    speechInputController: SpeechInputController,
-    translationOptionsFor: (DictionaryTopic, String) -> List<TranslationOption>,
-    onRequestMachineTranslation: (String) -> Unit,
-    onBack: () -> Unit,
-    onAddWord: (String, String) -> Unit,
-) {
-    var isListening by remember { mutableStateOf(false) }
-    var partialText by remember { mutableStateOf("") }
-    var heardText by remember { mutableStateOf("") }
-    var speechError by remember { mutableStateOf<String?>(null) }
-    val displayText = when {
-        isListening -> partialText.ifBlank { heardText }.ifBlank { vocabeeString(VocabeeString.VoiceSpeakPrompt) }
-        heardText.isNotBlank() -> heardText
-        else -> vocabeeString(VocabeeString.VoiceHoldMic)
-    }
-    val suggestions = translationOptionsFor(topic, heardText)
-
-    DisposableEffect(speechInputController) {
-        onDispose { speechInputController.stopListening() }
-    }
-
-    LaunchedEffect(topic.id, heardText) {
-        if (heardText.isNotBlank()) {
-            onRequestMachineTranslation(heardText)
-        }
-    }
-
-    fun startHoldToTalk() {
-        partialText = ""
-        heardText = ""
-        speechError = null
-        speechInputController.startListening(
-            languageTag = topic.sourceLanguage.speechTag,
-            onPartialResult = { recognizedText ->
-                partialText = recognizedText
-            },
-            onResult = { recognizedText ->
-                heardText = recognizedText.trim()
-                partialText = ""
-                isListening = false
-            },
-            onError = { message ->
-                speechError = message
-                partialText = ""
-                isListening = false
-            },
-            onListeningChanged = { listening ->
-                isListening = listening
-            },
-        )
-    }
-
-    fun stopHoldToTalk() {
-        speechInputController.stopListening()
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Paper)
-            .padding(horizontal = 22.dp, vertical = 18.dp),
-    ) {
-        VocabeeTopBar(
-            title = {
-                Text(
-                    text = topic.title.uppercase(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF948A7D),
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            },
-            navigationIcon = VocabeeNavigationIcon.Close,
-            navigationContainerColor = Color.White,
-            navigationContentColor = Color(0xFF8F857B),
-            onNavigateBack = {
-                speechInputController.stopListening()
-                onBack()
-            },
-        )
-
-        if (isListening) {
-            ListeningTakeoverContent(
-                displayText = displayText,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            )
-        } else {
-            VoiceResultsContent(
-                heardText = heardText,
-                speechError = speechError,
-                suggestions = suggestions,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                onAddWord = { translation ->
-                    onAddWord(heardText, translation)
-                },
-            )
-        }
-
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = if (isListening) {
-                    vocabeeString(VocabeeString.VoiceReleaseToStop)
-                } else {
-                    vocabeeString(VocabeeString.VoiceHoldAndSpeak)
-                },
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF948A7D),
-                fontWeight = FontWeight.Bold,
-            )
-            HoldToTalkButton(
-                enabled = speechInputController.isSupported,
-                isListening = isListening,
-                onHoldStart = ::startHoldToTalk,
-                onHoldEnd = ::stopHoldToTalk,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ListeningTakeoverContent(
-    displayText: String,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier = modifier,
+            .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        PrototypeLineIcon(
+            icon = tab.prototypeIcon,
+            modifier = Modifier.size(24.dp),
+            color = color,
+            strokeWidth = if (selected) 2.1f else 1.8f,
+        )
+        Spacer(modifier = Modifier.height(5.dp))
         Text(
-            text = vocabeeString(VocabeeString.VoiceListening),
-            style = MaterialTheme.typography.labelSmall,
-            color = Color(0xFFE96C35),
+            text = bottomBarLabel(tab),
+            color = color,
             fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = compactSpokenText(displayText),
-            style = MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Serif),
-            color = Color(0xFF363029),
+            fontSize = 11.sp,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
-        Spacer(modifier = Modifier.height(14.dp))
-        VoiceWaveform()
     }
 }
 
+private fun bottomBarLabel(tab: AppTab): String = when (tab) {
+    AppTab.Dictionary -> "Словники"
+    AppTab.Practice -> "Тренування"
+    AppTab.Settings -> "Профіль"
+}
+
+private val AppTab.prototypeIcon: PrototypeIcon
+    get() = when (this) {
+        AppTab.Dictionary -> PrototypeIcon.Book
+        AppTab.Practice -> PrototypeIcon.Cards
+        AppTab.Settings -> PrototypeIcon.User
+    }
+
+/* ============================================================
+ * Practice screen
+ * ============================================================ */
+
 @Composable
-private fun VoiceResultsContent(
-    heardText: String,
-    speechError: String?,
-    suggestions: List<TranslationOption>,
-    modifier: Modifier = Modifier,
-    onAddWord: (String) -> Unit,
-) {
-    Column(
-        modifier = modifier.padding(top = VocabeePadding.Vertical.Large),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        if (heardText.isBlank()) {
-            Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = speechError ?: vocabeeString(VocabeeString.VoiceInitialInstruction),
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (speechError == null) Color(0xFF756B60) else MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.weight(1f))
-        } else {
-            Text(
-                text = vocabeeString(VocabeeString.VoiceHeard),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color(0xFF948A7D),
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = heardText,
-                style = MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Serif),
-                color = Color(0xFF363029),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = vocabeeString(VocabeeString.VoiceRetry),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF8F857B),
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            suggestions.forEach { option ->
-                VoiceTranslationOptionRow(
-                    source = heardText,
-                    option = option,
-                    onClick = {
-                        if (!option.alreadyAdded) {
-                            onAddWord(option.value)
-                        }
-                    },
-                )
-            }
+private fun PracticeScreen(topics: List<DictionaryTopic>) {
+    val deck = remember(topics) {
+        topics.flatMap { topic ->
+            topic.words.map { word -> PracticeDeckCard(word, topic.title, prototypeTopicTheme(topic.coverIndex).color) }
+        }.take(10)
+    }
+    var index by remember(deck) { mutableIntStateOf(0) }
+    var flipped by remember(deck) { mutableStateOf(false) }
+    var known by remember(deck) { mutableIntStateOf(0) }
+    var done by remember(deck) { mutableStateOf(false) }
+
+    fun answer(isKnown: Boolean) {
+        if (isKnown) known += 1
+        if (index + 1 >= deck.size) done = true
+        else {
+            flipped = false
+            index += 1
         }
     }
-}
 
-@Composable
-private fun VoiceTranslationOptionRow(
-    source: String,
-    option: TranslationOption,
-    onClick: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = Color.White,
+    Column(
+        modifier = Modifier.fillMaxSize().background(PrototypeColor.Background).statusBarsPadding(),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = VocabeePadding.Horizontal.Small, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.padding(start = 24.dp, top = 8.dp, end = 24.dp, bottom = 4.dp)) {
+            Text(
+                text = "Тренування",
+                fontSize = 30.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = PrototypeColor.Ink,
+                letterSpacing = (-0.6).sp,
+            )
+            if (deck.isNotEmpty() && !done) {
                 Text(
-                    text = option.value,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color(0xFF363029),
+                    text = "${index + 1} / ${deck.size}",
+                    modifier = Modifier.padding(top = 14.dp, bottom = 8.dp),
+                    color = PrototypeColor.Muted,
                     fontWeight = FontWeight.Bold,
+                    fontSize = 13.5.sp,
                 )
-                Text(
-                    text = source.lowercase(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF8F857B),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = translationOptionNote(option.note),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFB0A69A),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(7.dp)
+                        .clip(CircleShape)
+                        .background(PrototypeColor.ProgressTrack),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(((index + 1).toFloat() / deck.size).coerceIn(0f, 1f))
+                            .height(7.dp)
+                            .clip(CircleShape)
+                            .background(PrototypeColor.Purple),
+                    )
+                }
             }
-            Surface(
-                modifier = Modifier
-                    .size(32.dp)
-                    .then(
-                        if (option.alreadyAdded) {
-                            Modifier
-                        } else {
-                            Modifier.clickable(onClick = onClick)
-                        }
-                    ),
-                shape = CircleShape,
-                color = if (option.alreadyAdded) Color(0xFFEDE1D0) else Color(0xFFF26C2F),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = if (option.alreadyAdded) "✓" else "+",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = if (option.alreadyAdded) Color(0xFF8F806F) else Color.White,
+        }
+
+        when {
+            deck.isEmpty() -> PracticeEmptyState(modifier = Modifier.weight(1f))
+            done -> PracticeDoneState(
+                known = known,
+                total = deck.size,
+                onRestart = {
+                    index = 0; flipped = false; known = 0; done = false
+                },
+                modifier = Modifier.weight(1f),
+            )
+            else -> {
+                val card = deck[index]
+                PracticeFlipCard(
+                    card = card,
+                    flipped = flipped,
+                    onFlip = { flipped = !flipped },
+                    modifier = Modifier.weight(1f).padding(horizontal = 26.dp, vertical = 18.dp),
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(start = 24.dp, end = 24.dp, bottom = 28.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    PracticeAnswerButton(
+                        text = "Не знаю",
+                        icon = PrototypeIcon.Close,
+                        color = Color(0xFFC2410C),
+                        background = PrototypeColor.NotePeach,
+                        modifier = Modifier.weight(1f),
+                        onClick = { answer(false) },
+                    )
+                    PracticeAnswerButton(
+                        text = "Знаю",
+                        icon = PrototypeIcon.Check,
+                        color = Color(0xFF15803D),
+                        background = PrototypeColor.NoteGreen,
+                        modifier = Modifier.weight(1f),
+                        onClick = { answer(true) },
                     )
                 }
             }
@@ -1565,267 +1256,270 @@ private fun VoiceTranslationOptionRow(
     }
 }
 
-@Composable
-private fun HoldToTalkButton(
-    enabled: Boolean,
-    isListening: Boolean,
-    onHoldStart: () -> Unit,
-    onHoldEnd: () -> Unit,
-) {
-    val outerColor = if (isListening) Color(0xFFFFDEC8) else Color(0xFFFFEEE3)
-    val innerColor = if (enabled) Color(0xFFF26C2F) else Color(0xFFCDBFB1)
+private data class PracticeDeckCard(
+    val word: WordEntry,
+    val topicTitle: String,
+    val accent: Color,
+)
 
-    Box(
-        modifier = Modifier
-            .size(92.dp)
-            .clip(CircleShape)
-            .background(outerColor),
-        contentAlignment = Alignment.Center,
+@Composable
+private fun PracticeEmptyState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(horizontal = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Canvas(modifier = Modifier.size(160.dp, 110.dp)) {
+            val w = size.width
+            val h = size.height
+            drawRoundRect(
+                color = PrototypeColor.EmptyCardLight,
+                topLeft = Offset(w * 0.2f, h * 0.2f),
+                size = Size(w * 0.6f, h * 0.6f),
+                cornerRadius = CornerRadius(20f, 20f),
+            )
+        }
+        Text(
+            text = "Немає слів для повторення",
+            modifier = Modifier.padding(top = 18.dp),
+            fontSize = 21.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = PrototypeColor.Ink,
+            letterSpacing = (-0.21).sp,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "Додай слова у словники — і вони з'являться тут для тренування.",
+            modifier = Modifier.padding(top = 9.dp),
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.Medium,
+            fontSize = 15.sp,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
+private fun PracticeFlipCard(
+    card: PracticeDeckCard,
+    flipped: Boolean,
+    onFlip: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth().clickable(onClick = onFlip),
+        shape = RoundedCornerShape(28.dp),
+        color = if (flipped) card.accent else PrototypeColor.White,
+        border = if (flipped) null else BorderStroke(2.dp, card.accent),
+        shadowElevation = 14.dp,
     ) {
         Box(
-            modifier = Modifier
-                .size(68.dp)
-                .clip(CircleShape)
-                .background(innerColor)
-                .then(
-                    if (enabled) {
-                        Modifier.pointerInput(Unit) {
-                            detectTapGestures(
-                                onPress = {
-                                    onHoldStart()
-                                    try {
-                                        tryAwaitRelease()
-                                    } finally {
-                                        onHoldEnd()
-                                    }
-                                },
-                            )
-                        }
-                    } else {
-                        Modifier
-                    }
-                ),
+            modifier = Modifier.fillMaxSize().padding(30.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = vocabeeString(VocabeeString.Mic),
-                style = MaterialTheme.typography.labelLarge,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-            )
+            if (flipped) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = card.word.translation,
+                        color = PrototypeColor.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 32.sp,
+                        letterSpacing = (-0.64).sp,
+                        textAlign = TextAlign.Center,
+                    )
+                    Column(
+                        modifier = Modifier
+                            .padding(top = 20.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(PrototypeColor.White.copy(alpha = 0.16f))
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = "Use ${card.word.source} in a short sentence.",
+                            color = PrototypeColor.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.5.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "Короткий приклад зі словом «${card.word.translation}».",
+                            modifier = Modifier.padding(top = 6.dp),
+                            color = PrototypeColor.White.copy(alpha = 0.82f),
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Surface(
+                        shape = CircleShape,
+                        color = card.accent.copy(alpha = 0.12f),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier.size(8.dp).clip(CircleShape).background(card.accent),
+                            )
+                            Text(
+                                text = card.topicTitle,
+                                color = card.accent,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Text(
+                        text = card.word.source,
+                        modifier = Modifier.padding(top = 34.dp),
+                        color = PrototypeColor.Ink,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 40.sp,
+                        letterSpacing = (-1.2).sp,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        text = "/${card.word.source.lowercase()}/",
+                        modifier = Modifier.padding(top = 8.dp),
+                        color = PrototypeColor.Muted2,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                    )
+                    Surface(
+                        modifier = Modifier.padding(top = 18.dp).size(48.dp),
+                        shape = RoundedCornerShape(15.dp),
+                        color = PrototypeColor.NeutralSurface,
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            PrototypeLineIcon(
+                                icon = PrototypeIcon.Sound,
+                                modifier = Modifier.size(21.dp),
+                                color = PrototypeColor.Purple,
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = "Торкнись, щоб побачити переклад",
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    color = PrototypeColor.Muted2,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.5.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun VoiceWaveform() {
-    val heights = listOf(14, 22, 10, 26, 18, 34, 20, 38, 18, 30, 14, 28, 22, 36, 16, 24, 12, 32, 20)
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        heights.forEach { height ->
-            Box(
-                modifier = Modifier
-                    .width(2.dp)
-                    .height(height.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFF26C2F)),
-            )
-        }
-    }
-}
-
-private fun compactSpokenText(value: String): String {
-    val cleaned = value.trim()
-    return if (cleaned.length > 10) {
-        "${cleaned.take(9)}..."
-    } else {
-        cleaned
-    }
-}
-
-private fun wordPronunciation(word: String): String {
-    val normalized = word.lowercase()
-    return when (normalized) {
-        "depart" -> "v. /dɪˈpɑːrt/"
-        "boarding pass" -> "n. /ˈbɔːrdɪŋ pæs/"
-        "overhead bin" -> "n. /ˈoʊvərhed bɪn/"
-        "turbulence" -> "n. /ˈtɜːrbjələns/"
-        "luggage" -> "n. /ˈlʌɡɪdʒ/"
-        "airport" -> "n. /ˈerpɔːrt/"
-        else -> "/${normalized.take(12)}/"
-    }
-}
-
-@Composable
-private fun sampleSentence(word: String): String {
-    return when (word.lowercase()) {
-        "depart" -> vocabeeString(VocabeeString.SampleSentenceDepart)
-        "boarding pass" -> vocabeeString(VocabeeString.SampleSentenceBoardingPass)
-        "overhead bin" -> vocabeeString(VocabeeString.SampleSentenceOverheadBin)
-        "turbulence" -> vocabeeString(VocabeeString.SampleSentenceTurbulence)
-        "luggage" -> vocabeeString(VocabeeString.SampleSentenceLuggage)
-        "airport" -> vocabeeString(VocabeeString.SampleSentenceAirport)
-        else -> vocabeeString(VocabeeString.SampleSentenceDefault, word)
-    }
-}
-
-@Composable
-private fun TranslationOptionRow(
-    option: TranslationOption,
+private fun PracticeAnswerButton(
+    text: String,
+    icon: PrototypeIcon,
+    color: Color,
+    background: Color,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        color = Color(0xFFF6FAF8),
-        shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD9E8E0)),
+        modifier = modifier.height(62.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(19.dp),
+        color = PrototypeColor.White,
+        border = BorderStroke(2.dp, PrototypeColor.Line),
     ) {
         Row(
-            modifier = Modifier.padding(
-                horizontal = VocabeePadding.Horizontal.Small,
-                vertical = VocabeePadding.Vertical.Medium,
-            ),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = option.value,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = translationOptionNote(option.note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Surface(modifier = Modifier.size(30.dp), shape = CircleShape, color = background) {
+                Box(contentAlignment = Alignment.Center) {
+                    PrototypeLineIcon(
+                        icon = icon,
+                        modifier = Modifier.size(20.dp),
+                        color = color,
+                        strokeWidth = 2.4f,
+                    )
+                }
             }
+            Spacer(modifier = Modifier.width(9.dp))
             Text(
-                text = "+",
-                style = MaterialTheme.typography.titleLarge,
-                color = Meadow,
-                fontWeight = FontWeight.Bold,
+                text = text,
+                color = color,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 16.5.sp,
             )
         }
     }
 }
 
 @Composable
-private fun WordCard(word: WordEntry) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color.White,
-        shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, SoftLine),
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .clip(CircleShape)
-                    .background(Meadow),
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = word.source,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = word.translation,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PracticeScreen(topics: List<DictionaryTopic>) {
+private fun PracticeDoneState(
+    known: Int,
+    total: Int,
+    onRestart: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val percent = if (total == 0) 0 else (known * 100 / total)
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = VocabeePadding.Horizontal.Large, vertical = VocabeePadding.Vertical.Large),
+        modifier = modifier.padding(horizontal = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Text(
-            text = vocabeeString(VocabeeString.PracticeEyebrow),
-            style = MaterialTheme.typography.labelMedium,
-            color = Color(0xFF948A7D),
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            text = vocabeeString(VocabeeString.PracticeTitle),
-            style = MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Serif),
-            color = Color(0xFF363029),
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(108.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFFD9EBC2)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "ϟ",
-                    style = MaterialTheme.typography.displayMedium,
-                    color = Color(0xFF486E3A),
-                    fontWeight = FontWeight.Bold,
+        Box(contentAlignment = Alignment.Center) {
+            Canvas(modifier = Modifier.size(150.dp)) {
+                val stroke = 12.dp.toPx()
+                drawCircle(
+                    color = PrototypeColor.ProgressRing,
+                    radius = size.minDimension / 2f - stroke / 2f,
+                    style = Stroke(width = stroke),
+                )
+                drawArc(
+                    color = PrototypeColor.Purple,
+                    startAngle = -90f,
+                    sweepAngle = 360f * (percent / 100f),
+                    useCenter = false,
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
                 )
             }
-            Spacer(modifier = Modifier.height(20.dp))
             Text(
-                text = vocabeeString(VocabeeString.PracticeComingSoonLine1),
-                style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Serif),
-                color = Color(0xFF363029),
-                textAlign = TextAlign.Center,
+                text = "$percent%",
+                fontSize = 34.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = PrototypeColor.Purple,
+                letterSpacing = (-0.68).sp,
             )
-            Text(
-                text = vocabeeString(VocabeeString.PracticeComingSoonLine2),
-                style = MaterialTheme.typography.headlineSmall.copy(fontFamily = FontFamily.Serif),
-                color = Color(0xFF363029),
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = vocabeeString(VocabeeString.PracticeSubtitle),
-                modifier = Modifier.widthIn(max = 260.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF756B60),
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(18.dp))
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = Color(0xFFEDE1D0),
-            ) {
-                Text(
-                    text = vocabeeString(VocabeeString.InDevelopment),
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFF8F806F),
-                    fontWeight = FontWeight.Bold,
-                )
-            }
         }
+        Text(
+            text = "Чудова робота! 🎉",
+            modifier = Modifier.padding(top = 22.dp),
+            fontSize = 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = PrototypeColor.Ink,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "Ти знаєш $known із $total слів цього раунду.",
+            modifier = Modifier.padding(top = 9.dp),
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.Medium,
+            fontSize = 15.5.sp,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(26.dp))
+        PrimaryPillButton(label = "Ще раунд", onClick = onRestart)
     }
 }
+
+/* ============================================================
+ * Profile
+ * ============================================================ */
 
 @Composable
 private fun ProfileScreen(
@@ -1839,147 +1533,176 @@ private fun ProfileScreen(
     onSpeakingClick: () -> Unit,
     onLearningClick: () -> Unit,
 ) {
+    val totalWords = topics.sumOf { it.words.size }
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = VocabeePadding.Horizontal.Large,
-            top = VocabeePadding.Vertical.Large,
-            end = VocabeePadding.Horizontal.Large,
-            bottom = 14.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.fillMaxSize().background(PrototypeColor.Background).statusBarsPadding(),
+        contentPadding = PaddingValues(start = 22.dp, top = 14.dp, end = 22.dp, bottom = 104.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
-            ) {
-                Column {
-                    Text(
-                        text = vocabeeString(VocabeeString.SettingsEyebrow),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF948A7D),
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = vocabeeString(VocabeeString.ProfileTitle),
-                        style = MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Serif),
-                        color = Color(0xFF363029),
-                    )
-                }
-                Surface(
-                    modifier = Modifier.size(36.dp),
-                    shape = CircleShape,
-                    color = Color(0xFFF4EFE8),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "⌁",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color(0xFFE96C35),
-                            fontWeight = FontWeight.Bold,
+            Text(
+                text = "Профіль",
+                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                fontSize = 30.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = PrototypeColor.Ink,
+                letterSpacing = (-0.6).sp,
+            )
+        }
+        item { ProfileIdentityCard() }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                ProfileStat(
+                    icon = PrototypeIcon.Flame,
+                    value = "7",
+                    label = "днів поспіль",
+                    tint = PrototypeColor.StatFlameBg,
+                    color = PrototypeColor.StatFlameText,
+                    modifier = Modifier.weight(1f),
+                )
+                ProfileStat(
+                    icon = PrototypeIcon.Bookmark,
+                    value = totalWords.toString(),
+                    label = "слів збережено",
+                    tint = PrototypeColor.Tint,
+                    color = PrototypeColor.Purple,
+                    modifier = Modifier.weight(1f),
+                )
+                ProfileStat(
+                    icon = PrototypeIcon.Cards,
+                    value = "12",
+                    label = "тренувань",
+                    tint = PrototypeColor.StatTrainBg,
+                    color = PrototypeColor.StatTrainText,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        item {
+            SectionLabel("Мови за замовчуванням")
+            SettingsGroup {
+                SettingRow(
+                    leading = { Text(languageFlag(userLanguage.code), fontSize = 20.sp) },
+                    label = "Я розмовляю",
+                    sub = languageName(userLanguage.code),
+                    onClick = onSpeakingClick,
+                )
+                ProfileSettingsDivider()
+                SettingRow(
+                    leading = { Text(languageFlag(learningLanguage.code), fontSize = 20.sp) },
+                    label = "Я вивчаю",
+                    sub = languageName(learningLanguage.code),
+                    onClick = onLearningClick,
+                )
+            }
+            Text(
+                text = "Нові словники створюються з цією парою мов автоматично.",
+                modifier = Modifier.padding(start = 4.dp, top = 9.dp, end = 4.dp),
+                color = PrototypeColor.Muted2,
+                fontWeight = FontWeight.Medium,
+                fontSize = 12.5.sp,
+                lineHeight = 18.sp,
+            )
+        }
+        item {
+            SectionLabel("Налаштування")
+            SettingsGroup {
+                SettingRow(
+                    leading = {
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Bell,
+                            modifier = Modifier.size(19.dp),
+                            color = PrototypeColor.Muted,
+                            strokeWidth = 1.8f,
                         )
-                    }
-                }
-            }
-        }
-
-        item {
-            ProfileIdentityCard()
-        }
-
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProfileStatCard(
-                    title = "14",
-                    label = vocabeeString(VocabeeString.ProfileStreakLabel),
-                    icon = "♨",
-                    background = Color(0xFFFFDCC6),
-                    accent = Color(0xFFE96C35),
-                    modifier = Modifier.weight(1f),
+                    },
+                    label = "Сповіщення",
+                    sub = "Нагадування про тренування",
+                    right = {
+                        Toggle(
+                            on = notificationsEnabled,
+                            onToggle = { onNotificationsChanged(!notificationsEnabled) },
+                        )
+                    },
+                    onClick = { onNotificationsChanged(!notificationsEnabled) },
                 )
-                ProfileStatCard(
-                    title = topics.sumOf { it.words.size }.toString(),
-                    label = vocabeeString(VocabeeString.ProfileWordsLabel),
-                    icon = "▢",
-                    background = Color(0xFFC4DDF0),
-                    accent = Color(0xFF294D73),
-                    modifier = Modifier.weight(1f),
-                )
-                ProfileStatCard(
-                    title = "48",
-                    label = vocabeeString(VocabeeString.ProfileTestsLabel),
-                    icon = "ϟ",
-                    background = Color(0xFFD4E8C0),
-                    accent = Color(0xFF486E3A),
-                    modifier = Modifier.weight(1f),
+                ProfileSettingsDivider()
+                SettingRow(
+                    leading = {
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Moon,
+                            modifier = Modifier.size(19.dp),
+                            color = PrototypeColor.Muted,
+                            strokeWidth = 1.8f,
+                        )
+                    },
+                    label = "Темна тема",
+                    sub = null,
+                    right = {
+                        Toggle(
+                            on = darkThemeEnabled,
+                            onToggle = { onDarkThemeChanged(!darkThemeEnabled) },
+                        )
+                    },
+                    onClick = { onDarkThemeChanged(!darkThemeEnabled) },
                 )
             }
         }
-
         item {
-            Text(
-                text = vocabeeString(VocabeeString.LanguageSectionTitle),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFF948A7D),
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            SettingsGroup {
+                SettingRow(
+                    leading = {
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Invite,
+                            modifier = Modifier.size(19.dp),
+                            color = PrototypeColor.Muted,
+                            strokeWidth = 1.8f,
+                        )
+                    },
+                    label = "Запросити друзів",
+                    sub = "Поділись Vocabee",
+                    onClick = {},
+                )
+                ProfileSettingsDivider()
+                SettingRow(
+                    leading = {
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Help,
+                            modifier = Modifier.size(19.dp),
+                            color = PrototypeColor.Muted,
+                            strokeWidth = 1.8f,
+                        )
+                    },
+                    label = "Допомога та підтримка",
+                    sub = null,
+                    onClick = {},
+                )
+            }
+        }
+        item {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = Color.White,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(15.dp),
+                color = PrototypeColor.White,
+                shadowElevation = 4.dp,
             ) {
-                Column {
-                    ProfileLanguageRow(
-                        title = vocabeeString(VocabeeString.SpeakingLanguageTitle),
-                        subtitle = vocabeeString(VocabeeString.SpeakingLanguageSubtitle),
-                        language = userLanguage,
-                        onClick = onSpeakingClick,
-                    )
-                    ProfileDivider()
-                    ProfileLanguageRow(
-                        title = vocabeeString(VocabeeString.LearningLanguageTitle),
-                        subtitle = vocabeeString(VocabeeString.LearningLanguageSubtitle),
-                        language = learningLanguage,
-                        onClick = onLearningClick,
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Вийти",
+                        color = PrototypeColor.Red,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.5.sp,
                     )
                 }
             }
-        }
-
-        item {
             Text(
-                text = vocabeeString(VocabeeString.SettingsEyebrow),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFF948A7D),
-                fontWeight = FontWeight.Bold,
+                text = "Vocabee · v1.0.0",
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                color = PrototypeColor.Muted2,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = Color.White,
-            ) {
-                Column {
-                    SettingToggleRow(
-                        title = vocabeeString(VocabeeString.NotificationsTitle),
-                        checked = notificationsEnabled,
-                        onCheckedChange = onNotificationsChanged,
-                    )
-                    ProfileDivider()
-                    SettingToggleRow(
-                        title = vocabeeString(VocabeeString.DarkThemeTitle),
-                        checked = darkThemeEnabled,
-                        onCheckedChange = onDarkThemeChanged,
-                    )
-                }
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(10.dp))
         }
     }
 }
@@ -1988,50 +1711,59 @@ private fun ProfileScreen(
 private fun ProfileIdentityCard() {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = Color.White,
+        shape = RoundedCornerShape(22.dp),
+        color = PrototypeColor.White,
+        shadowElevation = 7.dp,
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(18.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(15.dp),
         ) {
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFFFFDCC6),
+            Box(
+                modifier = Modifier
+                    .size(58.dp)
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(PrototypeColor.AvatarStart, PrototypeColor.AvatarEnd))),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "A",
-                        style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Serif),
-                        color = Color(0xFF8A4829),
-                    )
-                }
+                Text(
+                    text = "НК",
+                    color = PrototypeColor.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 21.sp,
+                )
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = vocabeeString(VocabeeString.ProfileName),
-                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Serif),
-                    color = Color(0xFF363029),
-                    fontWeight = FontWeight.Bold,
+                    text = "Надія Кобилінська",
+                    color = PrototypeColor.Ink,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "anna@vocabee.app",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF8F857B),
+                    text = "nadiia@vocabee.app",
+                    modifier = Modifier.padding(top = 2.dp),
+                    color = PrototypeColor.Muted,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Surface(
-                modifier = Modifier.size(32.dp),
-                shape = CircleShape,
-                color = Color(0xFFF4EFE8),
+                modifier = Modifier.size(40.dp),
+                shape = RoundedCornerShape(13.dp),
+                color = PrototypeColor.Tint,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "›",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color(0xFF8F857B),
+                    PrototypeLineIcon(
+                        icon = PrototypeIcon.Edit,
+                        modifier = Modifier.size(18.dp),
+                        color = PrototypeColor.Purple,
+                        strokeWidth = 1.9f,
                     )
                 }
             }
@@ -2040,724 +1772,196 @@ private fun ProfileIdentityCard() {
 }
 
 @Composable
-private fun ProfileStatCard(
-    title: String,
+private fun ProfileStat(
+    icon: PrototypeIcon,
+    value: String,
     label: String,
-    icon: String,
-    background: Color,
-    accent: Color,
+    tint: Color,
+    color: Color,
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.height(84.dp),
-        shape = RoundedCornerShape(10.dp),
-        color = background,
+        modifier = modifier.height(118.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = PrototypeColor.White,
+        shadowElevation = 6.dp,
     ) {
         Column(
-            modifier = Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 15.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(
-                text = icon,
-                style = MaterialTheme.typography.labelLarge,
-                color = accent,
-                fontWeight = FontWeight.Bold,
-            )
-            Column {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Serif),
-                    color = accent,
-                )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = accent.copy(alpha = 0.7f),
-                    fontWeight = FontWeight.Bold,
-                )
+            Surface(modifier = Modifier.size(38.dp), shape = RoundedCornerShape(12.dp), color = tint) {
+                Box(contentAlignment = Alignment.Center) {
+                    PrototypeLineIcon(
+                        icon = icon,
+                        modifier = Modifier.size(20.dp),
+                        color = color,
+                        strokeWidth = 1.9f,
+                    )
+                }
             }
-        }
-    }
-}
-
-@Composable
-private fun ProfileLanguageRow(
-    title: String,
-    subtitle: String,
-    language: LanguageOption,
-    onClick: () -> Unit,
-) {
-    val languageName = localizedLanguageName(language)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = VocabeePadding.Horizontal.Small, vertical = VocabeePadding.Vertical.Medium),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                color = Color(0xFF363029),
-                fontWeight = FontWeight.Bold,
+                text = value,
+                modifier = Modifier.padding(top = 9.dp),
+                color = PrototypeColor.Ink,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 22.sp,
+                letterSpacing = (-0.44).sp,
+                maxLines = 1,
             )
             Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF8F857B),
-                maxLines = 1,
+                text = label,
+                color = PrototypeColor.Muted,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 11.5.sp,
+                lineHeight = 14.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        LanguageBadge(language = language, languageName = languageName)
-        Text(
-            text = "›",
-            style = MaterialTheme.typography.titleMedium,
-            color = Color(0xFFC0B7AC),
-        )
     }
 }
 
 @Composable
-private fun SettingToggleRow(
-    title: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                start = VocabeePadding.Horizontal.Small,
-                end = 8.dp,
-                top = VocabeePadding.Vertical.Small,
-                bottom = VocabeePadding.Vertical.Small,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = Color(0xFF363029),
-            fontWeight = FontWeight.Bold,
-        )
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-        )
-    }
-}
-
-@Composable
-private fun ProfileDivider() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .padding(start = VocabeePadding.Horizontal.Small)
-            .background(Color(0xFFF1E8DC)),
+private fun SectionLabel(text: String) {
+    Text(
+        text = text.uppercase(),
+        modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
+        color = PrototypeColor.Muted2,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 12.5.sp,
+        letterSpacing = 0.63.sp,
     )
 }
 
 @Composable
-private fun LanguagePickerScreen(
-    target: LanguagePickerTarget,
-    supportedLanguages: List<LanguageOption>,
-    selectedLanguage: LanguageOption,
-    onBack: () -> Unit,
-    onDone: (LanguageOption) -> Unit,
-) {
-    var query by remember { mutableStateOf("") }
-    var pendingLanguage by remember(selectedLanguage.code) { mutableStateOf(selectedLanguage) }
-    val languageDisplays = supportedLanguages.associate { option ->
-        option.code to LanguageDisplayText(
-            name = localizedLanguageName(option),
-            nativeName = localizedLanguageNativeName(option),
-        )
-    }
-    val languages = if (query.isBlank()) {
-        supportedLanguages
-    } else {
-        supportedLanguages.filter { option ->
-            val display = languageDisplays[option.code]
-            display?.name?.contains(query, ignoreCase = true) == true ||
-                display?.nativeName?.contains(query, ignoreCase = true) == true ||
-                option.code.contains(query, ignoreCase = true)
-        }
-    }
-    val recentLanguages = languages.take(3)
-    val otherLanguages = languages.drop(3)
-    val title = when (target) {
-        LanguagePickerTarget.Speaking -> vocabeeString(VocabeeString.SpeakingLanguageTitle)
-        LanguagePickerTarget.Learning -> vocabeeString(VocabeeString.LearningLanguageTitle)
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = VocabeePadding.Horizontal.Medium,
-            top = VocabeePadding.Vertical.Large,
-            end = VocabeePadding.Horizontal.Medium,
-            bottom = 14.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = PrototypeColor.White,
+        shadowElevation = 5.dp,
     ) {
-        item {
-            VocabeeTopBar(
-                navigationContainerColor = Color(0xFFF4EFE8),
-                navigationContentColor = Color(0xFF8F857B),
-                onNavigateBack = onBack,
-                actions = listOf(
-                    VocabeeTopBarAction.Text(
-                        text = vocabeeString(VocabeeString.Done),
-                        textColor = Color(0xFFE96C35),
-                        action = { onDone(pendingLanguage) },
-                    ),
-                ),
-            )
-        }
-
-        item {
-            Text(
-                text = vocabeeString(VocabeeString.LanguagePickerSelectLanguage),
-                style = MaterialTheme.typography.labelMedium,
-                color = Color(0xFF948A7D),
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = title,
-                style = MaterialTheme.typography.displaySmall.copy(fontFamily = FontFamily.Serif),
-                color = Color(0xFF363029),
-            )
-        }
-
-        item {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text(vocabeeString(VocabeeString.LanguagePickerSearchPlaceholder)) },
-                leadingIcon = {
-                    Text(
-                        text = "⌕",
-                        color = Color(0xFF9D9286),
-                    )
-                },
-                shape = RoundedCornerShape(12.dp),
-            )
-        }
-
-        if (recentLanguages.isNotEmpty()) {
-            item {
-                LanguageSection(
-                    title = vocabeeString(VocabeeString.LanguagePickerRecent),
-                    languages = recentLanguages,
-                    selectedLanguage = pendingLanguage,
-                    onSelect = { pendingLanguage = it },
-                )
-            }
-        }
-
-        if (otherLanguages.isNotEmpty()) {
-            item {
-                LanguageSection(
-                    title = vocabeeString(VocabeeString.LanguagePickerAll),
-                    languages = otherLanguages,
-                    selectedLanguage = pendingLanguage,
-                    onSelect = { pendingLanguage = it },
-                )
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(10.dp))
-        }
+        Column(content = content)
     }
 }
 
 @Composable
-private fun LanguageSection(
-    title: String,
-    languages: List<LanguageOption>,
-    selectedLanguage: LanguageOption,
-    onSelect: (LanguageOption) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelMedium,
-            color = Color(0xFF948A7D),
-            fontWeight = FontWeight.Bold,
-        )
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            color = Color.White,
-        ) {
-            Column {
-                languages.forEachIndexed { index, option ->
-                    LanguageOptionRow(
-                        language = option,
-                        selected = selectedLanguage.code == option.code,
-                        onClick = { onSelect(option) },
-                    )
-                    if (index != languages.lastIndex) {
-                        ProfileDivider()
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LanguageOptionRow(
-    language: LanguageOption,
-    selected: Boolean,
+private fun SettingRow(
+    leading: @Composable () -> Unit,
+    label: String,
+    sub: String?,
+    right: @Composable (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    val languageName = localizedLanguageName(language)
-    val nativeName = localizedLanguageNativeName(language)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = VocabeePadding.Horizontal.Small, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
     ) {
-        LanguageCodeMark(language = language)
+        Surface(
+            modifier = Modifier.size(34.dp),
+            shape = RoundedCornerShape(11.dp),
+            color = PrototypeColor.NeutralSurface,
+        ) {
+            Box(contentAlignment = Alignment.Center) { leading() }
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = languageName,
-                style = MaterialTheme.typography.titleSmall,
-                color = Color(0xFF363029),
+                text = label,
+                color = PrototypeColor.Ink,
                 fontWeight = FontWeight.Bold,
+                fontSize = 15.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = nativeName,
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF8F857B),
-            )
-        }
-        if (selected) {
-            Surface(
-                modifier = Modifier.size(24.dp),
-                shape = CircleShape,
-                color = Color(0xFFE96C35),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "✓",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+            if (sub != null) {
+                Text(
+                    text = sub,
+                    modifier = Modifier.padding(top = 2.dp),
+                    color = PrototypeColor.Muted,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
+        if (right == null) {
+            PrototypeLineIcon(
+                icon = PrototypeIcon.ChevronRight,
+                modifier = Modifier.size(18.dp),
+                color = PrototypeColor.Muted3,
+                strokeWidth = 2f,
+            )
+        } else {
+            right()
+        }
     }
 }
 
 @Composable
-private fun LanguageBadge(
-    language: LanguageOption,
-    languageName: String? = null,
-) {
-    val resolvedLanguageName = languageName ?: localizedLanguageName(language)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        LanguageCodeMark(language = language)
-        Text(
-            text = resolvedLanguageName,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (language.code == "en") Color(0xFFE96C35) else Color(0xFF363029),
-            fontWeight = FontWeight.Bold,
-        )
-    }
-}
-
-@Composable
-private fun LanguageCodeMark(language: LanguageOption) {
-    Surface(
+private fun ProfileSettingsDivider() {
+    Box(
         modifier = Modifier
-            .width(24.dp)
-            .height(16.dp),
-        shape = RoundedCornerShape(4.dp),
-        color = language.markColor,
+            .fillMaxWidth()
+            .padding(start = 63.dp)
+            .height(1.dp)
+            .background(PrototypeColor.Line2),
+    )
+}
+
+@Composable
+private fun Toggle(on: Boolean, onToggle: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .width(48.dp)
+            .height(28.dp)
+            .clip(CircleShape)
+            .background(if (on) PrototypeColor.Purple else PrototypeColor.SwitchTrack)
+            .clickable(onClick = onToggle)
+            .padding(3.dp),
+        contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = language.shortName,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-    }
-}
-
-private data class LanguageDisplayText(
-    val name: String,
-    val nativeName: String,
-)
-
-@Composable
-private fun localizedLanguageName(language: LanguageOption): String {
-    return when (language.code) {
-        "uk" -> vocabeeString(VocabeeString.LanguageNameUkrainian)
-        "en" -> vocabeeString(VocabeeString.LanguageNameEnglish)
-        "ru" -> vocabeeString(VocabeeString.LanguageNameRussian)
-        "pl" -> vocabeeString(VocabeeString.LanguageNamePolish)
-        "de" -> vocabeeString(VocabeeString.LanguageNameGerman)
-        "es" -> vocabeeString(VocabeeString.LanguageNameSpanish)
-        else -> language.name
-    }
-}
-
-@Composable
-private fun localizedLanguageNativeName(language: LanguageOption): String {
-    return when (language.code) {
-        "uk" -> vocabeeString(VocabeeString.LanguageNativeNameUkrainian)
-        "en" -> vocabeeString(VocabeeString.LanguageNativeNameEnglish)
-        "ru" -> vocabeeString(VocabeeString.LanguageNativeNameRussian)
-        "pl" -> vocabeeString(VocabeeString.LanguageNativeNamePolish)
-        "de" -> vocabeeString(VocabeeString.LanguageNativeNameGerman)
-        "es" -> vocabeeString(VocabeeString.LanguageNativeNameSpanish)
-        else -> language.name
-    }
-}
-
-private val LanguageOption.markColor: Color
-    get() = when (code) {
-        "uk" -> Color(0xFF4B7BEC)
-        "en" -> Color(0xFFB44E63)
-        "ru" -> Color(0xFF6E7B8B)
-        "pl" -> Color(0xFFD64B4B)
-        "de" -> Color(0xFF2F2D2C)
-        "es" -> Color(0xFFE0A11A)
-        else -> Color(0xFF8F857B)
-    }
-
-@Composable
-private fun HeaderBlock(
-    title: String,
-    subtitle: String,
-    accent: String,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Surface(
-                color = Ink,
-                contentColor = Color.White,
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Text(
-                    text = accent,
-                    modifier = Modifier.padding(
-                        horizontal = VocabeePadding.Horizontal.Small,
-                        vertical = VocabeePadding.Vertical.Small,
-                    ),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun EmptyStateCard(
-    title: String,
-    subtitle: String,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color.White,
-        shape = RoundedCornerShape(8.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, SoftLine),
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Box(
+            modifier = Modifier.size(22.dp).clip(CircleShape).background(PrototypeColor.White),
+        )
     }
 }
 
 @Composable
 private fun MissingTopicScreen(onBack: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(VocabeePadding.Horizontal.Medium),
+        modifier = Modifier.fillMaxSize().background(PrototypeColor.White).statusBarsPadding().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        VocabeeTopBar(
-            navigationContainerColor = Color(0xFFF4EFE8),
-            navigationContentColor = Color(0xFF8F857B),
-            onNavigateBack = onBack,
-        )
-        EmptyStateCard(
-            title = vocabeeString(VocabeeString.TopicNotFoundTitle),
-            subtitle = vocabeeString(VocabeeString.TopicNotFoundSubtitle),
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun NewTopicSheet(
-    sourceLanguage: LanguageOption,
-    targetLanguage: LanguageOption,
-    onDismiss: () -> Unit,
-    onCreate: (String, Int) -> Unit,
-) {
-    var title by remember { mutableStateOf("") }
-    var selectedCoverIndex by remember { mutableIntStateOf(1) }
-    val previewTitle = title.ifBlank { vocabeeString(VocabeeString.NewTopicPreviewTitle) }
-    val previewVisual = topicVisual(selectedCoverIndex)
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = Paper,
-        contentColor = Ink,
-        shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(
-                    start = VocabeePadding.Horizontal.Medium,
-                    end = VocabeePadding.Horizontal.Medium,
-                    bottom = VocabeePadding.Vertical.Large,
-                ),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+        Surface(
+            modifier = Modifier.size(40.dp).clickable(onClick = onBack),
+            shape = RoundedCornerShape(13.dp),
+            color = PrototypeColor.NeutralSurface,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onDismiss) {
-                    Text(
-                        text = vocabeeString(VocabeeString.NewTopicCancel),
-                        color = Color(0xFF8F857B),
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                TextButton(
-                    onClick = { onCreate(title.trim(), selectedCoverIndex) },
-                    enabled = title.isNotBlank(),
-                ) {
-                    Text(
-                        text = vocabeeString(VocabeeString.NewTopicCreate),
-                        color = if (title.isNotBlank()) Color(0xFFE96C35) else Color(0xFFCDBFB1),
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = vocabeeString(VocabeeString.NewTopicTitle),
-                    style = MaterialTheme.typography.headlineMedium.copy(fontFamily = FontFamily.Serif),
-                    color = Color(0xFF363029),
-                    fontWeight = FontWeight.Normal,
-                )
-                Text(
-                    text = vocabeeString(VocabeeString.NewTopicSubtitle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF8F857B),
+            Box(contentAlignment = Alignment.Center) {
+                PrototypeLineIcon(
+                    icon = PrototypeIcon.ChevronLeft,
+                    modifier = Modifier.size(22.dp),
+                    color = PrototypeColor.Muted,
                 )
             }
-
-            TopicPreviewCard(
-                title = previewTitle,
-                sourceLanguage = sourceLanguage,
-                targetLanguage = targetLanguage,
-                visual = previewVisual,
-            )
-
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = { Text(vocabeeString(VocabeeString.NewTopicPlaceholder)) },
-                trailingIcon = {
-                    if (title.isNotBlank()) {
-                        Text(
-                            text = "×",
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .clickable { title = "" }
-                                .padding(8.dp),
-                            color = Color(0xFF8F857B),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    }
-                },
-                shape = RoundedCornerShape(12.dp),
-            )
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = vocabeeString(VocabeeString.CoverColor),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Bold,
-                )
-                CoverColorPicker(
-                    selectedIndex = selectedCoverIndex,
-                    onSelect = { selectedCoverIndex = it },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TopicPreviewCard(
-    title: String,
-    sourceLanguage: LanguageOption,
-    targetLanguage: LanguageOption,
-    visual: TopicVisual,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(84.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(visual.background)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .size(70.dp)
-                .clip(CircleShape)
-                .background(visual.bubble),
-        )
-        Column(
-            modifier = Modifier.align(Alignment.BottomStart),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = wordCountLabel(0),
-                style = MaterialTheme.typography.labelMedium,
-                color = visual.accent.copy(alpha = 0.62f),
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Serif),
-                color = visual.accent,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
         Text(
-            text = "${sourceLanguage.shortName} → ${targetLanguage.shortName}",
-            modifier = Modifier.align(Alignment.TopEnd),
-            style = MaterialTheme.typography.labelSmall,
-            color = visual.accent.copy(alpha = 0.5f),
-            fontWeight = FontWeight.Bold,
+            text = "Словник не знайдено",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = PrototypeColor.Ink,
         )
-    }
-}
-
-@Composable
-private fun CoverColorPicker(
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        topicVisuals.chunked(7).forEachIndexed { rowIndex, row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                row.forEachIndexed { columnIndex, visual ->
-                    val index = rowIndex * 7 + columnIndex
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(visual.background)
-                            .then(
-                                if (selectedIndex == index) {
-                                    Modifier.border(
-                                        BorderStroke(2.dp, Color(0xFF4D5D43)),
-                                        RoundedCornerShape(10.dp),
-                                    )
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .clickable { onSelect(index) },
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun wordCountLabel(count: Int): String {
-    return vocabeeQuantityString(VocabeeQuantityString.WordCount, count, count)
-}
-
-@Composable
-private fun topicUpdatedLabel(label: TopicUpdatedLabel): String {
-    return when (label) {
-        TopicUpdatedLabel.Today -> vocabeeString(VocabeeString.UpdatedToday)
-        TopicUpdatedLabel.Yesterday -> vocabeeString(VocabeeString.UpdatedYesterday)
-        is TopicUpdatedLabel.DaysAgo -> vocabeeQuantityString(VocabeeQuantityString.DaysAgo, label.count, label.count)
-        is TopicUpdatedLabel.WeeksAgo -> vocabeeQuantityString(VocabeeQuantityString.WeeksAgo, label.count, label.count)
-    }
-}
-
-@Composable
-private fun translationOptionNote(note: TranslationOptionNote): String {
-    return when (note) {
-        TranslationOptionNote.Primary -> vocabeeString(VocabeeString.TranslationNotePrimary)
-        TranslationOptionNote.Alternative -> vocabeeString(VocabeeString.TranslationNoteAlternative)
-        TranslationOptionNote.Additional -> vocabeeString(VocabeeString.TranslationNoteAdditional)
-        TranslationOptionNote.MlKitOnDevice -> vocabeeString(VocabeeString.TranslationNoteMlKitOnDevice)
-        is TranslationOptionNote.AlreadyAdded -> {
-            vocabeeString(VocabeeString.TranslationNoteAlreadyAdded, note.source)
-        }
+        Text(
+            text = "Поверніться до списку словників.",
+            color = PrototypeColor.Muted,
+            fontSize = 15.sp,
+        )
     }
 }
