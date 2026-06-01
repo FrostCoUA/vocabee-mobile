@@ -16,16 +16,14 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object VocabeeNetworkModule {
-    /**
-     * `10.0.2.2` is the Android emulator's host loopback; swap with your LAN IP for a
-     * real device, or with the prod hostname when shipping. Wire to BuildConfig once
-     * we have flavors set up.
-     */
-    private const val DEFAULT_BASE_URL = "http://10.0.2.2:3000"
-
     @Provides
     @Singleton
-    fun provideApiConfig(): VocabeeApiConfig = VocabeeApiConfig(baseUrl = DEFAULT_BASE_URL)
+    fun provideApiConfig(): VocabeeApiConfig =
+        // Sourced from `vocabee.api.baseUrl` in `local.properties` (gitignored) via the
+        // BuildConfig field injected from app/build.gradle.kts. Emulator default is
+        // `http://10.0.2.2:3000`; set it to your machine's LAN IP (e.g.
+        // `http://192.168.x.y:3000`) when running on a real device on the same Wi-Fi.
+        VocabeeApiConfig(baseUrl = BuildConfig.VOCABEE_API_BASE_URL)
 
     @Provides
     @Singleton

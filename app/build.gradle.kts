@@ -1,5 +1,20 @@
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
+
+/**
+ * Per-developer overrides live in `local.properties` (gitignored). We read the gateway
+ * base URL from there so each contributor can point at their own LAN IP / tunnel
+ * without committing the value. Falls back to the emulator loopback for first runs.
+ */
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val vocabeeApiBaseUrl: String =
+    localProps.getProperty("vocabee.api.baseUrl")
+        ?: System.getenv("VOCABEE_API_BASE_URL")
+        ?: "http://10.0.2.2:3000"
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -72,6 +87,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "VOCABEE_API_BASE_URL", "\"$vocabeeApiBaseUrl\"")
 
         javaCompileOptions {
             annotationProcessorOptions {

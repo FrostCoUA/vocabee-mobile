@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Allow cleartext to the gateway when developing locally. Once we have a real domain
-  with TLS we can restrict to that hostname only.
+  Debug builds allow cleartext on any LAN host so the app can talk to the gateway
+  whether you're on the Android emulator (10.0.2.2), a real device on Wi-Fi
+  (192.168.x.x / 10.x.x.x / 172.16-31.x.x), or any custom tunnel. Production
+  builds enforce HTTPS as usual (this whole config only applies in debug because
+  the manifest only references it there).
 -->
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">10.0.2.2</domain>
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">127.0.0.1</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>
