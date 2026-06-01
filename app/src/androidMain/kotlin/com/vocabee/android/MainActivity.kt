@@ -37,6 +37,7 @@ class MainActivity : ComponentActivity() {
                 VocabeeApp(
                     store = viewModel.store,
                     speechInputController = speechInputController,
+                    remoteLexiconSearch = viewModel.remoteLexiconSearch,
                 )
             }
         }

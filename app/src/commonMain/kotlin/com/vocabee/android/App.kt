@@ -69,6 +69,7 @@ import com.vocabee.android.domain.model.DictionaryTopic
 import com.vocabee.android.domain.model.LanguageOption
 import com.vocabee.android.domain.model.TopicUpdatedLabel
 import com.vocabee.android.domain.model.WordEntry
+import com.vocabee.android.domain.usecase.RemoteLexiconSearchUseCase
 import com.vocabee.android.navigation.AppTab
 import com.vocabee.android.navigation.VocabeeRoute
 import com.vocabee.android.navigation.selectedTabFor
@@ -77,6 +78,7 @@ import com.vocabee.android.platform.NoSpeechInputController
 import com.vocabee.android.platform.SpeechInputController
 import com.vocabee.android.presentation.AddWordOrigin
 import com.vocabee.android.presentation.AddWordOverlay
+import com.vocabee.android.presentation.AddWordSearchState
 import com.vocabee.android.presentation.AuthScreen
 import com.vocabee.android.presentation.CreateDictionarySheet
 import com.vocabee.android.presentation.HoneycombWatermark
@@ -97,6 +99,38 @@ import com.vocabee.android.presentation.prototypeTopicTheme
 
 internal enum class AppFlow { Splash, Onboarding, Auth, LanguageSelect, Main }
 
+/**
+ * Bridges the Add Word overlay's `searchRemote` callback to the gateway use case.
+ * Falls back to local options when no API is plumbed (previews, tests) so the UI
+ * still has something to render.
+ */
+private suspend fun searchRemotely(
+    useCase: RemoteLexiconSearchUseCase?,
+    input: String,
+    topic: DictionaryTopic,
+    speakLang: String,
+    learnLang: String,
+): AddWordSearchState {
+    if (useCase == null) {
+        return AddWordSearchState(query = input, isLoading = false, results = emptyList())
+    }
+    val existing = topic.words.map { it.translation }.toSet()
+    return when (val result = useCase(input, speakLang, learnLang, existing)) {
+        is RemoteLexiconSearchUseCase.Result.Ok -> AddWordSearchState(
+            query = result.query,
+            isLoading = false,
+            results = result.options,
+            tier = result.tier,
+            maxResults = result.maxResults,
+        )
+        is RemoteLexiconSearchUseCase.Result.Failure -> AddWordSearchState(
+            query = result.query,
+            isLoading = false,
+            errorMessage = result.message,
+        )
+    }
+}
+
 internal sealed interface PrototypeSheet {
     data object CreateDictionary : PrototypeSheet
     data class LanguageForDictionary(val dictionaryId: String) : PrototypeSheet
@@ -109,6 +143,7 @@ internal enum class ProfileLanguageTarget { Speaking, Learning }
 fun VocabeeApp(
     store: VocabeeStore = VocabeeStore(),
     speechInputController: SpeechInputController = NoSpeechInputController,
+    remoteLexiconSearch: RemoteLexiconSearchUseCase? = null,
 ) {
     VocabeeTheme {
         var flow by remember { mutableStateOf(AppFlow.Splash) }
@@ -135,6 +170,7 @@ fun VocabeeApp(
             AppFlow.Main -> MainApp(
                 store = store,
                 speechInputController = speechInputController,
+                remoteLexiconSearch = remoteLexiconSearch,
             )
         }
     }
@@ -144,6 +180,7 @@ fun VocabeeApp(
 private fun MainApp(
     store: VocabeeStore,
     speechInputController: SpeechInputController,
+    remoteLexiconSearch: RemoteLexiconSearchUseCase?,
 ) {
     val state = store.state
     val backStack = rememberNavBackStack(
@@ -241,9 +278,14 @@ private fun MainApp(
                     accent = prototypeTopicTheme(topic.coverIndex).color,
                     origin = origin,
                     speechInputController = speechInputController,
-                    suggestionsFor = { input -> store.translationOptionsFor(topic, input) },
-                    onRequestMachineTranslation = { input ->
-                        store.onEvent(VocabeeEvent.RequestMachineTranslation(topic.id, input))
+                    searchRemote = { input ->
+                        searchRemotely(
+                            useCase = remoteLexiconSearch,
+                            input = input,
+                            topic = topic,
+                            speakLang = state.userLanguage.code,
+                            learnLang = state.learningLanguage.code,
+                        )
                     },
                     onAddWord = { source, translation ->
                         store.onEvent(VocabeeEvent.AddWord(topic.id, source, translation))

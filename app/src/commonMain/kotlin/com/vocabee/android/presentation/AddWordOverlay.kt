@@ -71,21 +71,30 @@ internal data class AddWordOrigin(
 
 internal enum class AddWordMode { Idle, Recording, Results }
 
+/** Result returned by the async backend search. The overlay drives its loading/error UI off this. */
+internal data class AddWordSearchState(
+    val query: String = "",
+    val isLoading: Boolean = false,
+    val results: List<TranslationOption> = emptyList(),
+    val errorMessage: String? = null,
+    val tier: String? = null,
+    val maxResults: Int? = null,
+)
+
 @Composable
 internal fun AddWordOverlay(
     topic: DictionaryTopic,
     accent: Color,
     origin: AddWordOrigin,
     speechInputController: SpeechInputController,
-    suggestionsFor: (String) -> List<TranslationOption>,
-    onRequestMachineTranslation: (String) -> Unit,
+    searchRemote: suspend (query: String) -> AddWordSearchState,
     onAddWord: (source: String, translation: String) -> Unit,
     onOpenLanguageSheet: () -> Unit,
     onClose: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     val cleanedQuery = query.trim()
-    val results = suggestionsFor(cleanedQuery)
+    var searchState by remember { mutableStateOf(AddWordSearchState()) }
     val addedCount = remember { mutableStateOf(0) }
     val justAdded = remember { mutableStateOf<String?>(null) }
 
@@ -118,10 +127,16 @@ internal fun AddWordOverlay(
         onDispose { speechInputController.stopListening() }
     }
 
+    // Debounced backend search: every keystroke / voice result re-runs the search
+    // 250ms after the user pauses typing. Empty input → cleared state (idle mic UI).
     LaunchedEffect(cleanedQuery) {
-        if (cleanedQuery.isNotEmpty()) {
-            onRequestMachineTranslation(cleanedQuery)
+        if (cleanedQuery.isEmpty()) {
+            searchState = AddWordSearchState()
+            return@LaunchedEffect
         }
+        searchState = searchState.copy(query = cleanedQuery, isLoading = true, errorMessage = null)
+        delay(250)
+        searchState = searchRemote(cleanedQuery)
     }
 
     fun resetSpeech() {
@@ -234,9 +249,16 @@ internal fun AddWordOverlay(
                             onStart = ::startListening,
                             onStop = { scope.launch { stopListeningWithGrace() } },
                         )
+                        searchState.isLoading -> AddWordLoadingState(accent = accent)
+                        searchState.errorMessage != null -> AddWordErrorState(
+                            message = searchState.errorMessage!!,
+                            accent = accent,
+                        )
                         else -> AddWordResultsList(
                             query = cleanedQuery,
-                            results = results,
+                            results = searchState.results,
+                            tier = searchState.tier,
+                            maxResults = searchState.maxResults,
                             accent = accent,
                             justAddedWord = justAdded,
                             onAdd = { option ->
@@ -554,9 +576,65 @@ private fun VoiceWaveform() {
 }
 
 @Composable
+private fun AddWordLoadingState(accent: Color) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        androidx.compose.material3.CircularProgressIndicator(
+            modifier = Modifier.size(32.dp),
+            color = accent,
+            strokeWidth = 3.dp,
+        )
+        Text(
+            text = "Шукаю переклад…",
+            modifier = Modifier.padding(top = 16.dp),
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+        )
+    }
+}
+
+@Composable
+private fun AddWordErrorState(message: String, accent: Color) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        PrototypeLineIcon(
+            icon = PrototypeIcon.Close,
+            modifier = Modifier.size(26.dp),
+            color = accent.copy(alpha = 0.72f),
+            strokeWidth = 2f,
+        )
+        Text(
+            text = "Не вдалось отримати переклад",
+            modifier = Modifier.padding(top = 12.dp),
+            color = PrototypeColor.Ink,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 16.sp,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = message,
+            modifier = Modifier.padding(top = 6.dp),
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.Medium,
+            fontSize = 13.5.sp,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+@Composable
 private fun AddWordResultsList(
     query: String,
     results: List<TranslationOption>,
+    tier: String?,
+    maxResults: Int?,
     accent: Color,
     justAddedWord: MutableState<String?>,
     onAdd: (TranslationOption) -> Unit,
@@ -615,13 +693,24 @@ private fun AddWordResultsList(
                 )
                 Spacer(modifier = Modifier.width(7.dp))
                 Text(
-                    text = "Переклади та приклади згенеровано AI",
+                    text = footerCaptionFor(tier = tier, maxResults = maxResults),
                     color = PrototypeColor.Muted2,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.5.sp,
                 )
             }
         }
+    }
+}
+
+private fun footerCaptionFor(tier: String?, maxResults: Int?): String {
+    val base = "Переклади та приклади згенеровано AI"
+    if (tier == null || maxResults == null) return base
+    return when (tier) {
+        "anonymous" -> "$base · до $maxResults варіантів (увійди для більше)"
+        "registered" -> "$base · до $maxResults варіантів"
+        "premium" -> "$base · преміум · до $maxResults варіантів"
+        else -> base
     }
 }
 
