@@ -16,11 +16,16 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Vocabee"
         android:usesCleartextTraffic="true">
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="@string/vocabee_admob_app_id" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.Vocabee.Splash">
+            android:theme="@style/Theme.Vocabee.Splash"
+            android:windowSoftInputMode="adjustNothing">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

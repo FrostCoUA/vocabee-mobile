@@ -2,6 +2,7 @@
 <resources>
     <color name="vocabee_transparent">#00000000</color>
     <color name="vocabee_white">#FFFFFFFF</color>
+    <color name="vocabee_splash_background">#FF4F46E5</color>
     <color name="vocabee_honey">#FFFFC247</color>
     <color name="vocabee_ink">#FF1D2329</color>
     <color name="vocabee_meadow">#FF2F8F6B</color>

@@ -2,7 +2,9 @@ package com.vocabee.android
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Bundle
+import androidx.activity.SystemBarStyle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -11,9 +13,20 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
-import com.vocabee.android.presentation.VocabeeViewModel
+import com.google.android.gms.ads.MobileAds
+import com.vocabee.android.core.presentation.designsystem.AndroidVocabeeColorResolver
+import com.vocabee.android.core.presentation.designsystem.AndroidVocabeeStringResolver
+import com.vocabee.android.core.presentation.designsystem.LocalVocabeeColors
+import com.vocabee.android.core.presentation.designsystem.LocalVocabeeStrings
+import com.vocabee.android.feature.vocabulary.presentation.VocabeeApp
+import com.vocabee.android.feature.vocabulary.presentation.VocabeeViewModel
+import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidGoogleAuthController
+import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidRewardedAdController
+import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidSpeechInputController
+import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidSpeechOutputController
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -36,6 +49,9 @@ class MainActivity : ComponentActivity() {
         setTheme(R.style.Theme_Vocabee)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        Thread {
+            MobileAds.initialize(this) {}
+        }.start()
         setContent {
             // Ask for the mic permission as soon as the UI is composed, NOT
             // when the user first taps the mic button. Without this, the
@@ -53,8 +69,34 @@ class MainActivity : ComponentActivity() {
 
             val speechInputController = remember { AndroidSpeechInputController(this) }
             val speechOutputController = remember { AndroidSpeechOutputController(this) }
+            val googleAuthController = remember {
+                AndroidGoogleAuthController(
+                    context = this,
+                    webClientId = BuildConfig.VOCABEE_GOOGLE_WEB_CLIENT_ID,
+                )
+            }
+            val rewardedAdController = remember {
+                AndroidRewardedAdController(
+                    activity = this,
+                    adUnitId = BuildConfig.VOCABEE_ADMOB_REWARDED_AD_UNIT_ID,
+                )
+            }
             val stringResolver = remember { AndroidVocabeeStringResolver(this) }
             val colorResolver = remember { AndroidVocabeeColorResolver(this) }
+            val darkThemeEnabled = viewModel.store.state.darkThemeEnabled
+
+            SideEffect {
+                val transparent = Color.TRANSPARENT
+                val systemBarStyle = if (darkThemeEnabled) {
+                    SystemBarStyle.dark(transparent)
+                } else {
+                    SystemBarStyle.light(transparent, transparent)
+                }
+                enableEdgeToEdge(
+                    statusBarStyle = systemBarStyle,
+                    navigationBarStyle = systemBarStyle,
+                )
+            }
 
             DisposableEffect(speechInputController) {
                 onDispose {
@@ -75,7 +117,10 @@ class MainActivity : ComponentActivity() {
                     store = viewModel.store,
                     speechInputController = speechInputController,
                     speechOutputController = speechOutputController,
+                    googleAuthController = googleAuthController,
+                    rewardedAdController = rewardedAdController,
                     remoteLexiconSearch = viewModel.remoteLexiconSearch,
+                    api = viewModel.api,
                     preferencesManager = viewModel.preferencesManager,
                     onExitApp = { finish() },
                 )

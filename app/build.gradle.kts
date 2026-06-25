@@ -15,6 +15,18 @@ val vocabeeApiBaseUrl: String =
     localProps.getProperty("vocabee.api.baseUrl")
         ?: System.getenv("VOCABEE_API_BASE_URL")
         ?: "http://10.0.2.2:3000"
+val vocabeeGoogleWebClientId: String =
+    localProps.getProperty("vocabee.google.webClientId")
+        ?: System.getenv("VOCABEE_GOOGLE_WEB_CLIENT_ID")
+        ?: ""
+val vocabeeAdMobAppId: String =
+    localProps.getProperty("vocabee.admob.appId")
+        ?: System.getenv("VOCABEE_ADMOB_APP_ID")
+        ?: "ca-app-pub-3940256099942544~3347511713"
+val vocabeeAdMobRewardedAdUnitId: String =
+    localProps.getProperty("vocabee.admob.rewardedAdUnitId")
+        ?: System.getenv("VOCABEE_ADMOB_REWARDED_AD_UNIT_ID")
+        ?: "ca-app-pub-3940256099942544/5224354917"
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -64,6 +76,10 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodel.ktx)
             implementation(libs.androidx.room.runtime)
             implementation(libs.androidx.room.ktx)
+            implementation(libs.androidx.credentials)
+            implementation(libs.androidx.credentials.play.services.auth)
+            implementation(libs.googleid)
+            implementation(libs.play.services.ads)
             implementation(libs.hilt.android)
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.ktor.client.okhttp)
@@ -89,6 +105,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "VOCABEE_API_BASE_URL", "\"$vocabeeApiBaseUrl\"")
+        buildConfigField("String", "VOCABEE_GOOGLE_WEB_CLIENT_ID", "\"$vocabeeGoogleWebClientId\"")
+        buildConfigField("String", "VOCABEE_ADMOB_REWARDED_AD_UNIT_ID", "\"$vocabeeAdMobRewardedAdUnitId\"")
+        resValue("string", "vocabee_admob_app_id", vocabeeAdMobAppId)
 
         javaCompileOptions {
             annotationProcessorOptions {

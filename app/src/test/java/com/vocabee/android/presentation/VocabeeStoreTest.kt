@@ -1,8 +1,9 @@
-package com.vocabee.android.presentation
+package com.vocabee.android.feature.vocabulary.presentation
 
-import com.vocabee.android.data.FakeVocabularyRepository
-import com.vocabee.android.domain.manager.StaticUserSessionManager
-import com.vocabee.android.domain.model.DictionaryTopic
+import com.vocabee.android.feature.vocabulary.data.FakeVocabularyRepository
+import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
+import com.vocabee.android.feature.vocabulary.domain.manager.StaticUserSessionManager
+import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -27,7 +28,7 @@ class VocabeeStoreTest {
     }
 
     @Test
-    fun addWordSkipsDuplicateWords() {
+    fun addWordSkipsDuplicateWordPairs() {
         val store = VocabeeStore()
         val topic = store.createTopicForTest()
 
@@ -44,7 +45,7 @@ class VocabeeStoreTest {
             VocabeeEvent.AddWord(
                 topicId = topic.id,
                 source = "hello",
-                translation = "hi",
+                translation = "привіт",
             ),
         )
 
@@ -88,6 +89,16 @@ class VocabeeStoreTest {
     }
 
     @Test
+    fun removeTopicDeletesDictionaryFromState() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+
+        store.onEvent(VocabeeEvent.RemoveTopic(topic.id))
+
+        assertTrue(store.state.topics.none { it.id == topic.id })
+    }
+
+    @Test
     fun addedWordsKeepLocalSyncMetadata() {
         val store = VocabeeStore()
         val topic = store.createTopicForTest()
@@ -104,10 +115,134 @@ class VocabeeStoreTest {
         assertTrue(word.addedAtEpochMillis > 0L)
     }
 
-    private fun VocabeeStore.createTopicForTest(): DictionaryTopic {
+    @Test
+    fun wordKnowledgeProgressIsClampedBetweenZeroAndHundred() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "walk",
+                translation = "ходити",
+            ),
+        )
+        val word = store.topicForTest(topic.id).words.first()
+        assertEquals(0, word.knowledgePercent)
+
+        store.onEvent(VocabeeEvent.AdjustWordKnowledge(topic.id, word.id, -20))
+        assertEquals(0, store.topicForTest(topic.id).words.first().knowledgePercent)
+
+        repeat(6) {
+            store.onEvent(VocabeeEvent.AdjustWordKnowledge(topic.id, word.id, 20))
+        }
+        assertEquals(100, store.topicForTest(topic.id).words.first().knowledgePercent)
+    }
+
+    @Test
+    fun firstTwoDictionariesAreFreeAndNextOneCostsBees() {
+        val prefs = InMemoryPreferencesManager().apply { beeBalance = 50 }
+        val store = VocabeeStore(preferencesManager = prefs)
+        store.authenticateForTest()
+
+        store.createTopicForTest("One")
+        store.createTopicForTest("Two")
+        assertEquals(50, store.state.beeBalance)
+
+        store.createTopicForTest("Three")
+        assertEquals(40, store.state.beeBalance)
+        assertEquals(3, store.state.topics.size)
+    }
+
+    @Test
+    fun paidDictionaryCreationIsBlockedWhenBeeBalanceIsTooLow() {
+        val prefs = InMemoryPreferencesManager().apply { beeBalance = 0 }
+        val store = VocabeeStore(preferencesManager = prefs)
+        store.authenticateForTest()
+
+        store.createTopicForTest("One")
+        store.createTopicForTest("Two")
+        store.onEvent(VocabeeEvent.CreateTopic(title = "Blocked", coverIndex = 0))
+
+        assertEquals(2, store.state.topics.size)
+        assertEquals(0, store.state.beeBalance)
+    }
+
+    @Test
+    fun translationSearchSpendsOneBee() {
+        val prefs = InMemoryPreferencesManager().apply { beeBalance = 2 }
+        val store = VocabeeStore(preferencesManager = prefs)
+        store.authenticateForTest()
+
+        assertTrue(store.spendTranslationBee())
+        assertEquals(1, store.state.beeBalance)
+        assertTrue(store.spendTranslationBee())
+        assertEquals(0, store.state.beeBalance)
+        assertFalse(store.spendTranslationBee())
+    }
+
+    @Test
+    fun anonymousDictionaryLimitBlocksThirdDictionaryWithoutSpendingBees() {
+        val prefs = InMemoryPreferencesManager().apply { beeBalance = 50 }
+        val store = VocabeeStore(preferencesManager = prefs)
+
+        store.createTopicForTest("One")
+        store.createTopicForTest("Two")
+        store.onEvent(VocabeeEvent.CreateTopic(title = "Blocked", coverIndex = 0))
+
+        assertEquals(2, store.state.topics.size)
+        assertEquals(50, store.state.beeBalance)
+        assertTrue(store.anonymousDictionaryLimitReached())
+    }
+
+    @Test
+    fun anonymousWordLimitBlocksSearchAndExtraWords() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+
+        repeat(AnonymousFreeWordLimit) { index ->
+            store.onEvent(
+                VocabeeEvent.AddWord(
+                    topicId = topic.id,
+                    source = "word-$index",
+                    translation = "translation-$index",
+                ),
+            )
+        }
+
+        assertEquals(AnonymousFreeWordLimit, store.topicForTest(topic.id).words.size)
+        assertFalse(store.canSearchTranslation())
+        assertFalse(store.canAddWordToDictionary())
+
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "extra",
+                translation = "extra",
+            ),
+        )
+
+        assertEquals(AnonymousFreeWordLimit, store.topicForTest(topic.id).words.size)
+    }
+
+    private fun VocabeeStore.authenticateForTest() {
+        onEvent(
+            VocabeeEvent.ApplyAuthenticatedAccount(
+                userId = "test-user",
+                displayName = "Test User",
+                email = "test@example.com",
+                speakLang = state.userLanguage.code,
+                learnLang = state.learningLanguage.code,
+                notificationsEnabled = true,
+                darkThemeEnabled = state.darkThemeEnabled,
+                beeBalance = state.beeBalance,
+            ),
+        )
+    }
+
+    private fun VocabeeStore.createTopicForTest(title: String = "Test topic"): DictionaryTopic {
         onEvent(
             VocabeeEvent.CreateTopic(
-                title = "Test topic",
+                title = title,
                 coverIndex = 0,
             ),
         )

@@ -5,6 +5,9 @@
 
     <style name="Theme.Vocabee.Splash" parent="Theme.Vocabee">
         <item name="android:windowBackground">@drawable/splash_screen</item>
+        <item name="android:statusBarColor">@color/vocabee_splash_background</item>
+        <item name="android:navigationBarColor">@color/vocabee_splash_background</item>
+        <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowActionBar">false</item>
     </style>
