@@ -733,6 +733,7 @@ private fun MainApp(
                     entry<VocabeeRoute.Practice> {
                         PracticeScreen(
                             topics = state.topics,
+                            onOpenDictionaries = { openRoot(VocabeeRoute.DictionaryHome) },
                             onAnswerWord = { topicId, wordId, deltaPercent ->
                                 store.onEvent(
                                     VocabeeEvent.AdjustWordKnowledge(
@@ -2041,7 +2042,7 @@ private fun updatedLabelText(label: TopicUpdatedLabel): String = when (label) {
     is TopicUpdatedLabel.WeeksAgo -> "${label.count} ${ukrainianPlural(label.count, "тиждень", "тижні", "тижнів")} тому"
 }
 
-private fun ukrainianPlural(count: Int, one: String, few: String, many: String): String {
+internal fun ukrainianPlural(count: Int, one: String, few: String, many: String): String {
     val mod100 = count % 100
     if (mod100 in 11..14) return many
     return when (count % 10) {
@@ -3474,21 +3475,25 @@ private val AppTab.prototypeIcon: PrototypeIcon
  * Practice screen
  * ============================================================ */
 
-private const val KnowledgeStepPercent = 20
+internal const val KnowledgeStepPercent = 20
 
 @Composable
 private fun PracticeScreen(
     topics: List<DictionaryTopic>,
     onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
+    onOpenDictionaries: () -> Unit,
 ) {
     val trainableTopics = topics.filter { topic -> topic.words.isNotEmpty() }
     val trainableTopicIds = trainableTopics.map { topic -> topic.id }
+    var mode by remember { mutableStateOf(PracticeMode.Classic) }
     var selectedTopicIds by remember(trainableTopicIds) { mutableStateOf(emptySet<String>()) }
     var practiceStarted by remember(trainableTopicIds) { mutableStateOf(false) }
 
     if (!practiceStarted) {
         PracticeSetupScreen(
             topics = trainableTopics,
+            mode = mode,
+            onModeChange = { mode = it },
             selectedTopicIds = selectedTopicIds,
             onToggleTopic = { topicId ->
                 selectedTopicIds = if (topicId in selectedTopicIds) {
@@ -3509,6 +3514,16 @@ private fun PracticeScreen(
                     practiceStarted = true
                 }
             },
+            onOpenDictionaries = onOpenDictionaries,
+        )
+        return
+    }
+
+    if (mode == PracticeMode.Context) {
+        ContextPracticeSession(
+            topics = trainableTopics.filter { topic -> topic.id in selectedTopicIds },
+            onAnswerWord = onAnswerWord,
+            onExit = { practiceStarted = false },
         )
         return
     }
@@ -3683,13 +3698,18 @@ private fun PracticeScreen(
 @Composable
 private fun PracticeSetupScreen(
     topics: List<DictionaryTopic>,
+    mode: PracticeMode,
+    onModeChange: (PracticeMode) -> Unit,
     selectedTopicIds: Set<String>,
     onToggleTopic: (String) -> Unit,
     onSelectAllToggle: () -> Unit,
     onStart: () -> Unit,
+    onOpenDictionaries: () -> Unit,
 ) {
     val selectedTopics = topics.filter { topic -> topic.id in selectedTopicIds }
     val selectedWords = selectedTopics.sumOf { topic -> topic.words.size }
+    val selectedPairs = selectedTopics.sumOf { topic -> topic.contextPairCount() }
+    val totalPairs = topics.sumOf { topic -> topic.contextPairCount() }
     val allSelected = topics.isNotEmpty() && selectedTopicIds.size == topics.size
 
     if (topics.isEmpty()) {
@@ -3705,6 +3725,31 @@ private fun PracticeSetupScreen(
                 modifier = Modifier.padding(start = 24.dp, top = 8.dp, end = 24.dp),
             )
             PracticeEmptyState(modifier = Modifier.weight(1f))
+        }
+        return
+    }
+
+    if (mode == PracticeMode.Context && totalPairs == 0) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(PrototypeColor.Background)
+                .statusBarsPadding(),
+        ) {
+            PracticeSetupHeader(
+                title = "Почати практику",
+                subtitle = "Вибери словники для короткого раунду повторення.",
+                modifier = Modifier.padding(start = 24.dp, top = 8.dp, end = 24.dp),
+            )
+            PracticeModeCards(
+                mode = mode,
+                onModeChange = onModeChange,
+                modifier = Modifier.padding(start = 22.dp, top = 14.dp, end = 22.dp),
+            )
+            ContextPracticeEmptyState(
+                onOpenDictionaries = onOpenDictionaries,
+                modifier = Modifier.weight(1f),
+            )
         }
         return
     }
@@ -3725,6 +3770,12 @@ private fun PracticeSetupScreen(
                     title = "Почати практику",
                     subtitle = "Вибери словники для короткого раунду повторення.",
                     modifier = Modifier.padding(start = 2.dp, end = 2.dp, bottom = 4.dp),
+                )
+            }
+            item {
+                PracticeModeCards(
+                    mode = mode,
+                    onModeChange = onModeChange,
                 )
             }
             item {
@@ -3749,9 +3800,17 @@ private fun PracticeSetupScreen(
                 }
             }
             items(topics, key = { topic -> topic.id }) { topic ->
+                val contextSubtitle = if (mode == PracticeMode.Context) {
+                    val pairs = topic.contextPairCount()
+                    "${topic.words.size} ${ukrainianPlural(topic.words.size, "слово", "слова", "слів")} · " +
+                        "$pairs ${ukrainianPlural(pairs, "пара", "пари", "пар")} у контексті"
+                } else {
+                    null
+                }
                 PracticeTopicPickerRow(
                     topic = topic,
                     selected = topic.id in selectedTopicIds,
+                    subtitle = contextSubtitle,
                     onClick = { onToggleTopic(topic.id) },
                 )
             }
@@ -3781,7 +3840,11 @@ private fun PracticeSetupScreen(
                     )
                     Box(modifier = Modifier.padding(horizontal = 8.dp).size(4.dp).clip(CircleShape).background(PrototypeColor.Muted3))
                     Text(
-                        text = "$selectedWords ${ukrainianPlural(selectedWords, "слово", "слова", "слів")}",
+                        text = if (mode == PracticeMode.Context) {
+                            "$selectedPairs ${ukrainianPlural(selectedPairs, "пара", "пари", "пар")}"
+                        } else {
+                            "$selectedWords ${ukrainianPlural(selectedWords, "слово", "слова", "слів")}"
+                        },
                         color = PrototypeColor.Muted,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
@@ -3789,7 +3852,7 @@ private fun PracticeSetupScreen(
                 }
                 PrimaryPillButton(
                     label = "Почати тренування",
-                    enabled = selectedWords > 0,
+                    enabled = if (mode == PracticeMode.Context) selectedPairs > 0 else selectedWords > 0,
                     onClick = onStart,
                 )
             }
@@ -3827,6 +3890,7 @@ private fun PracticeTopicPickerRow(
     topic: DictionaryTopic,
     selected: Boolean,
     onClick: () -> Unit,
+    subtitle: String? = null,
 ) {
     val theme = prototypeTopicTheme(topic.coverIndex)
     val wordsCount = topic.words.size
@@ -3873,7 +3937,8 @@ private fun PracticeTopicPickerRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "$wordsCount ${ukrainianPlural(wordsCount, "слово", "слова", "слів")} · $knowledgePercent% знаю",
+                    text = subtitle
+                        ?: "$wordsCount ${ukrainianPlural(wordsCount, "слово", "слова", "слів")} · $knowledgePercent% знаю",
                     modifier = Modifier.padding(top = 3.dp),
                     color = PrototypeColor.Muted,
                     fontWeight = FontWeight.SemiBold,
@@ -4114,7 +4179,7 @@ private fun PracticeKnowledgeLevel(
 }
 
 @Composable
-private fun PracticeAnswerButton(
+internal fun PracticeAnswerButton(
     text: String,
     icon: PrototypeIcon,
     color: Color,

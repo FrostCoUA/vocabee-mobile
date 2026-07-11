@@ -10,6 +10,8 @@ import com.vocabee.android.feature.vocabulary.data.preferences.IosPreferencesMan
 import com.vocabee.android.feature.vocabulary.data.preferences.PreferencesManager
 import com.vocabee.android.feature.vocabulary.presentation.platform.GoogleAuthController
 import com.vocabee.android.feature.vocabulary.presentation.platform.IosGoogleAuthController
+import com.vocabee.android.feature.vocabulary.presentation.platform.IosSpeechInputController
+import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechInputController
 import io.ktor.client.HttpClient
 import org.koin.dsl.module
 import platform.Foundation.NSDocumentDirectory
@@ -19,13 +21,11 @@ import platform.Foundation.NSUserDomainMask
 val vocabeeIosModule = module {
     single<PreferencesManager> { IosPreferencesManager() }
 
-    single {
-        // iOS simulator shares the host network, so localhost reaches the
-        // gateway on the Mac. Real devices need the LAN IP — wired up later.
-        VocabeeApiConfig(baseUrl = "http://localhost:3000")
-    }
+    single { VocabeeApiConfig(baseUrl = vocabeeIosBaseUrl) }
 
     single<HttpClient> { IosVocabeeHttpClientFactory.create() }
+
+    single<SpeechInputController> { IosSpeechInputController() }
 
     single<GoogleAuthController> {
         IosGoogleAuthController(
