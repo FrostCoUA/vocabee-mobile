@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -107,6 +108,7 @@ internal fun PushedScreenTopBar(
 internal fun InviteFriendsScreen(
     api: VocabeeApi?,
     isAuthenticated: Boolean,
+    refreshTokenProvider: () -> String?,
     shareController: ShareController,
     onBack: () -> Unit,
     onShowSnackbar: (String) -> Unit,
@@ -114,8 +116,14 @@ internal fun InviteFriendsScreen(
     var link by remember { mutableStateOf(FallbackInviteLink) }
     LaunchedEffect(isAuthenticated) {
         if (api != null && isAuthenticated) {
-            runCatching { api.fetchReferral() }
-                .onSuccess { link = it.link }
+            val referral = runCatching { api.fetchReferral() }.getOrElse {
+                // The access token lives ~15 min — refresh once and retry.
+                runCatching {
+                    refreshTokenProvider()?.let { token -> api.refreshSession(token) }
+                    api.fetchReferral()
+                }.getOrNull()
+            }
+            referral?.let { link = it.link }
         }
     }
     val clipboard = LocalClipboardManager.current
@@ -257,7 +265,7 @@ internal fun InviteFriendsScreen(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             PrototypeLineIcon(
-                                icon = PrototypeIcon.Bookmark,
+                                icon = PrototypeIcon.Copy,
                                 modifier = Modifier.size(18.dp),
                                 color = PrototypeColor.PurpleText,
                                 strokeWidth = 2f,
@@ -339,7 +347,10 @@ internal fun HelpSupportScreen(
 
             Column {
                 EngagementFieldLabel("Тема")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     SupportTopics.forEach { option ->
                         val selected = topic == option.key
                         Surface(

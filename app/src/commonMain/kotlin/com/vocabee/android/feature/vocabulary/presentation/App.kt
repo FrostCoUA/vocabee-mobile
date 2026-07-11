@@ -756,6 +756,7 @@ private fun MainApp(
                         InviteFriendsScreen(
                             api = api,
                             isAuthenticated = state.account is VocabeeAccountState.Authenticated,
+                            refreshTokenProvider = { preferencesManager.refreshToken },
                             shareController = shareController,
                             onBack = { backStack.removeLastOrNull() },
                             onShowSnackbar = { message ->
@@ -4752,7 +4753,9 @@ private fun ProfileStat(
         shadowElevation = 6.dp,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 15.dp),
+            // Tight vertical rhythm so the two-line label ("слів збережено" on
+            // iOS wraps) still fits inside the fixed 118dp card.
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Surface(modifier = Modifier.size(38.dp), shape = RoundedCornerShape(12.dp), color = tint) {
@@ -4767,7 +4770,7 @@ private fun ProfileStat(
             }
             Text(
                 text = value,
-                modifier = Modifier.padding(top = 9.dp),
+                modifier = Modifier.padding(top = 4.dp),
                 color = PrototypeColor.Ink,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 22.sp,
@@ -4778,8 +4781,8 @@ private fun ProfileStat(
                 text = label,
                 color = PrototypeColor.Muted,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 11.5.sp,
-                lineHeight = 14.sp,
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

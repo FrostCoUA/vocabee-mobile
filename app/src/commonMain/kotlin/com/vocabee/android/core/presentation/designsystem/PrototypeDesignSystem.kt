@@ -298,6 +298,7 @@ internal enum class PrototypeIcon {
     Star,
     ArrowRight,
     Dumbbell,
+    Copy,
     Plane,
     Film,
     Brief,
@@ -605,6 +606,19 @@ internal fun PrototypeLineIcon(
                 rect(14.8f, 7.9f, 3.3f, 8.2f, 1.5f)
                 rect(2.9f, 9.9f, 2.1f, 4.2f, 1f)
                 rect(19f, 9.9f, 2.1f, 4.2f, 1f)
+            }
+            PrototypeIcon.Copy -> {
+                rect(9f, 9f, 11f, 11f, 2.5f)
+                path {
+                    moveTo(x(15f), y(9f))
+                    lineTo(x(15f), y(6.5f))
+                    quadraticTo(x(15f), y(4f), x(12.5f), y(4f))
+                    lineTo(x(6.5f), y(4f))
+                    quadraticTo(x(4f), y(4f), x(4f), y(6.5f))
+                    lineTo(x(4f), y(12.5f))
+                    quadraticTo(x(4f), y(15f), x(6.5f), y(15f))
+                    lineTo(x(9f), y(15f))
+                }
             }
             PrototypeIcon.Plane -> {
                 svg("M21 15.5 3 11l2-3 4 1 4-5 2 1-2 4 5 1 1.5 2.5a1.4 1.4 0 0 1-1.5 2Z")

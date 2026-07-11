@@ -600,10 +600,13 @@ internal fun PrimaryPillButton(
         enabled = enabled,
         shape = RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(
+            // Literal white: on the purple fill the label must stay white in
+            // BOTH themes (PrototypeColor.White flips to a dark surface tone
+            // in dark mode and made the label unreadable).
             containerColor = PrototypeColor.Purple,
-            contentColor = PrototypeColor.White,
+            contentColor = Color.White,
             disabledContainerColor = PrototypeColor.Purple.copy(alpha = 0.45f),
-            disabledContentColor = PrototypeColor.White,
+            disabledContentColor = Color.White.copy(alpha = 0.85f),
         ),
         contentPadding = PaddingValues(horizontal = 22.dp),
     ) {

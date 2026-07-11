@@ -360,14 +360,22 @@ private fun PracticeModeCard(
                         )
                     }
                 }
+                // Long titles («Слово в контексті») shrink instead of ellipsizing.
+                var titleScale by remember(title) { mutableStateOf(1f) }
                 Text(
                     text = title,
                     modifier = Modifier.padding(top = 12.dp),
                     color = PrototypeColor.Ink,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 15.5.sp,
+                    fontSize = 15.5.sp * titleScale,
                     maxLines = 1,
+                    softWrap = false,
                     overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { result ->
+                        if (result.hasVisualOverflow && titleScale > 0.72f) {
+                            titleScale -= 0.04f
+                        }
+                    },
                 )
                 Text(
                     text = subtitle,
