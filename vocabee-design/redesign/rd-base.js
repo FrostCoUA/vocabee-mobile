@@ -51,6 +51,12 @@ window.RD = {};
     heart: '<path d="M12 20S4 15 4 9a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 9c0 6-8 11-8 11Z"/>',
     child: '<circle cx="12" cy="6.8" r="3"/><path d="M6 20c0-3.6 2.7-5.8 6-5.8s6 2.2 6 5.8"/><path d="M9.4 3.6 8.2 2.2M14.6 3.6l1.2-1.4"/>',
     chat: '<path d="M12 4c5 0 9 3 9 6.8s-4 6.8-9 6.8c-1 0-2-.1-2.9-.4L5 19.4l.8-3C4.1 15 3 13 3 10.8 3 7 7 4 12 4Z"/>',
+    copy: '<rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/>',
+    share: '<path d="M12 15V4M8 7.5 12 3.5l4 4"/><path d="M5 12v7.5h14V12"/>',
+    clip: '<path d="M20.5 12.5l-7.8 7.8a5.3 5.3 0 0 1-7.5-7.5l8.2-8.2a3.5 3.5 0 0 1 5 5l-8.2 8.2a1.77 1.77 0 0 1-2.5-2.5l7.5-7.5"/>',
+    image: '<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M4.5 17.5 10 12l4 4 2.5-2.5 3 3"/>',
+    dots: '<circle cx="5.5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
+    send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/>',
   };
 
   RD.ic = function (name, size, color, sw) {
