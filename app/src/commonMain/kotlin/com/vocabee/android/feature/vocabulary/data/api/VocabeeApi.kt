@@ -32,6 +32,10 @@ interface VocabeeApi {
     suspend fun applySync(request: ApplySyncRequest): SyncResponse
 
     suspend fun claimRewardedAdBees(): UserResponse
+
+    suspend fun fetchReferral(): ReferralResponse
+
+    suspend fun submitSupport(request: SupportRequestBody): SupportResponse
 }
 
 class VocabeeApiException(

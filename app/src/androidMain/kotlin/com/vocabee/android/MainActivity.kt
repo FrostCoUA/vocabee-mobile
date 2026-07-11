@@ -26,6 +26,7 @@ import com.vocabee.android.feature.vocabulary.presentation.VocabeeViewModel
 import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidGoogleAuthController
 import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidRewardedAdController
 import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidSpeechInputController
+import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidShareController
 import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidSpeechOutputController
 
 class MainActivity : ComponentActivity() {
@@ -73,6 +74,7 @@ class MainActivity : ComponentActivity() {
                     webClientId = BuildConfig.VOCABEE_GOOGLE_WEB_CLIENT_ID,
                 )
             }
+            val shareController = remember { AndroidShareController(this) }
             val rewardedAdController = remember {
                 AndroidRewardedAdController(
                     activity = this,
@@ -117,6 +119,7 @@ class MainActivity : ComponentActivity() {
                     speechOutputController = speechOutputController,
                     googleAuthController = googleAuthController,
                     rewardedAdController = rewardedAdController,
+                    shareController = shareController,
                     remoteLexiconSearch = viewModel.remoteLexiconSearch,
                     api = viewModel.api,
                     preferencesManager = viewModel.preferencesManager,

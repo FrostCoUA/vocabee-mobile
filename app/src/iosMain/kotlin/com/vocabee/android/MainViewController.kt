@@ -13,6 +13,7 @@ import com.vocabee.android.feature.vocabulary.presentation.VocabeeApp
 import com.vocabee.android.feature.vocabulary.presentation.VocabeeStore
 import com.vocabee.android.feature.vocabulary.presentation.platform.CallbackRewardedAdController
 import com.vocabee.android.feature.vocabulary.presentation.platform.GoogleAuthController
+import com.vocabee.android.feature.vocabulary.presentation.platform.IosShareController
 import com.vocabee.android.feature.vocabulary.presentation.platform.IosSpeechOutputController
 import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechInputController
 import org.koin.core.Koin
@@ -53,6 +54,7 @@ fun MainViewController(
         speechInputController = remember { koin.get<SpeechInputController>() },
         speechOutputController = remember { IosSpeechOutputController() },
         googleAuthController = remember { koin.get<GoogleAuthController>() },
+        shareController = remember { IosShareController() },
         rewardedAdController = remember { CallbackRewardedAdController(presentRewardedAd) },
         remoteLexiconSearch = remember { koin.get<RemoteLexiconSearchUseCase>() },
         api = remember { koin.get<VocabeeApi>() },

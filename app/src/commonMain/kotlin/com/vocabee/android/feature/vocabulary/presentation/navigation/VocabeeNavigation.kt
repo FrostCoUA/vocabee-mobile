@@ -20,6 +20,12 @@ sealed interface VocabeeRoute : NavKey {
 
     @Serializable
     data object Settings : VocabeeRoute
+
+    @Serializable
+    data object InviteFriends : VocabeeRoute
+
+    @Serializable
+    data object HelpSupport : VocabeeRoute
 }
 
 val vocabeeSavedStateConfiguration = SavedStateConfiguration {
@@ -28,6 +34,8 @@ val vocabeeSavedStateConfiguration = SavedStateConfiguration {
             subclass(VocabeeRoute.DictionaryHome.serializer())
             subclass(VocabeeRoute.TopicDetail.serializer())
             subclass(VocabeeRoute.Practice.serializer())
+            subclass(VocabeeRoute.InviteFriends.serializer())
+            subclass(VocabeeRoute.HelpSupport.serializer())
             subclass(VocabeeRoute.Settings.serializer())
         }
     }

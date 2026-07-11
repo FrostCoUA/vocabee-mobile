@@ -144,6 +144,8 @@ import com.vocabee.android.feature.vocabulary.presentation.platform.GoogleAuthCo
 import com.vocabee.android.feature.vocabulary.presentation.platform.GoogleAuthResult
 import com.vocabee.android.feature.vocabulary.presentation.platform.NoGoogleAuthController
 import com.vocabee.android.feature.vocabulary.presentation.platform.NoRewardedAdController
+import com.vocabee.android.feature.vocabulary.presentation.platform.NoShareController
+import com.vocabee.android.feature.vocabulary.presentation.platform.ShareController
 import com.vocabee.android.feature.vocabulary.presentation.platform.RewardedAdController
 import com.vocabee.android.feature.vocabulary.presentation.platform.RewardedAdResult
 import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechInputController
@@ -286,6 +288,7 @@ fun VocabeeApp(
     speechOutputController: SpeechOutputController = NoSpeechOutputController,
     googleAuthController: GoogleAuthController = NoGoogleAuthController,
     rewardedAdController: RewardedAdController = NoRewardedAdController,
+    shareController: ShareController = NoShareController,
     remoteLexiconSearch: RemoteLexiconSearchUseCase? = null,
     api: VocabeeApi? = null,
     preferencesManager: PreferencesManager = InMemoryPreferencesManager(),
@@ -334,6 +337,7 @@ fun VocabeeApp(
                 speechOutputController = speechOutputController,
                 googleAuthController = googleAuthController,
                 rewardedAdController = rewardedAdController,
+                shareController = shareController,
                 remoteLexiconSearch = remoteLexiconSearch,
                 api = api,
                 preferencesManager = preferencesManager,
@@ -350,6 +354,7 @@ private fun MainApp(
     speechOutputController: SpeechOutputController,
     googleAuthController: GoogleAuthController,
     rewardedAdController: RewardedAdController,
+    shareController: ShareController,
     remoteLexiconSearch: RemoteLexiconSearchUseCase?,
     api: VocabeeApi?,
     preferencesManager: PreferencesManager,
@@ -747,6 +752,30 @@ private fun MainApp(
                         )
                     }
 
+                    entry<VocabeeRoute.InviteFriends> {
+                        InviteFriendsScreen(
+                            api = api,
+                            isAuthenticated = state.account is VocabeeAccountState.Authenticated,
+                            shareController = shareController,
+                            onBack = { backStack.removeLastOrNull() },
+                            onShowSnackbar = { message ->
+                                scope.launch { appSnackbarHostState.showSnackbar(message) }
+                            },
+                        )
+                    }
+
+                    entry<VocabeeRoute.HelpSupport> {
+                        HelpSupportScreen(
+                            api = api,
+                            isAuthenticated = state.account is VocabeeAccountState.Authenticated,
+                            accountEmail = (state.account as? VocabeeAccountState.Authenticated)?.email,
+                            onBack = { backStack.removeLastOrNull() },
+                            onShowSnackbar = { message ->
+                                scope.launch { appSnackbarHostState.showSnackbar(message) }
+                            },
+                        )
+                    }
+
                     entry<VocabeeRoute.Settings> {
                         ProfileScreen(
                             topics = state.topics,
@@ -773,6 +802,8 @@ private fun MainApp(
                             },
                             onSpeakingClick = { sheet = PrototypeSheet.LanguageForProfile(ProfileLanguageTarget.Speaking) },
                             onLearningClick = { sheet = PrototypeSheet.LanguageForProfile(ProfileLanguageTarget.Learning) },
+                            onInviteClick = { backStack.add(VocabeeRoute.InviteFriends) },
+                            onHelpClick = { backStack.add(VocabeeRoute.HelpSupport) },
                         )
                     }
                 },
@@ -4317,6 +4348,8 @@ private fun ProfileScreen(
     onLogoutClick: () -> Unit,
     onSpeakingClick: () -> Unit,
     onLearningClick: () -> Unit,
+    onInviteClick: () -> Unit,
+    onHelpClick: () -> Unit,
 ) {
     val totalWords = topics.sumOf { it.words.size }
     LazyColumn(
@@ -4455,7 +4488,7 @@ private fun ProfileScreen(
                     },
                     label = "Запросити друзів",
                     sub = "Поділись Vocabee",
-                    onClick = {},
+                    onClick = onInviteClick,
                 )
                 ProfileSettingsDivider()
                 SettingRow(
@@ -4469,7 +4502,7 @@ private fun ProfileScreen(
                     },
                     label = "Допомога та підтримка",
                     sub = null,
-                    onClick = {},
+                    onClick = onHelpClick,
                 )
             }
         }

@@ -73,6 +73,7 @@ kotlin {
             implementation(libs.androidx.sqlite.bundled)
             implementation(libs.koin.core)
             implementation(libs.jetbrains.ui.backhandler)
+            implementation(libs.qrose)
         }
 
         androidMain.dependencies {

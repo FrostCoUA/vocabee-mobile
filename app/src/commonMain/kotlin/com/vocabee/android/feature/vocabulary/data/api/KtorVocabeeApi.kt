@@ -174,6 +174,38 @@ class KtorVocabeeApi(
         return response.body()
     }
 
+    override suspend fun fetchReferral(): ReferralResponse {
+        val response = try {
+            client.get("${config.baseUrl}/v1/referral/me") {
+                tokenStore.current()?.let { token -> bearerAuth(token) }
+            }
+        } catch (cause: ClientRequestException) {
+            throw cause.toApiException()
+        } catch (cause: ServerResponseException) {
+            throw cause.toApiException()
+        } catch (cause: ResponseException) {
+            throw cause.toApiException()
+        }
+        return response.body()
+    }
+
+    override suspend fun submitSupport(request: SupportRequestBody): SupportResponse {
+        val response = try {
+            client.post("${config.baseUrl}/v1/support") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+                tokenStore.current()?.let { token -> bearerAuth(token) }
+            }
+        } catch (cause: ClientRequestException) {
+            throw cause.toApiException()
+        } catch (cause: ServerResponseException) {
+            throw cause.toApiException()
+        } catch (cause: ResponseException) {
+            throw cause.toApiException()
+        }
+        return response.body()
+    }
+
     private suspend fun ResponseException.toApiException(): VocabeeApiException {
         val body = runCatching { response.body<ApiErrorBody>() }.getOrNull()
         return VocabeeApiException(
