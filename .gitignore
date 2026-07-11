@@ -14,3 +14,10 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Signing & local artifacts
+/vocabee.jks
+/app/release/
+/iosApp/build/
+# Stray empty clone
+/vocabee/

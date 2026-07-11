@@ -3,12 +3,12 @@ package com.vocabee.android.feature.vocabulary.presentation
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -50,6 +50,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,6 +73,10 @@ import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechInputController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 /** Origin rect (in dp) of the pill that we morph from. */
 internal data class AddWordOrigin(
@@ -601,12 +608,14 @@ private fun HoldToTalkButton(
 }
 
 /**
- * Animated waveform — 28 bars pulsing between 8dp and 56dp height with a staggered
- * phase, matching the prototype's CSS `@keyframes waveBar` (0.7s ease-in-out
- * alternate, delay = (k * 45) mod 600 ms).
+ * Animated waveform — the redesign's static picture brought to life. The mock
+ * freezes a sinusoidal envelope (`h = min + |sin(i·1.7)|·range`, alpha
+ * `0.55 + 0.45·|cos(i)|`); we animate the same formulas as a travelling wave by
+ * advancing the phase a full 2π every [cycle][700ms], so the loop is seamless.
  *
- * One [rememberInfiniteTransition] drives all bars; per-bar phase comes from a
- * [StartOffset] so we don't pay for 28 independent transitions.
+ * A single animated phase drives every bar; bars are drawn in one Canvas pass
+ * (reading the phase inside the draw block only invalidates the draw phase, so
+ * nothing recomposes per frame).
  */
 @Composable
 internal fun VoiceWaveform(
@@ -619,34 +628,39 @@ internal fun VoiceWaveform(
     maxBarHeight: Dp = 56.dp,
 ) {
     val transition = rememberInfiniteTransition(label = "voice-waveform")
-    val cycleMillis = 700
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 2f * PI.toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "wave-phase",
+    )
+    val barColor = PrototypeColor.Orange
 
-    Row(
-        modifier = modifier.height(height),
-        horizontalArrangement = Arrangement.spacedBy(barSpacing),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    // Intrinsic width for callers that don't stretch us (e.g. the mic stage);
+    // a fillMaxWidth() in the incoming modifier still wins over this.
+    val intrinsicWidth = barWidth * barCount + barSpacing * (barCount - 1)
+    Canvas(modifier = modifier.width(intrinsicWidth).height(height)) {
+        val barW = barWidth.toPx()
+        val gap = barSpacing.toPx()
+        val minH = minBarHeight.toPx()
+        val rangeH = (maxBarHeight - minBarHeight).toPx()
+        val totalW = barCount * barW + (barCount - 1) * gap
+        val startX = (size.width - totalW) / 2f
+        val radius = CornerRadius(barW / 2f, barW / 2f)
+
         repeat(barCount) { index ->
-            val offsetMillis = (index * 45) % 600
-            val progress by transition.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(durationMillis = cycleMillis, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse,
-                    initialStartOffset = StartOffset(offsetMillis),
-                ),
-                label = "bar-$index",
-            )
-            // Match prototype range: 8dp → 56dp, opacity 0.5 → 1.0.
-            val barHeight = minBarHeight + (maxBarHeight - minBarHeight) * progress
-            val barAlpha = 0.5f + progress * 0.5f
-            Box(
-                modifier = Modifier
-                    .width(barWidth)
-                    .height(barHeight)
-                    .clip(CircleShape)
-                    .background(PrototypeColor.Orange.copy(alpha = barAlpha)),
+            // Design formulas from rd-parts.js, phase-shifted so the wave travels.
+            val envelope = abs(sin(index * 1.7f - phase))
+            val barH = minH + rangeH * envelope
+            val alpha = 0.55f + 0.45f * abs(cos(index - phase))
+            drawRoundRect(
+                color = barColor.copy(alpha = alpha),
+                topLeft = Offset(startX + index * (barW + gap), (size.height - barH) / 2f),
+                size = Size(barW, barH),
+                cornerRadius = radius,
             )
         }
     }
@@ -741,12 +755,15 @@ internal fun AddWordResultsList(
         return
     }
 
+    val keyedResults = remember(results) { results.withStableTranslationKeys() }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(9.dp),
         contentPadding = PaddingValues(bottom = 18.dp),
     ) {
-        items(results, key = { it.value }) { option ->
+        items(keyedResults, key = { it.key }) { keyedOption ->
+            val option = keyedOption.option
             // Live "is this translation in the topic right now?" check. Either the
             // server marked it `alreadyAdded` at search time, OR the user just
             // tapped "+" on it during this overlay session and the topic state
@@ -773,7 +790,7 @@ internal fun AddWordResultsList(
                 PrototypeLineIcon(
                     icon = PrototypeIcon.Sparkle,
                     modifier = Modifier.size(13.dp),
-                    color = PrototypeColor.Purple,
+                    color = PrototypeColor.PurpleText,
                     strokeWidth = 1.7f,
                 )
                 Spacer(modifier = Modifier.width(7.dp))
@@ -787,6 +804,26 @@ internal fun AddWordResultsList(
         }
     }
 }
+
+private data class KeyedTranslationOption(
+    val key: String,
+    val option: TranslationOption,
+)
+
+private fun List<TranslationOption>.withStableTranslationKeys(): List<KeyedTranslationOption> {
+    val seen = mutableMapOf<String, Int>()
+    return map { option ->
+        val baseKey = "${option.value.normalizedTranslationKey()}|${option.learningWord.normalizedTranslationKey()}"
+        val occurrence = seen[baseKey] ?: 0
+        seen[baseKey] = occurrence + 1
+        KeyedTranslationOption(
+            key = if (occurrence == 0) baseKey else "$baseKey|$occurrence",
+            option = option,
+        )
+    }
+}
+
+private fun String.normalizedTranslationKey(): String = trim().lowercase()
 
 private fun footerCaptionFor(tier: String?, maxResults: Int?): String {
     // Per-tier caps were lifted server-side — anonymous/registered/premium all
@@ -859,7 +896,7 @@ private fun AddWordResultRow(
                     PrototypeLineIcon(
                         icon = PrototypeIcon.Sparkle,
                         modifier = Modifier.size(11.dp),
-                        color = PrototypeColor.Purple,
+                        color = PrototypeColor.PurpleText,
                         strokeWidth = 1.7f,
                     )
                 }
@@ -960,7 +997,7 @@ private fun AddedCountBar(count: Int, onDone: () -> Unit) {
             modifier = Modifier
                 .clickable(onClick = onDone)
                 .padding(8.dp),
-            color = PrototypeColor.Purple,
+            color = PrototypeColor.PurpleText,
             fontWeight = FontWeight.ExtraBold,
             fontSize = 16.sp,
         )

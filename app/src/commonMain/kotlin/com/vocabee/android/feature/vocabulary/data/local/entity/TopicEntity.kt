@@ -27,6 +27,8 @@ data class TopicEntity(
     val targetLanguageCode: String,
     @ColumnInfo(name = "cover_index")
     val coverIndex: Int,
+    @ColumnInfo(name = "icon_index", defaultValue = "0")
+    val iconIndex: Int = 0,
     @ColumnInfo(name = "created_at_epoch_millis")
     val createdAtEpochMillis: Long,
     @ColumnInfo(name = "updated_at_epoch_millis")

@@ -33,6 +33,7 @@ class FakeVocabularyRepository : VocabularyRepository {
         sourceLanguage: LanguageOption,
         targetLanguage: LanguageOption,
         coverIndex: Int,
+        iconIndex: Int,
     ): DictionaryTopic {
         val now = nextTimestamp()
         val topic = DictionaryTopic(
@@ -42,6 +43,7 @@ class FakeVocabularyRepository : VocabularyRepository {
             sourceLanguage = sourceLanguage,
             targetLanguage = targetLanguage,
             coverIndex = coverIndex,
+            iconIndex = iconIndex,
             createdAtEpochMillis = now,
             updatedAtEpochMillis = now,
             syncStatus = SyncStatus.PendingCreate,

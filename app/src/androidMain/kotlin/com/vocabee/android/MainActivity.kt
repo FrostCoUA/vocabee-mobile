@@ -9,7 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
+import org.koin.androidx.viewmodel.ext.android.viewModel
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -27,11 +27,9 @@ import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidGoogl
 import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidRewardedAdController
 import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidSpeechInputController
 import com.vocabee.android.feature.vocabulary.presentation.platform.AndroidSpeechOutputController
-import dagger.hilt.android.AndroidEntryPoint
 
-@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    private val viewModel: VocabeeViewModel by viewModels()
+    private val viewModel: VocabeeViewModel by viewModel()
 
     /**
      * Pre-registered RECORD_AUDIO launcher. Registering here (before

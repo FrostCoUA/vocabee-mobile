@@ -3,9 +3,6 @@ package com.vocabee.android.feature.vocabulary.data.preferences
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
-import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * SharedPreferences-backed implementation of [PreferencesManager]. We use a
@@ -16,9 +13,8 @@ import javax.inject.Singleton
  * read happens once during app startup off the splash screen, so apply()
  * is enough; no need for a Flow-based reactive layer.
  */
-@Singleton
-class AndroidPreferencesManager @Inject constructor(
-    @ApplicationContext context: Context,
+class AndroidPreferencesManager(
+    context: Context,
 ) : PreferencesManager {
 
     private val prefs: SharedPreferences =

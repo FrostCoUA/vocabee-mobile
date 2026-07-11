@@ -56,6 +56,7 @@ sealed interface VocabeeEvent {
     data class CreateTopic(
         val title: String,
         val coverIndex: Int,
+        val iconIndex: Int = 0,
     ) : VocabeeEvent
 
     data class AddWord(
@@ -139,7 +140,7 @@ class VocabeeStore(
 
     fun onEvent(event: VocabeeEvent) {
         when (event) {
-            is VocabeeEvent.CreateTopic -> createTopic(event.title, event.coverIndex)
+            is VocabeeEvent.CreateTopic -> createTopic(event.title, event.coverIndex, event.iconIndex)
             is VocabeeEvent.RemoveTopic -> removeTopic(event.topicId)
             is VocabeeEvent.AddWord -> addWord(event.topicId, event.source, event.translation, event.ipa, event.details)
             is VocabeeEvent.RemoveWord -> removeWord(event.topicId, event.translation)
@@ -270,6 +271,7 @@ class VocabeeStore(
     private fun createTopic(
         title: String,
         coverIndex: Int,
+        iconIndex: Int,
     ) {
         val cleanedTitle = title.trim()
         if (cleanedTitle.isBlank()) return
@@ -282,6 +284,7 @@ class VocabeeStore(
             sourceLanguage = state.learningLanguage,
             targetLanguage = state.userLanguage,
             coverIndex = coverIndex,
+            iconIndex = iconIndex,
         )
         state = state.copy(
             topics = loadUserTopicsUseCase(),

@@ -79,6 +79,7 @@ data class DictionaryTopic(
     val targetLanguage: LanguageOption,
     val updatedLabel: TopicUpdatedLabel = TopicUpdatedLabel.Today,
     val coverIndex: Int = 0,
+    val iconIndex: Int = 0,
     val createdAtEpochMillis: Long = 0L,
     val updatedAtEpochMillis: Long = createdAtEpochMillis,
     val syncStatus: SyncStatus = SyncStatus.PendingCreate,

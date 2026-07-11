@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="design_doc_mode" content="canvas">
+<title>Vocabee — Redesign · світла і темна теми</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  body{position:relative;margin:0;font-family:'Manrope',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:#4F46E5}a:hover{color:#410FA3}
+
+  /* ---------- theme tokens ---------- */
+  .t-light{
+    --bg:#F6F6F9; --surface:#FFFFFF; --tint:#E0E7FF; --ink:#111827;
+    --muted:#6B7280; --muted2:#9CA3AF; --muted3:#C2C7D6;
+    --line:#EDEEF3; --line2:#F1F2F6; --field:#F5F6FA; --neutral:#F3F4F8;
+    --sheet:#FFFFFF; --sheetctl:#F3F4F8; --handle:#E2E4EC;
+    --peach:#FFEDE0; --peach-b:#F6C9A8; --soft-green:#E3F7EC;
+    --ny-bg:#FFF8E6; --ny-b:#FBE6A8; --ny-t:#8A6400;
+    --ctx1:#F7F8FC; --ctx2:#F4F5FB; --ctx-b:#EDEFF7;
+    --track:#E6E8F0; --switch:#D8DAE3; --chip:#E7E9F0;
+    --purple:#4F46E5; --purple-t:#4F46E5;
+    --orange:#F76400; --orange-t:#C2410C;
+    --green:#16A34A; --green-t:#15803D;
+    --red:#DC2626; --red-t:#DC2626;
+    --yellow:#FFCC00; --yellow-t:#5A4500;
+    --flame-bg:#FFF4D6; --flame-t:#E0820C; --train-bg:#E6F6F1; --train-t:#0E9FA5;
+    --scrim:rgba(17,24,39,.50);
+    --snack:#1F2430; --snack-t:#FFFFFF;
+    --card-border:rgba(17,24,39,.04);
+    --elev1:0 1px 2px rgba(17,24,39,.05),0 10px 24px -16px rgba(17,24,39,.30);
+    --elev2:0 2px 4px rgba(17,24,39,.06),0 18px 38px -18px rgba(17,24,39,.35);
+  }
+  .t-dark{
+    --bg:#0F131D; --surface:#171D2A; --tint:#2C3060; --ink:#F3F5FA;
+    --muted:#AEB7C8; --muted2:#7D8699; --muted3:#59627A;
+    --line:#2A3143; --line2:#232938; --field:#1B2130; --neutral:#232939;
+    --sheet:#1E2433; --sheetctl:#2A3143; --handle:#3B4358;
+    --peach:#3B2417; --peach-b:#6B3A1F; --soft-green:#14301F;
+    --ny-bg:#33290F; --ny-b:#5C4A12; --ny-t:#F5CE58;
+    --ctx1:#1C2231; --ctx2:#191F2C; --ctx-b:#2A3143;
+    --track:#2A3143; --switch:#333B50; --chip:#2A3143;
+    --purple:#4F46E5; --purple-t:#9AA4FF;
+    --orange:#F76400; --orange-t:#FF9A62;
+    --green:#16A34A; --green-t:#43D17C;
+    --red:#E5484D; --red-t:#FF7B81;
+    --yellow:#FFCC00; --yellow-t:#5A4500;
+    --flame-bg:#392817; --flame-t:#FFB65C; --train-bg:#12343A; --train-t:#3ECAD1;
+    --scrim:rgba(0,0,0,.60);
+    --snack:#2A3143; --snack-t:#F3F5FA;
+    --card-border:#2A3143;
+    --elev1:0 14px 30px -20px rgba(0,0,0,.65);
+    --elev2:0 20px 44px -22px rgba(0,0,0,.70);
+  }
+
+  /* ---------- canvas chrome ---------- */
+  .frame{position:absolute}
+  .frame .cv{position:relative;width:100%;height:100%;background:var(--bg);color:var(--ink);overflow:hidden;
+    box-shadow:0 2px 6px rgba(17,24,39,.10),0 34px 70px -34px rgba(17,24,39,.45);font-size:15px}
+  .t-dark .cv{box-shadow:0 2px 6px rgba(0,0,0,.3),0 34px 70px -30px rgba(0,0,0,.6),0 0 0 1px #262D3E}
+  .frame-label{position:absolute;top:-30px;left:2px;font-size:12.5px;font-weight:700;color:#6B7280;white-space:nowrap}
+  .lbl-chip{display:inline-block;margin-left:6px;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    background:#FFFFFF;border:1px solid #E2E4EC;border-radius:99px;padding:2px 8px;color:#9CA3AF;vertical-align:1px}
+  .lbl-chip.dark-chip{background:#1E2433;border-color:#2A3143;color:#8B93A8}
+
+  .board{position:absolute;box-sizing:border-box;background:#FFFFFF;border:1px solid #E7E8EE;border-radius:24px;padding:34px 38px;
+    box-shadow:0 1px 3px rgba(17,24,39,.06),0 24px 50px -30px rgba(17,24,39,.25);color:#111827}
+  .board .frame-label{top:-30px;left:0}
+
+  .note{position:absolute;box-sizing:border-box;background:#FFFFFF;border:1px solid #E7E8EE;border-left:4px solid #FFCC00;border-radius:14px;
+    padding:16px 18px 14px;box-shadow:0 10px 26px -18px rgba(17,24,39,.35);color:#111827}
+  .note h4{margin:0 0 8px;font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#6B7280}
+  .note ul{margin:0;padding:0 0 0 16px}
+  .note li{font-size:13px;line-height:1.5;font-weight:500;color:#374151;margin-bottom:6px}
+  .note li b{color:#111827}
+  .note li code{font-family:ui-monospace,monospace;font-size:11.5px;background:#F3F4F8;border-radius:5px;padding:1px 5px}
+
+  .sec-h{position:absolute}
+  .sec-h .sec-num{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:11px;
+    background:#4F46E5;color:#fff;font-weight:800;font-size:15px;margin-right:12px;vertical-align:-8px}
+  .sec-h h2{display:inline;font-size:30px;font-weight:800;letter-spacing:-.02em;color:#111827;margin:0}
+  .sec-h p{margin:10px 0 0 46px;font-size:14.5px;font-weight:500;color:#6B7280;max-width:640px;line-height:1.5}
+
+  .card{background:var(--surface);border:1px solid var(--card-border);box-shadow:var(--elev1)}
+  .caret{display:inline-block;width:2px;height:1.05em;background:var(--purple-t);vertical-align:-2px;margin-left:1px}
+  .spinner{display:inline-block;flex:none}
+
+  /* token table */
+  .tok-row{display:grid;grid-template-columns:210px 1fr 1fr 190px;gap:12px;align-items:center;padding:7px 0;border-bottom:1px solid #F1F2F6}
+  .tok-name{font-size:13px;font-weight:700;color:#111827}
+  .tok-cell{display:flex;align-items:center;gap:9px;font-family:ui-monospace,monospace;font-size:11.5px;color:#6B7280}
+  .tok-chip{width:34px;height:24px;border-radius:7px;border:1px solid rgba(17,24,39,.10);flex:none}
+  .fix{display:inline-block;background:#FFF4D6;color:#8A6400;font-size:10.5px;font-weight:800;border-radius:99px;padding:2px 8px}
+  .new{background:#E3F7EC;color:#15803D}
+</style>
+</head>
+<body>
+<script src="redesign/rd-base.js"></script>
+<script src="redesign/rd-parts.js"></script>
+<script src="redesign/rd-boards-1.js"></script>
+<script src="redesign/rd-boards-2.js"></script>
+<script src="redesign/rd-boards-3.js"></script>
+<script src="redesign/rd-boards-4.js"></script>
+</body>
+</html>

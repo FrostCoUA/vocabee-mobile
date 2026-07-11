@@ -19,7 +19,7 @@ interface VocabularyDao {
         ORDER BY created_at_epoch_millis ASC
         """,
     )
-    fun topicsForUser(userKey: String): List<TopicEntity>
+    suspend fun topicsForUser(userKey: String): List<TopicEntity>
 
     @Query(
         """
@@ -29,7 +29,7 @@ interface VocabularyDao {
         ORDER BY created_at_epoch_millis ASC
         """,
     )
-    fun topicsForUserIncludingDeleted(userKey: String): List<TopicEntity>
+    suspend fun topicsForUserIncludingDeleted(userKey: String): List<TopicEntity>
 
     @Query(
         """
@@ -39,7 +39,7 @@ interface VocabularyDao {
             AND sync_status != 'PendingDelete'
         """,
     )
-    fun topicCountForUser(userKey: String): Int
+    suspend fun topicCountForUser(userKey: String): Int
 
     @Query(
         """
@@ -50,7 +50,7 @@ interface VocabularyDao {
             AND target_language_code = 'en'
         """,
     )
-    fun legacyUkrainianToEnglishTopicIds(userKey: String): List<String>
+    suspend fun legacyUkrainianToEnglishTopicIds(userKey: String): List<String>
 
     @Query(
         """
@@ -61,7 +61,7 @@ interface VocabularyDao {
         ORDER BY added_at_epoch_millis DESC
         """,
     )
-    fun wordsForTopics(
+    suspend fun wordsForTopics(
         userKey: String,
         topicIds: List<String>,
     ): List<WordEntity>
@@ -74,7 +74,7 @@ interface VocabularyDao {
         ORDER BY added_at_epoch_millis DESC
         """,
     )
-    fun wordsForTopicsIncludingDeleted(
+    suspend fun wordsForTopicsIncludingDeleted(
         userKey: String,
         topicIds: List<String>,
     ): List<WordEntity>
@@ -87,7 +87,7 @@ interface VocabularyDao {
             AND sync_status != 'PendingDelete'
         """,
     )
-    fun wordCountForUser(userKey: String): Int
+    suspend fun wordCountForUser(userKey: String): Int
 
     @Query(
         """
@@ -97,7 +97,7 @@ interface VocabularyDao {
         LIMIT 1
         """,
     )
-    fun topicById(
+    suspend fun topicById(
         userKey: String,
         topicId: String,
     ): TopicEntity?
@@ -119,7 +119,7 @@ interface VocabularyDao {
             AND LOWER(translation) = LOWER(:translation)
         """,
     )
-    fun duplicateWordCount(
+    suspend fun duplicateWordCount(
         userKey: String,
         topicId: String,
         source: String,
@@ -137,17 +137,17 @@ interface VocabularyDao {
         LIMIT 1
         """,
     )
-    fun wordById(
+    suspend fun wordById(
         userKey: String,
         topicId: String,
         wordId: String,
     ): WordEntity?
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
-    fun insertTopic(topic: TopicEntity)
+    suspend fun insertTopic(topic: TopicEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun upsertTopics(topics: List<TopicEntity>)
+    suspend fun upsertTopics(topics: List<TopicEntity>)
 
     @Query(
         """
@@ -155,7 +155,7 @@ interface VocabularyDao {
         WHERE user_key = :userKey AND id = :topicId
         """,
     )
-    fun deleteTopic(
+    suspend fun deleteTopic(
         userKey: String,
         topicId: String,
     ): Int
@@ -170,7 +170,7 @@ interface VocabularyDao {
             AND sync_status != 'PendingDelete'
         """,
     )
-    fun markTopicDeleted(
+    suspend fun markTopicDeleted(
         userKey: String,
         topicId: String,
         updatedAtEpochMillis: Long,
@@ -178,10 +178,10 @@ interface VocabularyDao {
     ): Int
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
-    fun insertWord(word: WordEntity)
+    suspend fun insertWord(word: WordEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun upsertWords(words: List<WordEntity>)
+    suspend fun upsertWords(words: List<WordEntity>)
 
     @Query(
         """
@@ -191,7 +191,7 @@ interface VocabularyDao {
         WHERE user_key = :userKey AND id = :topicId
         """,
     )
-    fun updateTopicAfterWordInsert(
+    suspend fun updateTopicAfterWordInsert(
         userKey: String,
         topicId: String,
         updatedAtEpochMillis: Long,
@@ -213,7 +213,7 @@ interface VocabularyDao {
             AND LOWER(translation) = LOWER(:translation)
         """,
     )
-    fun deleteWordByTranslation(
+    suspend fun deleteWordByTranslation(
         userKey: String,
         topicId: String,
         translation: String,
@@ -230,7 +230,7 @@ interface VocabularyDao {
             AND sync_status != 'PendingDelete'
         """,
     )
-    fun markWordDeletedByTranslation(
+    suspend fun markWordDeletedByTranslation(
         userKey: String,
         topicId: String,
         translation: String,
@@ -250,7 +250,7 @@ interface VocabularyDao {
             AND sync_status != 'PendingDelete'
         """,
     )
-    fun updateWordKnowledgePercent(
+    suspend fun updateWordKnowledgePercent(
         userKey: String,
         topicId: String,
         wordId: String,
@@ -266,7 +266,7 @@ interface VocabularyDao {
         WHERE user_key = :userKey
         """,
     )
-    fun markTopicsSynced(userKey: String)
+    suspend fun markTopicsSynced(userKey: String)
 
     @Query(
         """
@@ -275,7 +275,7 @@ interface VocabularyDao {
         WHERE user_key = :userKey
         """,
     )
-    fun markWordsSynced(userKey: String)
+    suspend fun markWordsSynced(userKey: String)
 
     @Query(
         """
@@ -284,7 +284,7 @@ interface VocabularyDao {
             AND sync_status = 'PendingDelete'
         """,
     )
-    fun purgePendingDeletedWords(userKey: String)
+    suspend fun purgePendingDeletedWords(userKey: String)
 
     @Query(
         """
@@ -293,7 +293,7 @@ interface VocabularyDao {
             AND sync_status = 'PendingDelete'
         """,
     )
-    fun purgePendingDeletedTopics(userKey: String)
+    suspend fun purgePendingDeletedTopics(userKey: String)
 
     @Query(
         """
@@ -301,7 +301,7 @@ interface VocabularyDao {
         WHERE user_key = :userKey
         """,
     )
-    fun deleteTopicsForUser(userKey: String)
+    suspend fun deleteTopicsForUser(userKey: String)
 
     @Query(
         """
@@ -309,7 +309,7 @@ interface VocabularyDao {
         WHERE user_key = :userKey
         """,
     )
-    fun deleteWordsForUser(userKey: String)
+    suspend fun deleteWordsForUser(userKey: String)
 
     @Query(
         """
@@ -318,7 +318,7 @@ interface VocabularyDao {
         WHERE user_key = :fromUserKey
         """,
     )
-    fun moveTopicsToUser(
+    suspend fun moveTopicsToUser(
         fromUserKey: String,
         toUserKey: String,
     ): Int
@@ -330,7 +330,7 @@ interface VocabularyDao {
         WHERE user_key = :fromUserKey
         """,
     )
-    fun moveWordsToUser(
+    suspend fun moveWordsToUser(
         fromUserKey: String,
         toUserKey: String,
     ): Int
@@ -343,7 +343,7 @@ interface VocabularyDao {
         WHERE user_key = :userKey AND id IN (:topicIds)
         """,
     )
-    fun migrateLegacyTopicLanguageDirection(
+    suspend fun migrateLegacyTopicLanguageDirection(
         userKey: String,
         topicIds: List<String>,
     )
@@ -356,7 +356,7 @@ interface VocabularyDao {
         WHERE user_key = :userKey AND topic_id IN (:topicIds)
         """,
     )
-    fun migrateLegacyWordLanguageDirection(
+    suspend fun migrateLegacyWordLanguageDirection(
         userKey: String,
         topicIds: List<String>,
     )

@@ -1,5 +1,11 @@
+@file:OptIn(kotlin.uuid.ExperimentalUuidApi::class)
+
 package com.vocabee.android.feature.vocabulary.data
 
+import androidx.room.immediateTransaction
+import androidx.room.useWriterConnection
+import com.vocabee.android.core.platform.currentEpochMillis
+import com.vocabee.android.core.platform.startOfDayEpochMillis
 import com.vocabee.android.feature.vocabulary.data.local.VocabeeDatabase
 import com.vocabee.android.feature.vocabulary.data.local.VocabularyDao
 import com.vocabee.android.feature.vocabulary.data.local.entity.TopicEntity
@@ -14,11 +20,10 @@ import com.vocabee.android.feature.vocabulary.domain.model.VocabularySyncSnapsho
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import java.util.Calendar
-import java.util.UUID
-import javax.inject.Inject
+import kotlin.uuid.Uuid
 
 private const val MILLIS_PER_DAY = 86_400_000L
 
@@ -28,10 +33,16 @@ private val detailsCodec = Json {
     encodeDefaults = false
 }
 
-class RoomVocabularyRepository @Inject constructor(
+class RoomVocabularyRepository(
     private val database: VocabeeDatabase,
 ) : VocabularyRepository {
     private val vocabularyDao: VocabularyDao = database.vocabularyDao()
+
+    /** KMP replacement for Android-only `runInTransaction`. */
+    private suspend fun <T> inTransaction(block: suspend () -> T): T =
+        database.useWriterConnection { transactor ->
+            transactor.immediateTransaction { block() }
+        }
 
     override val supportedLanguages = listOf(
         LanguageOption("uk", "Ukrainian", "UA", "uk-UA"),
@@ -67,15 +78,17 @@ class RoomVocabularyRepository @Inject constructor(
         sourceLanguage: LanguageOption,
         targetLanguage: LanguageOption,
         coverIndex: Int,
+        iconIndex: Int,
     ): DictionaryTopic = runBlocking(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
+        val now = currentEpochMillis()
         val topic = TopicEntity(
-            id = UUID.randomUUID().toString(),
+            id = Uuid.random().toString(),
             userKey = userKey,
             title = title,
             sourceLanguageCode = sourceLanguage.code,
             targetLanguageCode = targetLanguage.code,
             coverIndex = coverIndex,
+            iconIndex = iconIndex,
             createdAtEpochMillis = now,
             updatedAtEpochMillis = now,
             syncStatus = SyncStatus.PendingCreate,
@@ -90,8 +103,8 @@ class RoomVocabularyRepository @Inject constructor(
         topicId: String,
     ): Boolean = runBlocking(Dispatchers.IO) {
         var deleted = false
-        database.runInTransaction {
-            vocabularyDao.topicById(userKey, topicId) ?: return@runInTransaction
+        inTransaction {
+            vocabularyDao.topicById(userKey, topicId) ?: return@inTransaction
             val affected = if (userKey == DEFAULT_LOCAL_USER_KEY) {
                 vocabularyDao.deleteTopic(
                     userKey = userKey,
@@ -101,7 +114,7 @@ class RoomVocabularyRepository @Inject constructor(
                 vocabularyDao.markTopicDeleted(
                     userKey = userKey,
                     topicId = topicId,
-                    updatedAtEpochMillis = System.currentTimeMillis(),
+                    updatedAtEpochMillis = currentEpochMillis(),
                     syncStatus = SyncStatus.PendingDelete,
                 )
             }
@@ -120,19 +133,19 @@ class RoomVocabularyRepository @Inject constructor(
     ): WordEntry? = runBlocking(Dispatchers.IO) {
         var insertedWord: WordEntity? = null
 
-        database.runInTransaction {
-            val topic = vocabularyDao.topicById(userKey, topicId) ?: return@runInTransaction
+        inTransaction {
+            val topic = vocabularyDao.topicById(userKey, topicId) ?: return@inTransaction
             val duplicateCount = vocabularyDao.duplicateWordCount(
                 userKey = userKey,
                 topicId = topicId,
                 source = source,
                 translation = translation,
             )
-            if (duplicateCount > 0) return@runInTransaction
+            if (duplicateCount > 0) return@inTransaction
 
-            val now = System.currentTimeMillis()
+            val now = currentEpochMillis()
             val word = WordEntity(
-                id = UUID.randomUUID().toString(),
+                id = Uuid.random().toString(),
                 userKey = userKey,
                 topicId = topicId,
                 source = source,
@@ -171,9 +184,9 @@ class RoomVocabularyRepository @Inject constructor(
         translation: String,
     ): Boolean = runBlocking(Dispatchers.IO) {
         var deleted = false
-        database.runInTransaction {
-            val topic = vocabularyDao.topicById(userKey, topicId) ?: return@runInTransaction
-            val now = System.currentTimeMillis()
+        inTransaction {
+            val topic = vocabularyDao.topicById(userKey, topicId) ?: return@inTransaction
+            val now = currentEpochMillis()
             val affected = if (userKey == DEFAULT_LOCAL_USER_KEY) {
                 vocabularyDao.deleteWordByTranslation(
                     userKey = userKey,
@@ -189,7 +202,7 @@ class RoomVocabularyRepository @Inject constructor(
                     syncStatus = SyncStatus.PendingDelete,
                 )
             }
-            if (affected == 0) return@runInTransaction
+            if (affected == 0) return@inTransaction
             val nextStatus = if (topic.syncStatus == SyncStatus.PendingCreate) {
                 SyncStatus.PendingCreate
             } else {
@@ -214,14 +227,14 @@ class RoomVocabularyRepository @Inject constructor(
     ): WordEntry? = runBlocking(Dispatchers.IO) {
         var updatedWord: WordEntity? = null
 
-        database.runInTransaction {
-            val topic = vocabularyDao.topicById(userKey, topicId) ?: return@runInTransaction
+        inTransaction {
+            val topic = vocabularyDao.topicById(userKey, topicId) ?: return@inTransaction
             val word = vocabularyDao.wordById(
                 userKey = userKey,
                 topicId = topicId,
                 wordId = wordId,
-            ) ?: return@runInTransaction
-            val now = System.currentTimeMillis()
+            ) ?: return@inTransaction
+            val now = currentEpochMillis()
             val nextWordStatus = if (word.syncStatus == SyncStatus.PendingCreate) {
                 SyncStatus.PendingCreate
             } else {
@@ -241,7 +254,7 @@ class RoomVocabularyRepository @Inject constructor(
                 updatedAtEpochMillis = now,
                 syncStatus = nextWordStatus,
             )
-            if (affected == 0) return@runInTransaction
+            if (affected == 0) return@inTransaction
             vocabularyDao.updateTopicAfterWordInsert(
                 userKey = userKey,
                 topicId = topicId,
@@ -294,8 +307,8 @@ class RoomVocabularyRepository @Inject constructor(
         userKey: String,
         snapshot: VocabularySyncSnapshot,
     ) = runBlocking(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
-        database.runInTransaction {
+        val now = currentEpochMillis()
+        inTransaction {
             vocabularyDao.deleteWordsForUser(userKey)
             vocabularyDao.deleteTopicsForUser(userKey)
             val topicEntities = snapshot.topics.map { topic ->
@@ -306,6 +319,7 @@ class RoomVocabularyRepository @Inject constructor(
                     sourceLanguageCode = topic.sourceLanguage.code,
                     targetLanguageCode = topic.targetLanguage.code,
                     coverIndex = topic.coverIndex,
+                    iconIndex = topic.iconIndex,
                     createdAtEpochMillis = topic.createdAtEpochMillis.takeIf { it > 0L } ?: now,
                     updatedAtEpochMillis = topic.updatedAtEpochMillis.takeIf { it > 0L } ?: now,
                     syncStatus = SyncStatus.Synced,
@@ -340,7 +354,7 @@ class RoomVocabularyRepository @Inject constructor(
     }
 
     override fun markSynced(userKey: String) = runBlocking(Dispatchers.IO) {
-        database.runInTransaction {
+        inTransaction {
             vocabularyDao.purgePendingDeletedWords(userKey)
             vocabularyDao.purgePendingDeletedTopics(userKey)
             vocabularyDao.markWordsSynced(userKey)
@@ -351,9 +365,9 @@ class RoomVocabularyRepository @Inject constructor(
     override fun moveUserVocabulary(
         fromUserKey: String,
         toUserKey: String,
-    ) = runBlocking(Dispatchers.IO) {
+    ): Unit = runBlocking(Dispatchers.IO) {
         if (fromUserKey == toUserKey) return@runBlocking
-        database.runInTransaction {
+        inTransaction<Unit> {
             vocabularyDao.moveTopicsToUser(fromUserKey, toUserKey)
             vocabularyDao.moveWordsToUser(fromUserKey, toUserKey)
         }
@@ -368,6 +382,7 @@ class RoomVocabularyRepository @Inject constructor(
             targetLanguage = languageForCode(targetLanguageCode),
             updatedLabel = updatedLabelFor(updatedAtEpochMillis),
             coverIndex = coverIndex,
+            iconIndex = iconIndex,
             createdAtEpochMillis = createdAtEpochMillis,
             updatedAtEpochMillis = updatedAtEpochMillis,
             syncStatus = syncStatus,
@@ -413,23 +428,15 @@ class RoomVocabularyRepository @Inject constructor(
         }
     }
 
-    private fun startOfTodayMillis(): Long = startOfDayMillis(System.currentTimeMillis())
+    private fun startOfTodayMillis(): Long = startOfDayMillis(currentEpochMillis())
 
-    private fun startOfDayMillis(epochMillis: Long): Long {
-        return Calendar.getInstance().apply {
-            timeInMillis = epochMillis
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-    }
+    private fun startOfDayMillis(epochMillis: Long): Long = startOfDayEpochMillis(epochMillis)
 
-    private fun migrateLegacyLanguageDirection(userKey: String) {
+    private suspend fun migrateLegacyLanguageDirection(userKey: String) {
         val legacyTopicIds = vocabularyDao.legacyUkrainianToEnglishTopicIds(userKey)
         if (legacyTopicIds.isEmpty()) return
 
-        database.runInTransaction {
+        inTransaction {
             vocabularyDao.migrateLegacyWordLanguageDirection(
                 userKey = userKey,
                 topicIds = legacyTopicIds,

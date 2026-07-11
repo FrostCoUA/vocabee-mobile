@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
@@ -519,7 +520,7 @@ internal fun AuthScreen(onDone: () -> Unit) {
                 modifier = Modifier
                     .clickable { isSignup = !isSignup }
                     .padding(start = 6.dp),
-                color = PrototypeColor.Purple,
+                color = PrototypeColor.PurpleText,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 14.5.sp,
             )
@@ -919,15 +920,28 @@ private fun LanguageCard(
             .padding(horizontal = 14.dp, vertical = 14.dp),
     ) {
         Row(
+            // Reserve the top-right corner for the check badge so it never
+            // sits on top of the label.
+            modifier = Modifier.padding(end = if (selected) 14.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             Text(lang.flag, fontSize = 22.sp)
+            // Long names ("Українська") shrink instead of running under the badge.
+            var labelScale by remember(lang.name) { mutableStateOf(1f) }
             Text(
                 lang.name,
                 color = if (selected) PrototypeColor.Purple else PrototypeColor.Ink,
                 fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
+                fontSize = 15.sp * labelScale,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                onTextLayout = { result ->
+                    if (result.hasVisualOverflow && labelScale > 0.72f) {
+                        labelScale -= 0.04f
+                    }
+                },
                 modifier = Modifier.weight(1f),
             )
         }

@@ -1,6 +1,8 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+
 package com.vocabee.android.feature.vocabulary.presentation
 
-import androidx.activity.compose.BackHandler
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -56,6 +58,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -114,6 +117,7 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLogo
 import com.vocabee.android.core.presentation.designsystem.languageFlag
 import com.vocabee.android.core.presentation.designsystem.languageName
+import com.vocabee.android.core.presentation.designsystem.prototypeTopicIcon
 import com.vocabee.android.core.presentation.designsystem.prototypeTopicTheme
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApi
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApiException
@@ -624,8 +628,12 @@ private fun MainApp(
                 )
             }
         },
-        snackbarHost = { SnackbarHost(hostState = appSnackbarHostState) },
-        containerColor = PrototypeColor.White,
+        snackbarHost = {
+            SnackbarHost(hostState = appSnackbarHostState) { data ->
+                VocabeeSnackbar(data)
+            }
+        },
+        containerColor = PrototypeColor.Background,
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -792,8 +800,8 @@ private fun MainApp(
                 targetLanguageCode = state.userLanguage.code,
                 existingDictionariesCount = state.topics.size,
                 onDismiss = { sheet = null },
-                onCreate = { title, coverIndex ->
-                    store.onEvent(VocabeeEvent.CreateTopic(title = title, coverIndex = coverIndex))
+                onCreate = { title, coverIndex, iconIndex ->
+                    store.onEvent(VocabeeEvent.CreateTopic(title = title, coverIndex = coverIndex, iconIndex = iconIndex))
                     syncVocabularyNow()
                     sheet = null
                     val createdTopic = store.state.topics.lastOrNull()
@@ -938,6 +946,42 @@ private fun MainApp(
 }
 
 @Composable
+private fun VocabeeSnackbar(data: SnackbarData) {
+    Surface(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = PrototypeColor.Snack,
+        shadowElevation = 12.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = data.visuals.message,
+                modifier = Modifier.weight(1f),
+                color = PrototypeColor.SnackText,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.5.sp,
+                lineHeight = 19.sp,
+            )
+            data.visuals.actionLabel?.let { actionLabel ->
+                Text(
+                    text = actionLabel,
+                    modifier = Modifier.clickable { data.performAction() },
+                    color = PrototypeColor.Yellow,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.5.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ExitConfirmationSheet(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
@@ -965,11 +1009,11 @@ private fun ExitConfirmationSheet(
                     .height(56.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(PrototypeColor.NeutralSurface)
-                    .clickable(onClick = onDismiss),
+                    .clickable(onClick = onConfirm),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "Залишитися",
+                    text = "Закрити",
                     color = PrototypeColor.Ink,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 16.sp,
@@ -981,11 +1025,11 @@ private fun ExitConfirmationSheet(
                     .height(56.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(PrototypeColor.Purple)
-                    .clickable(onClick = onConfirm),
+                    .clickable(onClick = onDismiss),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "Закрити",
+                    text = "Залишитися",
                     color = PrototypeColor.White,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 16.sp,
@@ -1017,7 +1061,7 @@ private fun DeleteDictionaryConfirmationSheet(
         )
         Text(
             text = "Цю дію не можна скасувати.",
-            color = PrototypeColor.Red,
+            color = PrototypeColor.RedText,
             fontWeight = FontWeight.Bold,
             fontSize = 14.sp,
             modifier = Modifier.padding(bottom = 22.dp),
@@ -1231,42 +1275,59 @@ private fun SyncConflictSheet(
         onDismiss = onDismiss,
     ) {
         Text(
-            text = "На телефоні є локальні слова, а на цьому Google акаунті вже є дані з бекенда. Автоматично мержити не можна, бо монетки і ліміти привʼязані до акаунта.",
+            text = "На телефоні є локальні слова, а на цьому Google акаунті вже є дані. Обери, який стан лишити.",
             color = PrototypeColor.Muted,
             fontWeight = FontWeight.Medium,
-            fontSize = 15.sp,
+            fontSize = 14.5.sp,
             lineHeight = 21.sp,
             modifier = Modifier.padding(bottom = 14.dp),
         )
-        Text(
-            text = "Локально: $localWordCount слів · На бекенді: $serverWordCount слів",
-            color = PrototypeColor.Ink,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 15.sp,
-            modifier = Modifier.padding(bottom = 18.dp),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            SyncStateCard(
+                modifier = Modifier.weight(1f),
+                icon = PrototypeIcon.Book,
+                label = "На телефоні",
+                wordCount = localWordCount,
+            )
+            PrototypeLineIcon(
+                icon = PrototypeIcon.ArrowRight,
+                modifier = Modifier.size(18.dp),
+                color = PrototypeColor.Muted3,
+                strokeWidth = 2f,
+            )
+            SyncStateCard(
+                modifier = Modifier.weight(1f),
+                icon = PrototypeIcon.Globe,
+                label = "На бекенді",
+                wordCount = serverWordCount,
+            )
+        }
         Column(
             modifier = Modifier.fillMaxWidth().padding(bottom = 22.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             SyncConflictAction(
-                text = "Взяти стан з бекенда",
-                color = PrototypeColor.NeutralSurface,
-                textColor = PrototypeColor.Ink,
-                enabled = !isLoading,
-                onClick = onUseServer,
-            )
-            SyncConflictAction(
                 text = if (isLoading) "Заливаю..." else "Залити локальний стан",
-                color = PrototypeColor.Purple,
-                textColor = Color.White,
+                subtitle = "серверні дані буде перезаписано",
+                kind = SyncActionKind.Primary,
                 enabled = !isLoading,
                 onClick = onUseLocal,
             )
             SyncConflictAction(
+                text = "Взяти стан з бекенда",
+                subtitle = "локальні $localWordCount ${ukrainianPlural(localWordCount, "слово", "слова", "слів")} буде видалено",
+                kind = SyncActionKind.Neutral,
+                enabled = !isLoading,
+                onClick = onUseServer,
+            )
+            SyncConflictAction(
                 text = "Увійти іншим email",
-                color = PrototypeColor.White,
-                textColor = PrototypeColor.Muted,
+                subtitle = "нічого не зміниться",
+                kind = SyncActionKind.Ghost,
                 enabled = !isLoading,
                 onClick = onOtherEmail,
             )
@@ -1275,27 +1336,103 @@ private fun SyncConflictSheet(
 }
 
 @Composable
+private fun SyncStateCard(
+    icon: PrototypeIcon,
+    label: String,
+    wordCount: Int,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(PrototypeColor.Background)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            PrototypeLineIcon(
+                icon = icon,
+                modifier = Modifier.size(15.dp),
+                color = PrototypeColor.PurpleText,
+                strokeWidth = 2f,
+            )
+            Text(
+                text = label,
+                color = PrototypeColor.Muted,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 12.5.sp,
+            )
+        }
+        Text(
+            text = "$wordCount ${ukrainianPlural(wordCount, "слово", "слова", "слів")}",
+            color = PrototypeColor.Ink,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+        )
+    }
+}
+
+private enum class SyncActionKind { Primary, Neutral, Ghost }
+
+@Composable
 private fun SyncConflictAction(
     text: String,
-    color: Color,
-    textColor: Color,
+    subtitle: String,
+    kind: SyncActionKind,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    Box(
+    val shape = RoundedCornerShape(16.dp)
+    val background: Color
+    val titleColor: Color
+    val subColor: Color
+    val border: BorderStroke?
+    when (kind) {
+        SyncActionKind.Primary -> {
+            background = PrototypeColor.Purple
+            titleColor = Color.White
+            subColor = Color.White.copy(alpha = 0.75f)
+            border = null
+        }
+        SyncActionKind.Neutral -> {
+            background = PrototypeColor.NeutralSurface
+            titleColor = PrototypeColor.Ink
+            subColor = PrototypeColor.Muted
+            border = null
+        }
+        SyncActionKind.Ghost -> {
+            background = Color.Transparent
+            titleColor = PrototypeColor.Muted
+            subColor = PrototypeColor.Muted
+            border = BorderStroke(1.5.dp, PrototypeColor.Line)
+        }
+    }
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(54.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(color)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .clip(shape)
+            .background(background)
+            .let { if (border != null) it.border(border, shape) else it }
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(
             text = text,
-            color = textColor,
+            color = titleColor,
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 16.sp,
+            fontSize = 15.5.sp,
+            maxLines = 1,
+        )
+        Text(
+            text = subtitle,
+            color = subColor,
+            fontWeight = FontWeight.Medium,
+            fontSize = 12.sp,
             maxLines = 1,
         )
     }
@@ -1368,7 +1505,7 @@ private fun DictionariesHomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(PrototypeColor.White),
+            .background(PrototypeColor.Background),
     ) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -1507,7 +1644,7 @@ private fun AnonymousFreeLimitBanner(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val accent = if (critical) PrototypeColor.Orange else PrototypeColor.Purple
+    val accent = if (critical) PrototypeColor.OrangeText else PrototypeColor.PurpleText
     val background = if (critical) PrototypeColor.NotePeach else PrototypeColor.Tint
     Surface(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -1567,7 +1704,7 @@ private fun BeeWalletBanner(
     modifier: Modifier = Modifier,
 ) {
     val background = if (critical) PrototypeColor.NotePeach else PrototypeColor.Tint
-    val accent = if (critical) PrototypeColor.Orange else PrototypeColor.Purple
+    val accent = if (critical) PrototypeColor.OrangeText else PrototypeColor.PurpleText
     Surface(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
@@ -1618,7 +1755,7 @@ private fun CriticalBeeBanner(
         modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
         color = PrototypeColor.NotePeach,
-        border = BorderStroke(1.4.dp, PrototypeColor.Orange.copy(alpha = 0.38f)),
+        border = BorderStroke(1.4.dp, PrototypeColor.OrangeText.copy(alpha = 0.38f)),
         shadowElevation = 10.dp,
     ) {
         Row(
@@ -1626,7 +1763,7 @@ private fun CriticalBeeBanner(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            BeeBalanceBadge(beeBalance = beeBalance, accent = PrototypeColor.Orange)
+            BeeBalanceBadge(beeBalance = beeBalance, accent = PrototypeColor.OrangeText)
             Text(
                 text = "Лишилось $beeBalance ${ukrainianPlural(beeBalance, "монетка", "монетки", "монеток")}. Відео дасть +$RewardBeeAmount.",
                 modifier = Modifier.weight(1f),
@@ -1812,7 +1949,7 @@ private fun DictionaryCard(
         ) {
             KnowledgeBackgroundFill(
                 percent = knowledgePercent,
-                color = PrototypeColor.Ink.copy(alpha = 0.10f),
+                color = PrototypeColor.CardKnowledgeFill,
             )
             HoneycombWatermark(
                 modifier = Modifier
@@ -1822,9 +1959,23 @@ private fun DictionaryCard(
             )
 
             Box(modifier = Modifier.fillMaxSize().padding(18.dp)) {
+                Surface(
+                    modifier = Modifier.align(Alignment.TopStart).size(32.dp),
+                    shape = RoundedCornerShape(11.dp),
+                    color = PrototypeColor.White.copy(alpha = 0.22f),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        PrototypeLineIcon(
+                            icon = prototypeTopicIcon(topic.iconIndex),
+                            modifier = Modifier.size(18.dp),
+                            color = PrototypeColor.White,
+                            strokeWidth = 2f,
+                        )
+                    }
+                }
                 if (topic.updatedLabel is TopicUpdatedLabel.Today) {
                     Surface(
-                        modifier = Modifier.align(Alignment.TopStart),
+                        modifier = Modifier.align(Alignment.TopEnd),
                         shape = CircleShape,
                         color = PrototypeColor.Yellow,
                     ) {
@@ -2448,7 +2599,7 @@ private fun InlineAddWordBar(
                         lineHeight = 22.sp,
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(PrototypeColor.Purple),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(PrototypeColor.PurpleText),
                     decorationBox = { inner ->
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (value.isEmpty()) {
@@ -2572,7 +2723,7 @@ private fun InlineTranslationPanel(
                 PrototypeLineIcon(
                     icon = PrototypeIcon.Sparkle,
                     modifier = Modifier.size(17.dp),
-                    color = PrototypeColor.Purple,
+                    color = PrototypeColor.PurpleText,
                     strokeWidth = 1.8f,
                 )
             }
@@ -2869,7 +3020,7 @@ private fun WordGroupRow(
                             PrototypeLineIcon(
                                 icon = PrototypeIcon.Sound,
                                 modifier = Modifier.size(17.dp),
-                                color = PrototypeColor.Purple,
+                                color = PrototypeColor.PurpleText,
                                 strokeWidth = 1.9f,
                             )
                         }
@@ -2992,7 +3143,7 @@ private fun WordRow(
                             PrototypeLineIcon(
                                 icon = PrototypeIcon.Sound,
                                 modifier = Modifier.size(17.dp),
-                                color = PrototypeColor.Purple,
+                                color = PrototypeColor.PurpleText,
                                 strokeWidth = 1.9f,
                             )
                         }
@@ -3065,7 +3216,7 @@ internal fun WordDetailsBlock(
             WordChipsRow(label = "Синоніми", values = details.synonyms.take(12), accent = accent)
         }
         if (details.antonyms.isNotEmpty()) {
-            WordChipsRow(label = "Антоніми", values = details.antonyms.take(12), accent = PrototypeColor.Orange)
+            WordChipsRow(label = "Антоніми", values = details.antonyms.take(12), accent = PrototypeColor.OrangeText)
         }
         if (details.forms.isNotEmpty()) {
             WordChipsRow(
@@ -3238,13 +3389,15 @@ private fun VocabeeBottomBar(
     selectedTab: AppTab,
     onTabClick: (AppTab) -> Unit,
 ) {
+    val barShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(barShape)
             .background(PrototypeColor.White)
-            .border(BorderStroke(1.dp, PrototypeColor.Line), RoundedCornerShape(0.dp))
+            .border(BorderStroke(1.dp, PrototypeColor.Line), barShape)
             .navigationBarsPadding()
-            .height(66.dp),
+            .height(72.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
@@ -3498,7 +3651,7 @@ private fun PracticeScreen(
                         PracticeAnswerButton(
                             text = "Далі",
                             icon = PrototypeIcon.ChevronRight,
-                            color = PrototypeColor.Purple,
+                            color = PrototypeColor.PurpleText,
                             background = PrototypeColor.Tint,
                             modifier = Modifier.fillMaxWidth(),
                             onClick = ::moveNext,
@@ -3507,7 +3660,7 @@ private fun PracticeScreen(
                         PracticeAnswerButton(
                             text = "Не знаю",
                             icon = PrototypeIcon.Close,
-                            color = Color(0xFFC2410C),
+                            color = PrototypeColor.OrangeText,
                             background = PrototypeColor.NotePeach,
                             modifier = Modifier.weight(1f),
                             onClick = ::answerUnknown,
@@ -3515,7 +3668,7 @@ private fun PracticeScreen(
                         PracticeAnswerButton(
                             text = "Знаю",
                             icon = PrototypeIcon.Check,
-                            color = Color(0xFF15803D),
+                            color = PrototypeColor.GreenText,
                             background = PrototypeColor.NoteGreen,
                             modifier = Modifier.weight(1f),
                             onClick = ::answerKnown,
@@ -3589,7 +3742,7 @@ private fun PracticeSetupScreen(
                             .clip(RoundedCornerShape(12.dp))
                             .clickable(onClick = onSelectAllToggle)
                             .padding(horizontal = 10.dp, vertical = 7.dp),
-                        color = PrototypeColor.Purple,
+                        color = PrototypeColor.PurpleText,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 13.sp,
                     )
@@ -3829,7 +3982,7 @@ private fun PracticeFlipCard(
             KnowledgeBackgroundFill(
                 percent = card.word.knowledgePercent,
                 color = if (showBack) {
-                    PrototypeColor.Ink.copy(alpha = 0.10f)
+                    PrototypeColor.CardKnowledgeFill
                 } else {
                     card.accent.copy(alpha = 0.08f)
                 },
@@ -3909,7 +4062,7 @@ private fun PracticeFlipCard(
                             PrototypeLineIcon(
                                 icon = PrototypeIcon.Sound,
                                 modifier = Modifier.size(21.dp),
-                                color = PrototypeColor.Purple,
+                                color = PrototypeColor.PurpleText,
                             )
                         }
                     }
@@ -4035,7 +4188,7 @@ private fun PracticeDoneState(
                 text = "$percent%",
                 fontSize = 34.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = PrototypeColor.Purple,
+                color = PrototypeColor.PurpleText,
                 letterSpacing = (-0.68).sp,
             )
         }
@@ -4141,7 +4294,7 @@ private fun ProfileScreen(
                     value = totalWords.toString(),
                     label = "слів збережено",
                     tint = PrototypeColor.Tint,
-                    color = PrototypeColor.Purple,
+                    color = PrototypeColor.PurpleText,
                     modifier = Modifier.weight(1f),
                 )
                 ProfileStat(
@@ -4270,7 +4423,7 @@ private fun ProfileScreen(
                     Box(contentAlignment = Alignment.Center) {
                         Text(
                             text = "Вийти",
-                            color = PrototypeColor.Red,
+                            color = PrototypeColor.RedText,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 15.5.sp,
                         )
@@ -4429,7 +4582,7 @@ private fun ProfileIdentityCard(account: VocabeeAccountState.Authenticated) {
                     PrototypeLineIcon(
                         icon = PrototypeIcon.Edit,
                         modifier = Modifier.size(18.dp),
-                        color = PrototypeColor.Purple,
+                        color = PrototypeColor.PurpleText,
                         strokeWidth = 1.9f,
                     )
                 }

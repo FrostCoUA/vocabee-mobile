@@ -17,6 +17,7 @@ interface VocabularyRepository {
         sourceLanguage: LanguageOption,
         targetLanguage: LanguageOption,
         coverIndex: Int,
+        iconIndex: Int,
     ): DictionaryTopic
 
     fun removeTopic(

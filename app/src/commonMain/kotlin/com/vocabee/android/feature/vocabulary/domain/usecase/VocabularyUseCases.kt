@@ -25,6 +25,7 @@ class CreateTopicUseCase(
         sourceLanguage: LanguageOption,
         targetLanguage: LanguageOption,
         coverIndex: Int,
+        iconIndex: Int,
     ): DictionaryTopic {
         return repository.createTopic(
             userKey = userSessionManager.currentUserKey,
@@ -32,6 +33,7 @@ class CreateTopicUseCase(
             sourceLanguage = sourceLanguage,
             targetLanguage = targetLanguage,
             coverIndex = coverIndex,
+            iconIndex = iconIndex,
         )
     }
 }

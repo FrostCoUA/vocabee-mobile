@@ -6,11 +6,8 @@ import com.vocabee.android.feature.vocabulary.data.api.VocabeeApi
 import com.vocabee.android.feature.vocabulary.data.preferences.PreferencesManager
 import com.vocabee.android.feature.vocabulary.domain.manager.UserSessionManager
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
-import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 
-@HiltViewModel
-class VocabeeViewModel @Inject constructor(
+class VocabeeViewModel(
     repository: VocabularyRepository,
     userSessionManager: UserSessionManager,
     val api: VocabeeApi,

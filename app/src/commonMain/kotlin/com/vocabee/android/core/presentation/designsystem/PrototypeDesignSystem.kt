@@ -7,10 +7,12 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.PathParser
 
 private data class PrototypePalette(
     val tint: Color,
@@ -53,6 +55,15 @@ private data class PrototypePalette(
     val switchTrack: Color,
     val dividerLight: Color,
     val chipNeutralBg: Color,
+    val red: Color,
+    val purpleText: Color,
+    val orangeText: Color,
+    val greenText: Color,
+    val redText: Color,
+    val flameText: Color,
+    val trainText: Color,
+    val snack: Color,
+    val snackText: Color,
 )
 
 /** Colors lifted from the prototype's CSS custom properties. */
@@ -65,12 +76,12 @@ internal object PrototypeColor {
     val YellowText = Color(0xFF5A4500)
     val Orange = Color(0xFFF76400)
     val Green = Color(0xFF16A34A)
-    val Red = Color(0xFFDC2626)
     val FacebookBlue = Color(0xFF1877F2)
-    val StatFlameText = Color(0xFFE0820C)
-    val StatTrainText = Color(0xFF0E9FA5)
     val AvatarStart = Color(0xFF5B50F0)
     val AvatarEnd = Color(0xFF410FA3)
+
+    /** Fixed black overlay for the "% learned" fill on colored cards — same in both themes. */
+    val CardKnowledgeFill = Color(0x21000000)
 
     private val lightPalette = PrototypePalette(
         tint = Color(0xFFE0E7FF),
@@ -113,33 +124,42 @@ internal object PrototypeColor {
         switchTrack = Color(0xFFD8DAE3),
         dividerLight = Color(0xFFF1F2F6),
         chipNeutralBg = Color(0xFFE7E9F0),
+        red = Color(0xFFDC2626),
+        purpleText = Color(0xFF4F46E5),
+        orangeText = Color(0xFFC2410C),
+        greenText = Color(0xFF15803D),
+        redText = Color(0xFFDC2626),
+        flameText = Color(0xFFE0820C),
+        trainText = Color(0xFF0E9FA5),
+        snack = Color(0xFF1F2430),
+        snackText = Color(0xFFFFFFFF),
     )
 
     private val darkPalette = PrototypePalette(
-        tint = Color(0xFF2C2F62),
-        ink = Color(0xFFF7F8FC),
-        muted = Color(0xFFB7BFCE),
-        muted2 = Color(0xFF858EA2),
-        muted3 = Color(0xFF687184),
-        line = Color(0xFF293041),
-        line2 = Color(0xFF222838),
+        tint = Color(0xFF2C3060),
+        ink = Color(0xFFF3F5FA),
+        muted = Color(0xFFAEB7C8),
+        muted2 = Color(0xFF7D8699),
+        muted3 = Color(0xFF59627A),
+        line = Color(0xFF2A3143),
+        line2 = Color(0xFF232938),
         fieldBg = Color(0xFF1B2130),
-        neutralSurface = Color(0xFF222839),
+        neutralSurface = Color(0xFF232939),
         background = Color(0xFF0F131D),
         stage = Color(0xFF111827),
         white = Color(0xFF171D2A),
-        sheetSurface = Color(0xFF202638),
-        sheetControlSurface = Color(0xFF293041),
-        sheetHandle = Color(0xFFCBD5E1),
+        sheetSurface = Color(0xFF1E2433),
+        sheetControlSurface = Color(0xFF2A3143),
+        sheetHandle = Color(0xFF3B4358),
         greenSoft = Color(0xFF123526),
-        notePeach = Color(0xFF3A281E),
+        notePeach = Color(0xFF3B2417),
         noteGreen = Color(0xFF123526),
         noteYellowBg = Color(0xFF332A12),
         noteYellowBorder = Color(0xFF6A5115),
         noteYellowText = Color(0xFFFFD978),
-        contextCardTop = Color(0xFF1B2130),
-        contextCardBottom = Color(0xFF171D2A),
-        contextCardBorder = Color(0xFF293041),
+        contextCardTop = Color(0xFF1C2231),
+        contextCardBottom = Color(0xFF191F2C),
+        contextCardBorder = Color(0xFF2A3143),
         emptyCardLight = Color(0xFF202738),
         emptyCardSoft = Color(0xFF1B2130),
         emptyCardStroke = Color(0xFF30384B),
@@ -149,13 +169,22 @@ internal object PrototypeColor {
         emptyCardHex = Color(0xFF394269),
         emptyCardWordDark = Color(0xFF384159),
         emptyCardWordLight = Color(0xFF30384B),
-        progressTrack = Color(0xFF293041),
+        progressTrack = Color(0xFF2A3143),
         progressRing = Color(0xFF222839),
         statFlameBg = Color(0xFF392817),
         statTrainBg = Color(0xFF123437),
-        switchTrack = Color(0xFF30384B),
-        dividerLight = Color(0xFF222838),
-        chipNeutralBg = Color(0xFF293041),
+        switchTrack = Color(0xFF333B50),
+        dividerLight = Color(0xFF232938),
+        chipNeutralBg = Color(0xFF2A3143),
+        red = Color(0xFFE5484D),
+        purpleText = Color(0xFF9AA4FF),
+        orangeText = Color(0xFFFF9A62),
+        greenText = Color(0xFF43D17C),
+        redText = Color(0xFFFF7B81),
+        flameText = Color(0xFFFFB65C),
+        trainText = Color(0xFF3ECAD1),
+        snack = Color(0xFF2A3143),
+        snackText = Color(0xFFF3F5FA),
     )
 
     private var palette = lightPalette
@@ -204,6 +233,21 @@ internal object PrototypeColor {
     val SwitchTrack: Color get() = palette.switchTrack
     val DividerLight: Color get() = palette.dividerLight
     val ChipNeutralBg: Color get() = palette.chipNeutralBg
+
+    /** Red for fills (delete). Brighter in dark for legibility. */
+    val Red: Color get() = palette.red
+
+    /** Theme-aware accent colors for text/icons on themed surfaces — lighter in dark. */
+    val PurpleText: Color get() = palette.purpleText
+    val OrangeText: Color get() = palette.orangeText
+    val GreenText: Color get() = palette.greenText
+    val RedText: Color get() = palette.redText
+    val StatFlameText: Color get() = palette.flameText
+    val StatTrainText: Color get() = palette.trainText
+
+    /** Snackbar surface + text. */
+    val Snack: Color get() = palette.snack
+    val SnackText: Color get() = palette.snackText
 }
 
 /** Theme accent colors for dictionary covers — kept in prototype order. */
@@ -254,6 +298,44 @@ internal enum class PrototypeIcon {
     Star,
     ArrowRight,
     Dumbbell,
+    Plane,
+    Film,
+    Brief,
+    Grad,
+    Food,
+    Ball,
+    Music,
+    Leaf,
+    Laptop,
+    Bag,
+    Heart,
+    Child,
+    Chat,
+}
+
+/** Topic cover icons in prototype order (matches P.ICON_TOPICS in the redesign). */
+internal val PrototypeTopicIcons: List<PrototypeIcon> = listOf(
+    PrototypeIcon.Plane,
+    PrototypeIcon.Book,
+    PrototypeIcon.Film,
+    PrototypeIcon.Brief,
+    PrototypeIcon.Grad,
+    PrototypeIcon.Food,
+    PrototypeIcon.Ball,
+    PrototypeIcon.Music,
+    PrototypeIcon.Leaf,
+    PrototypeIcon.Laptop,
+    PrototypeIcon.Bag,
+    PrototypeIcon.Heart,
+    PrototypeIcon.Child,
+    PrototypeIcon.Chat,
+    PrototypeIcon.Star,
+)
+
+internal fun prototypeTopicIcon(iconIndex: Int): PrototypeIcon {
+    val size = PrototypeTopicIcons.size
+    val idx = ((iconIndex % size) + size) % size
+    return PrototypeTopicIcons[idx]
 }
 
 @Composable
@@ -294,6 +376,18 @@ internal fun PrototypeLineIcon(
                 cornerRadius = CornerRadius(radius * unit, radius * unit),
                 style = stroke,
             )
+        }
+        // Draws an SVG path defined in the 24×24 viewBox, scaled/centered like the helpers above.
+        fun svg(pathData: String) {
+            val parsed = PathParser().parsePathString(pathData).toPath()
+            val matrix = Matrix()
+            matrix.translate(
+                (size.width - 24f * unit) / 2f,
+                (size.height - 24f * unit) / 2f,
+            )
+            matrix.scale(unit, unit)
+            parsed.transform(matrix)
+            drawPath(path = parsed, color = color, style = stroke)
         }
 
         when (icon) {
@@ -506,11 +600,64 @@ internal fun PrototypeLineIcon(
                 }
             }
             PrototypeIcon.Dumbbell -> {
-                line(7.4f, 7.4f, 16.6f, 16.6f)
-                line(4.8f, 6.4f, 7.7f, 3.5f)
-                line(6.6f, 8.2f, 9.5f, 5.3f)
-                line(14.5f, 18.7f, 17.4f, 15.8f)
-                line(16.3f, 20.5f, 19.2f, 17.6f)
+                line(9.6f, 12f, 14.4f, 12f)
+                rect(5.9f, 7.9f, 3.3f, 8.2f, 1.5f)
+                rect(14.8f, 7.9f, 3.3f, 8.2f, 1.5f)
+                rect(2.9f, 9.9f, 2.1f, 4.2f, 1f)
+                rect(19f, 9.9f, 2.1f, 4.2f, 1f)
+            }
+            PrototypeIcon.Plane -> {
+                svg("M21 15.5 3 11l2-3 4 1 4-5 2 1-2 4 5 1 1.5 2.5a1.4 1.4 0 0 1-1.5 2Z")
+                svg("M6 20h9")
+            }
+            PrototypeIcon.Film -> {
+                rect(3f, 5f, 18f, 14f, 2.5f)
+                svg("M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4")
+            }
+            PrototypeIcon.Brief -> {
+                rect(3f, 7f, 18f, 13f, 2.5f)
+                svg("M8 7V5.5A2.5 2.5 0 0 1 10.5 3h3A2.5 2.5 0 0 1 16 5.5V7M3 12.5h18")
+            }
+            PrototypeIcon.Grad -> {
+                svg("M12 4 2 9l10 5 10-5-10-5Z")
+                svg("M6 11.2V16c0 1 2.7 2.5 6 2.5s6-1.5 6-2.5v-4.8M22 9v5")
+            }
+            PrototypeIcon.Food -> {
+                svg("M6 3v8M9 3v8M7.5 11v10M6 6.5h3")
+                svg("M16 3c-1.5 1-2 3-2 5s.5 3 2 3 2-1 2-3-.5-4-2-5Zm0 8v10")
+            }
+            PrototypeIcon.Ball -> {
+                drawCircle(color = color, radius = 9f * unit, center = offset(12f, 12f), style = stroke)
+                svg("M5.6 5.8c3 3.4 3 9 0 12.4M18.4 5.8c-3 3.4-3 9 0 12.4")
+            }
+            PrototypeIcon.Music -> {
+                svg("M9 18V6l10-2v12")
+                drawCircle(color = color, radius = 2.5f * unit, center = offset(6.5f, 18f), style = stroke)
+                drawCircle(color = color, radius = 2.5f * unit, center = offset(16.5f, 16f), style = stroke)
+            }
+            PrototypeIcon.Leaf -> {
+                svg("M12 21v-7")
+                svg("M12 14c-4 0-6-2.5-6-6 3 0 6 1.5 6 6Z")
+                svg("M12 12c0-4 2.5-6 6-6 0 3.5-2 6-6 6Z")
+            }
+            PrototypeIcon.Laptop -> {
+                rect(4f, 4.5f, 16f, 11.5f, 2f)
+                svg("M2 19.5h20")
+            }
+            PrototypeIcon.Bag -> {
+                svg("M6 8h12l-1 12H7L6 8Z")
+                svg("M9 8V6a3 3 0 0 1 6 0v2")
+            }
+            PrototypeIcon.Heart -> {
+                svg("M12 20S4 15 4 9a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 9c0 6-8 11-8 11Z")
+            }
+            PrototypeIcon.Child -> {
+                drawCircle(color = color, radius = 3f * unit, center = offset(12f, 6.8f), style = stroke)
+                svg("M6 20c0-3.6 2.7-5.8 6-5.8s6 2.2 6 5.8")
+                svg("M9.4 3.6 8.2 2.2M14.6 3.6l1.2-1.4")
+            }
+            PrototypeIcon.Chat -> {
+                svg("M12 4c5 0 9 3 9 6.8s-4 6.8-9 6.8c-1 0-2-.1-2.9-.4L5 19.4l.8-3C4.1 15 3 13 3 10.8 3 7 7 4 12 4Z")
             }
         }
     }

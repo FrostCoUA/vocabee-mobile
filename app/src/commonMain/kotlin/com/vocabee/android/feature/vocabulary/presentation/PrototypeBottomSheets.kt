@@ -5,12 +5,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -51,6 +53,7 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLanguage
 import com.vocabee.android.core.presentation.designsystem.PrototypeLanguages
 import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
+import com.vocabee.android.core.presentation.designsystem.PrototypeTopicIcons
 import com.vocabee.android.core.presentation.designsystem.PrototypeTopicThemes
 import com.vocabee.android.core.presentation.designsystem.languageFlag
 import com.vocabee.android.core.presentation.designsystem.languageName
@@ -70,7 +73,9 @@ internal fun PrototypeBottomSheet(
         containerColor = PrototypeColor.SheetSurface,
         contentColor = PrototypeColor.Ink,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        contentWindowInsets = { WindowInsets(0.dp, 0.dp, 0.dp, 0.dp) },
+        // Status-bar inset kicks in only when the sheet stretches to full
+        // height (keyboard open) — keeps the title clear of the notch/island.
+        contentWindowInsets = { WindowInsets.statusBars },
         scrimColor = Color(0x80111827),
         dragHandle = {
             Box(
@@ -136,10 +141,11 @@ internal fun CreateDictionarySheet(
     targetLanguageCode: String,
     existingDictionariesCount: Int,
     onDismiss: () -> Unit,
-    onCreate: (title: String, coverIndex: Int) -> Unit,
+    onCreate: (title: String, coverIndex: Int, iconIndex: Int) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var selectedIndex by remember { mutableStateOf(0) }
+    var selectedIcon by remember { mutableStateOf(0) }
     val focusRequester = remember { FocusRequester() }
     val cleanedName = name.trim()
     val isValid = cleanedName.isNotEmpty()
@@ -155,7 +161,7 @@ internal fun CreateDictionarySheet(
         foot = {
             PrimaryPillButton(
                 label = "Створити",
-                onClick = { if (isValid) onCreate(cleanedName, selectedIndex) },
+                onClick = { if (isValid) onCreate(cleanedName, selectedIndex, selectedIcon) },
                 enabled = isValid,
             )
         },
@@ -193,6 +199,14 @@ internal fun CreateDictionarySheet(
                     focusedContainerColor = PrototypeColor.White,
                     cursorColor = PrototypeColor.Purple,
                 ),
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+            SheetLabel(text = "Іконка теми")
+            IconPicker(
+                selectedIcon = selectedIcon,
+                accent = PrototypeTopicThemes[selectedIndex].color,
+                onSelect = { selectedIcon = it },
             )
 
             Spacer(modifier = Modifier.height(18.dp))
@@ -277,6 +291,59 @@ private fun SwatchTile(
                 strokeWidth = 2.6f,
             )
         }
+    }
+}
+
+@Composable
+private fun IconPicker(
+    selectedIcon: Int,
+    accent: Color,
+    onSelect: (Int) -> Unit,
+) {
+    val rows = PrototypeTopicIcons.chunked(5)
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        rows.forEachIndexed { rowIndex, row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                row.forEachIndexed { columnIndex, icon ->
+                    val index = rowIndex * 5 + columnIndex
+                    IconTile(
+                        icon = icon,
+                        selected = selectedIcon == index,
+                        accent = accent,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onSelect(index) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IconTile(
+    icon: PrototypeIcon,
+    selected: Boolean,
+    accent: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (selected) accent else PrototypeColor.NeutralSurface)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        PrototypeLineIcon(
+            icon = icon,
+            modifier = Modifier.size(23.dp),
+            color = if (selected) PrototypeColor.White else PrototypeColor.Muted,
+            strokeWidth = 2f,
+        )
     }
 }
 
