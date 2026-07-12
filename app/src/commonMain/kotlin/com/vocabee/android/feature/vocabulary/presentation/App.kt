@@ -1159,7 +1159,7 @@ private fun ExitConfirmationSheet(
             ) {
                 Text(
                     text = "Залишитися",
-                    color = PrototypeColor.White,
+                    color = Color.White,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 16.sp,
                 )
@@ -1596,7 +1596,7 @@ private fun VocabeeTheme(
             secondary = PrototypeColor.Blue,
             onSecondary = Color.White,
             tertiary = PrototypeColor.Yellow,
-            onTertiary = PrototypeColor.Ink,
+            onTertiary = PrototypeColor.YellowText,
             background = PrototypeColor.Background,
             onBackground = PrototypeColor.Ink,
             surface = PrototypeColor.White,
@@ -1702,7 +1702,7 @@ private fun DictionariesHomeScreen(
                 PrototypeLineIcon(
                     icon = PrototypeIcon.Plus,
                     modifier = Modifier.size(26.dp),
-                    color = PrototypeColor.White,
+                    color = Color.White,
                     strokeWidth = 2.4f,
                 )
             }
@@ -2086,19 +2086,22 @@ private fun DictionaryCard(
                     .align(Alignment.TopEnd)
                     .offset(x = 26.dp, y = (-26).dp)
                     .size(120.dp),
+                // Літерали до кінця карти: заливка — константний колір словника,
+                // а токен White у темній темі фліпає в темну поверхню.
+                color = Color.White.copy(alpha = 0.16f),
             )
 
             Box(modifier = Modifier.fillMaxSize().padding(18.dp)) {
                 Surface(
                     modifier = Modifier.align(Alignment.TopStart).size(32.dp),
                     shape = RoundedCornerShape(11.dp),
-                    color = PrototypeColor.White.copy(alpha = 0.22f),
+                    color = Color.White.copy(alpha = 0.22f),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         PrototypeLineIcon(
                             icon = prototypeTopicIcon(topic.iconIndex),
                             modifier = Modifier.size(18.dp),
-                            color = PrototypeColor.White,
+                            color = Color.White,
                             strokeWidth = 2f,
                         )
                     }
@@ -2122,7 +2125,7 @@ private fun DictionaryCard(
                 Column(modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
                     Text(
                         text = topic.title,
-                        color = PrototypeColor.White,
+                        color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 17.5.sp,
                         lineHeight = 21.sp,
@@ -2137,12 +2140,12 @@ private fun DictionaryCard(
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = PrototypeColor.White.copy(alpha = 0.22f),
+                            color = Color.White.copy(alpha = 0.22f),
                         ) {
                             Text(
                                 text = "${topic.words.size} слів",
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                color = PrototypeColor.White,
+                                color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.5.sp,
                             )
@@ -2150,7 +2153,7 @@ private fun DictionaryCard(
                         if (topic.updatedLabel !is TopicUpdatedLabel.Today) {
                             Text(
                                 text = updatedLabelText(topic.updatedLabel),
-                                color = PrototypeColor.White.copy(alpha = 0.82f),
+                                color = Color.White.copy(alpha = 0.82f),
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 12.5.sp,
                                 maxLines = 1,
@@ -2221,12 +2224,12 @@ private fun EmptyHomeState(modifier: Modifier = Modifier, onCreateClick: () -> U
             PrototypeLineIcon(
                 icon = PrototypeIcon.Plus,
                 modifier = Modifier.size(19.dp),
-                color = PrototypeColor.White,
+                color = Color.White,
                 strokeWidth = 2.2f,
             )
             Text(
                 text = "Створити словник",
-                color = PrototypeColor.White,
+                color = Color.White,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 16.sp,
             )
@@ -2795,7 +2798,7 @@ private fun InlineAddWordBar(
                 PrototypeLineIcon(
                     icon = if (showCancel) PrototypeIcon.Close else PrototypeIcon.Mic,
                     modifier = Modifier.size(24.dp),
-                    color = PrototypeColor.White,
+                    color = Color.White,
                     strokeWidth = 2f,
                 )
             }
@@ -2967,7 +2970,8 @@ private fun DetailHeader(
                     .align(Alignment.TopEnd)
                     .offset(x = 20.dp, y = (-10).dp)
                     .size(120.dp),
-                color = PrototypeColor.White.copy(alpha = 0.18f),
+                // Літерали до кінця хедера: заливка — константний колір словника.
+                color = Color.White.copy(alpha = 0.18f),
             )
             Row(
                 modifier = Modifier
@@ -2978,13 +2982,13 @@ private fun DetailHeader(
                 Surface(
                     modifier = Modifier.size(40.dp).clickable(onClick = onBack),
                     shape = RoundedCornerShape(13.dp),
-                    color = PrototypeColor.White.copy(alpha = 0.18f),
+                    color = Color.White.copy(alpha = 0.18f),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         PrototypeLineIcon(
                             icon = PrototypeIcon.ChevronLeft,
                             modifier = Modifier.size(22.dp),
-                            color = PrototypeColor.White,
+                            color = Color.White,
                             strokeWidth = 2.2f,
                         )
                     }
@@ -2992,7 +2996,7 @@ private fun DetailHeader(
                 Spacer(modifier = Modifier.weight(1f))
                 Surface(
                     shape = RoundedCornerShape(13.dp),
-                    color = PrototypeColor.White.copy(alpha = 0.16f),
+                    color = Color.White.copy(alpha = 0.16f),
                     modifier = Modifier.clickable(onClick = onToggleSpeechDirection),
                 ) {
                     Row(
@@ -3004,7 +3008,7 @@ private fun DetailHeader(
                         PrototypeLineIcon(
                             icon = PrototypeIcon.ArrowRight,
                             modifier = Modifier.size(13.dp),
-                            color = PrototypeColor.White.copy(alpha = 0.8f),
+                            color = Color.White.copy(alpha = 0.8f),
                             strokeWidth = 2f,
                         )
                         Text(languageFlag(speechOutputLanguage.code), fontSize = 15.sp)
@@ -3018,7 +3022,7 @@ private fun DetailHeader(
                     .offset(y = titleTop)
                     .padding(start = titleStart, end = titleEnd)
                     .fillMaxWidth(),
-                color = PrototypeColor.White,
+                color = Color.White,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = titleFontSize,
                 letterSpacing = titleLetterSpacing,
@@ -3033,7 +3037,7 @@ private fun DetailHeader(
                     .offset(y = subtitleTop)
                     .padding(start = 18.dp, end = 18.dp)
                     .graphicsLayer { alpha = subtitleAlpha },
-                color = PrototypeColor.White.copy(alpha = 0.82f),
+                color = Color.White.copy(alpha = 0.82f),
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.5.sp,
             )
@@ -4224,7 +4228,7 @@ private fun PracticeFlipCard(
                 ) {
                     Text(
                         text = card.word.translation,
-                        color = PrototypeColor.White,
+                        color = Color.White,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 32.sp,
                         letterSpacing = (-0.64).sp,
@@ -4779,7 +4783,7 @@ private fun ProfileIdentityCard(account: VocabeeAccountState.Authenticated) {
             ) {
                 Text(
                     text = "НК",
-                    color = PrototypeColor.White,
+                    color = Color.White,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 21.sp,
                 )
