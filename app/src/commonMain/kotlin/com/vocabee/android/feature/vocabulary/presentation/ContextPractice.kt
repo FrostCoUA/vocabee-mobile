@@ -472,6 +472,7 @@ internal fun ContextPracticeSession(
     topics: List<DictionaryTopic>,
     onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
     onExit: () -> Unit,
+    onRoundCompleted: () -> Unit,
 ) {
     val topicIds = topics.map { it.id }
     var shuffleSeed by remember(topicIds) { mutableIntStateOf(Random.nextInt()) }
@@ -482,7 +483,12 @@ internal fun ContextPracticeSession(
     val confusions = remember(deck) { mutableListOf<ConfusionEntry>() }
 
     fun moveNext() {
-        if (index + 1 >= deck.size) done = true else index += 1
+        if (index + 1 >= deck.size) {
+            done = true
+            onRoundCompleted()
+        } else {
+            index += 1
+        }
     }
 
     Column(

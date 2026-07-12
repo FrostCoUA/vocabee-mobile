@@ -174,7 +174,9 @@
 
 **`TopicWordResponseDto`** (`topic.dto.ts:151`): `id`, `topicId`, `wordText`, `translationText`, `ipa?`, `knowledgePercent` (0..100), `source`, `origin`, `metadata` (object), `addedAt`, `updatedAt`, `lastSyncedAt?`.
 
-`ENTRY_SOURCES` (`schema/lexicon.ts:24`): `dictionary | translator | ai | user`.
+`ENTRY_SOURCES` (`schema/lexicon.ts:24`): `dictionary | translator | ai | user | seed`.
+
+`seed` — curated/imported seed data, зокрема reviewed-батчі з `vocabeeTranslate`. Для таких рядків `origin` має починатися з `vocabee-translate/`, а `metadata.generatedBy = "vocabee-translate"`.
 
 ### 1.7 Languages (`/v1/languages`)
 

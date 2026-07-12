@@ -751,6 +751,7 @@ private fun MainApp(
                                 )
                                 syncVocabularyNow()
                             },
+                            onRoundCompleted = { store.recordPracticeRoundCompleted() },
                         )
                     }
 
@@ -787,6 +788,8 @@ private fun MainApp(
                             learningLanguage = state.learningLanguage,
                             notificationsEnabled = state.notificationsEnabled,
                             darkThemeEnabled = state.darkThemeEnabled,
+                            streakDays = state.streakDays,
+                            practiceRounds = state.practiceRounds,
                             authNotice = profileAuthNotice,
                             isGoogleAuthLoading = googleAuthLoading,
                             onGoogleSignInClick = ::startGoogleSignIn,
@@ -1646,9 +1649,9 @@ private fun HomeHeader(topicCount: Int, totalWords: Int) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
-                MetricText(value = topicCount.toString(), unit = if (topicCount == 1) "словник" else "словники")
+                MetricText(value = topicCount.toString(), unit = ukPlural(topicCount, "словник", "словники", "словників"))
                 Box(modifier = Modifier.size(4.dp).clip(CircleShape).background(PrototypeColor.Muted2))
-                MetricText(value = totalWords.toString(), unit = "слів зібрано")
+                MetricText(value = totalWords.toString(), unit = "${ukPlural(totalWords, "слово", "слова", "слів")} зібрано")
             }
         }
     }
@@ -3518,6 +3521,7 @@ private fun PracticeScreen(
     topics: List<DictionaryTopic>,
     onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
     onOpenDictionaries: () -> Unit,
+    onRoundCompleted: () -> Unit,
 ) {
     val trainableTopics = topics.filter { topic -> topic.words.isNotEmpty() }
     val trainableTopicIds = trainableTopics.map { topic -> topic.id }
@@ -3560,6 +3564,7 @@ private fun PracticeScreen(
             topics = trainableTopics.filter { topic -> topic.id in selectedTopicIds },
             onAnswerWord = onAnswerWord,
             onExit = { practiceStarted = false },
+            onRoundCompleted = onRoundCompleted,
         )
         return
     }
@@ -3597,6 +3602,7 @@ private fun PracticeScreen(
         waitingForNextAfterMiss = false
         if (index + 1 >= deck.size) {
             done = true
+            onRoundCompleted()
         } else {
             flipped = false
             index += 1
@@ -4355,6 +4361,8 @@ private fun ProfileScreen(
     onLearningClick: () -> Unit,
     onInviteClick: () -> Unit,
     onHelpClick: () -> Unit,
+    streakDays: Int,
+    practiceRounds: Int,
 ) {
     val totalWords = topics.sumOf { it.words.size }
     LazyColumn(
@@ -4386,8 +4394,8 @@ private fun ProfileScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                 ProfileStat(
                     icon = PrototypeIcon.Flame,
-                    value = "7",
-                    label = "днів поспіль",
+                    value = streakDays.toString(),
+                    label = "${ukPlural(streakDays, "день", "дні", "днів")} поспіль",
                     tint = PrototypeColor.StatFlameBg,
                     color = PrototypeColor.StatFlameText,
                     modifier = Modifier.weight(1f),
@@ -4395,15 +4403,15 @@ private fun ProfileScreen(
                 ProfileStat(
                     icon = PrototypeIcon.Bookmark,
                     value = totalWords.toString(),
-                    label = "слів збережено",
+                    label = "${ukPlural(totalWords, "слово", "слова", "слів")} збережено",
                     tint = PrototypeColor.Tint,
                     color = PrototypeColor.PurpleText,
                     modifier = Modifier.weight(1f),
                 )
                 ProfileStat(
                     icon = PrototypeIcon.Cards,
-                    value = "12",
-                    label = "тренувань",
+                    value = practiceRounds.toString(),
+                    label = ukPlural(practiceRounds, "тренування", "тренування", "тренувань"),
                     tint = PrototypeColor.StatTrainBg,
                     color = PrototypeColor.StatTrainText,
                     modifier = Modifier.weight(1f),
@@ -4738,6 +4746,18 @@ private fun GoogleGlyph(modifier: Modifier = Modifier) {
             topLeft = Offset(cx, cy - 1.5f * unit),
             size = Size(5f * unit, 3f * unit),
         )
+    }
+}
+
+/** Українська форма множини: 1 день / 2 дні / 5 днів (з поправкою на 11–14). */
+internal fun ukPlural(count: Int, one: String, few: String, many: String): String {
+    val n = if (count < 0) -count else count
+    val d10 = n % 10
+    val d100 = n % 100
+    return when {
+        d10 == 1 && d100 != 11 -> one
+        d10 in 2..4 && d100 !in 12..14 -> few
+        else -> many
     }
 }
 

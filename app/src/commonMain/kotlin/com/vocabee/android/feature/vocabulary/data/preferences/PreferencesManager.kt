@@ -42,6 +42,15 @@ interface PreferencesManager {
     var lastSyncAt: String?
 
     var localRevisionEpochMillis: Long
+
+    /** Стрік активності в днях поспіль; 0 = ще жодного зафіксованого дня. */
+    var streakDays: Int
+
+    /** Локальна північ (epoch millis) останнього дня з активністю — база для стріку. */
+    var lastActiveDayStartMillis: Long
+
+    /** Скільки раундів тренувань завершено на цьому пристрої (класика + контекст). */
+    var practiceRoundsCompleted: Int
 }
 
 /**
@@ -61,4 +70,7 @@ class InMemoryPreferencesManager : PreferencesManager {
     override var lastAuthenticatedUserId: String? = null
     override var lastSyncAt: String? = null
     override var localRevisionEpochMillis: Long = 0L
+    override var streakDays: Int = 0
+    override var lastActiveDayStartMillis: Long = 0L
+    override var practiceRoundsCompleted: Int = 0
 }

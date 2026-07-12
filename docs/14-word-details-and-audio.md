@@ -94,7 +94,7 @@ data class WordForm(val text: String, val tags: List<String> = emptyList())
 | `lexicon_word_forms` | словоформи | `form_text`, `tags[]` (граматика) (`lexicon.ts:186`) |
 | `lexicon_examples` | приклади | `text`, `translation_text?`, `sense_id?` (NULL = на все слово) (`lexicon.ts:98`) |
 
-- **Походження даних:** Free Dictionary API (`GET .../entries/{lang}/{word}`) — джерело форми схеми (`0005:3-6`); також provider'и `dictionary`/`translator`/`ai` (`ENTRY_SOURCES` `lexicon.ts:24`). `source='ai'` — LLM-збагачення (напр. `openai-dictionary.provider.ts`).
+- **Походження даних:** Free Dictionary API (`GET .../entries/{lang}/{word}`) — джерело форми схеми (`0005:3-6`); також provider'и `dictionary`/`translator`/`ai` і curated seed `seed` (`ENTRY_SOURCES` `lexicon.ts:24`). `source='ai'` — LLM-збагачення (напр. `openai-dictionary.provider.ts`); `source='seed'` — reviewed/imported seed data з `origin` на кшталт `vocabee-translate/...`.
 - **Партиціонування:** усі lexicon-таблиці партиціоновані `LIST (word_lang)` — по партиції на мову (`uk,en,de,es,fr,pl,it`, `0005:90`). PK включає `word_lang`, бо Postgres вимагає ключ партиції в PK (`lexicon.ts:36`).
 - **Без FK до партиціонованого батька:** `lexicon_examples` і relations тримають `(word_lang, word_id)` як «м'який» лінк — цілісність на рівні застосунку, бо FK до партиціонованих таблиць обмежені (`lexicon.ts:93-97`).
 - **`sense_id` опційний** усюди (examples/relations): NULL → застосовується до слова в цілому; не-NULL → до конкретного значення (`lexicon.ts:104`, `0005:49`).

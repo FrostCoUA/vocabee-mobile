@@ -78,6 +78,18 @@ class AndroidPreferencesManager(
         get() = prefs.getLong(KEY_LOCAL_REVISION_EPOCH_MILLIS, 0L)
         set(value) = prefs.edit { putLong(KEY_LOCAL_REVISION_EPOCH_MILLIS, value.coerceAtLeast(0L)) }
 
+    override var streakDays: Int
+        get() = prefs.getInt(KEY_STREAK_DAYS, 0)
+        set(value) = prefs.edit { putInt(KEY_STREAK_DAYS, value.coerceAtLeast(0)) }
+
+    override var lastActiveDayStartMillis: Long
+        get() = prefs.getLong(KEY_LAST_ACTIVE_DAY_START, 0L)
+        set(value) = prefs.edit { putLong(KEY_LAST_ACTIVE_DAY_START, value.coerceAtLeast(0L)) }
+
+    override var practiceRoundsCompleted: Int
+        get() = prefs.getInt(KEY_PRACTICE_ROUNDS, 0)
+        set(value) = prefs.edit { putInt(KEY_PRACTICE_ROUNDS, value.coerceAtLeast(0)) }
+
     private companion object {
         const val PREFS_NAME = "vocabee_prefs"
         const val KEY_ONBOARDED = "has_completed_onboarding"
@@ -91,6 +103,9 @@ class AndroidPreferencesManager(
         const val KEY_LAST_AUTH_USER_ID = "last_authenticated_user_id"
         const val KEY_LAST_SYNC_AT = "last_sync_at"
         const val KEY_LOCAL_REVISION_EPOCH_MILLIS = "local_revision_epoch_millis"
+        const val KEY_STREAK_DAYS = "streak_days"
+        const val KEY_LAST_ACTIVE_DAY_START = "last_active_day_start_millis"
+        const val KEY_PRACTICE_ROUNDS = "practice_rounds_completed"
         const val DEFAULT_BEE_BALANCE = 50
     }
 }
