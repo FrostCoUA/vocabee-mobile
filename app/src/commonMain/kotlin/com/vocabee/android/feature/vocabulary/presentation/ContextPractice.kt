@@ -84,6 +84,12 @@ internal data class ContextPair(
     val sentence: String,
     /** All translations of this source word in the topic (including own). */
     val groupTranslations: List<String>,
+    /**
+     * Переклади-представники значень групи (по одному на sense, включно з own).
+     * Єдине чесне джерело дистракторів: синоніми ВЛАСНОГО значення пасують до
+     * того ж речення і дистракторами бути не можуть.
+     */
+    val senseTranslations: List<String>,
     /** translation → its example sentence, for the mini-hint on a wrong pick. */
     val sentenceByTranslation: Map<String, String>,
 )
@@ -177,12 +183,38 @@ private fun uniqueSentenceMembers(group: List<WordEntry>): List<Pair<WordEntry, 
     return withSentence.filter { (counts[it.second.trim().lowercase()] ?: 0) == 1 }
 }
 
-/** Words that belong to a 2+-translation group and carry a unique example sentence. */
+/**
+ * Тренується ОДИН представник на значення: синоніми одного sense'а
+ * (керувати/функціонувати/виконувати для run «to operate») рендерять те саме
+ * значення й ділять приклад — розрізняти їх реченням неможливо, тож решта
+ * кластера тренується класикою. Представник = перший збережений член.
+ * Легасі-члени без атрибуції йдуть старим правилом унікального речення;
+ * фінальний дедуп страхує від збігу речень між значеннями.
+ */
+private fun senseRepresentatives(group: List<WordEntry>): List<Pair<WordEntry, String>> {
+    val attributed = group.mapNotNull { member ->
+        val senseIndex = member.details?.senseIndex ?: return@mapNotNull null
+        val sentence = member.contextSentence() ?: return@mapNotNull null
+        Triple(member, senseIndex, sentence)
+    }
+    val representatives = attributed
+        .groupBy { (_, senseIndex, _) -> senseIndex }
+        .values
+        .map { cluster -> cluster.first().let { (member, _, sentence) -> member to sentence } }
+    val legacy = uniqueSentenceMembers(
+        group.filter { it.details?.senseIndex == null },
+    )
+    val combined = representatives + legacy
+    val counts = combined.groupingBy { it.second.trim().lowercase() }.eachCount()
+    return combined.filter { (counts[it.second.trim().lowercase()] ?: 0) == 1 }
+}
+
+/** Words that belong to a 2+-translation group and carry a trainable sense sentence. */
 internal fun DictionaryTopic.contextPairCount(): Int {
     return words.groupBy(::normalizedSource)
         .values
         .filter { group -> group.size >= 2 }
-        .sumOf { group -> uniqueSentenceMembers(group).size }
+        .sumOf { group -> senseRepresentatives(group).size }
 }
 
 private fun buildContextPairs(topics: List<DictionaryTopic>): List<ContextPair> {
@@ -193,7 +225,8 @@ private fun buildContextPairs(topics: List<DictionaryTopic>): List<ContextPair> 
             .filter { group -> group.size >= 2 }
             .flatMap { group ->
                 val translations = group.map { it.translation }
-                val members = uniqueSentenceMembers(group)
+                val members = senseRepresentatives(group)
+                val senseTranslations = members.map { (member, _) -> member.translation }
                 val sentences = members.associate { (member, sentence) -> member.translation to sentence }
                 members.map { (member, sentence) ->
                     ContextPair(
@@ -203,6 +236,7 @@ private fun buildContextPairs(topics: List<DictionaryTopic>): List<ContextPair> 
                         word = member,
                         sentence = sentence,
                         groupTranslations = translations,
+                        senseTranslations = senseTranslations,
                         sentenceByTranslation = sentences,
                     )
                 }
@@ -271,15 +305,23 @@ private fun buildContextDeck(
             knowledge >= RecallThreshold -> ContextCard.Recall(pair)
 
             else -> {
-                val distractors = pair.groupTranslations
+                // Дистрактори — лише представники ІНШИХ значень: синонім власного
+                // sense'а пасує до цього ж речення і робить картку вгадайкою.
+                val distractors = pair.senseTranslations
                     .filter { it != pair.word.translation }
                     .shuffled(random)
                     .take(3)
-                ContextCard.Recognition(
-                    pair = pair,
-                    options = (distractors + pair.word.translation).shuffled(random),
-                    direction = ContextDirection.EnToUk,
-                )
+                if (distractors.isEmpty()) {
+                    // Слово з одним тренованим значенням (book: книга/том/підручник) —
+                    // чесних варіантів нема, вчимо перевертанням без опцій.
+                    ContextCard.Recall(pair)
+                } else {
+                    ContextCard.Recognition(
+                        pair = pair,
+                        options = (distractors + pair.word.translation).shuffled(random),
+                        direction = ContextDirection.EnToUk,
+                    )
+                }
             }
         }
         if (cards.size >= ContextDeckSize) return@forEach
