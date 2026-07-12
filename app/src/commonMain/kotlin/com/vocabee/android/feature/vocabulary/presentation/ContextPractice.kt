@@ -527,6 +527,7 @@ internal fun ContextPracticeSession(
     onSpendPeek: () -> Boolean,
     onPeekBlocked: () -> Unit,
     onOpenBookmark: (topicId: String, word: String) -> Unit,
+    onRoundCompleted: () -> Unit,
 ) {
     val topicIds = topics.map { it.id }
     var shuffleSeed by remember(topicIds) { mutableIntStateOf(Random.nextInt()) }
@@ -614,7 +615,12 @@ internal fun ContextPracticeSession(
 
     fun moveNext() {
         activePeek = null
-        if (index + 1 >= deck.size) done = true else index += 1
+        if (index + 1 >= deck.size) {
+            done = true
+            onRoundCompleted()
+        } else {
+            index += 1
+        }
     }
 
     Column(

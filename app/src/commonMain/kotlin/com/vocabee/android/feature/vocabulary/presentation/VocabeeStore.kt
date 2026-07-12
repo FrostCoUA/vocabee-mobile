@@ -3,6 +3,8 @@ package com.vocabee.android.feature.vocabulary.presentation
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.vocabee.android.core.platform.currentEpochMillis
+import com.vocabee.android.core.platform.startOfDayEpochMillis
 import com.vocabee.android.feature.vocabulary.data.FakeVocabularyRepository
 import com.vocabee.android.feature.vocabulary.domain.VocabularyRepository
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
@@ -19,8 +21,10 @@ import com.vocabee.android.feature.vocabulary.domain.usecase.RemoveWordUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.CreateTopicUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.LoadUserTopicsUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoveTopicUseCase
+import kotlin.math.roundToInt
 
 internal const val InitialBeeBalance = 50
+private const val DayMillis = 86_400_000L
 internal const val RewardBeeAmount = 10
 internal const val FreeDictionaryLimit = 2
 internal const val AnonymousFreeWordLimit = 50
@@ -39,6 +43,8 @@ data class VocabeeState(
     val notificationsEnabled: Boolean = true,
     val darkThemeEnabled: Boolean = false,
     val beeBalance: Int = InitialBeeBalance,
+    val streakDays: Int = 0,
+    val practiceRounds: Int = 0,
 )
 
 sealed interface VocabeeAccountState {
@@ -265,7 +271,40 @@ class VocabeeStore(
             topics = loadUserTopicsUseCase(),
             darkThemeEnabled = preferencesManager.darkThemeEnabled,
             beeBalance = preferencesManager.beeBalance.coerceAtLeast(0),
+            streakDays = refreshedStreakDays(),
+            practiceRounds = preferencesManager.practiceRoundsCompleted,
         )
+    }
+
+    /** Завершений раунд тренування (класика або контекст) — рахуємо в профіль. */
+    fun recordPracticeRoundCompleted() {
+        val rounds = preferencesManager.practiceRoundsCompleted + 1
+        preferencesManager.practiceRoundsCompleted = rounds
+        state = state.copy(practiceRounds = rounds, streakDays = refreshedStreakDays())
+    }
+
+    /**
+     * Оновлює стрік «днів поспіль»: активність сьогодні продовжує вчорашній
+     * стрік, пропущений день скидає його до 1. Порівнюємо локальні півночі,
+     * а відстань у днях округлюємо, щоб перехід на літній/зимовий час
+     * (доба ±1 година) не рвав серію.
+     */
+    private fun refreshedStreakDays(): Int {
+        val todayStart = startOfDayEpochMillis(currentEpochMillis())
+        val lastStart = preferencesManager.lastActiveDayStartMillis
+        val updated = if (lastStart <= 0L) {
+            1
+        } else {
+            val daysBetween = ((todayStart - lastStart).toDouble() / DayMillis).roundToInt()
+            when {
+                daysBetween <= 0 -> preferencesManager.streakDays.coerceAtLeast(1)
+                daysBetween == 1 -> preferencesManager.streakDays.coerceAtLeast(0) + 1
+                else -> 1
+            }
+        }
+        preferencesManager.streakDays = updated
+        preferencesManager.lastActiveDayStartMillis = todayStart
+        return updated
     }
 
     private fun createTopic(

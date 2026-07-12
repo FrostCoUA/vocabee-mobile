@@ -63,6 +63,18 @@ class IosPreferencesManager : PreferencesManager {
         get() = defaults.integerForKey(KEY_LOCAL_REVISION)
         set(value) = defaults.setInteger(value, KEY_LOCAL_REVISION)
 
+    override var streakDays: Int
+        get() = defaults.integerForKey(KEY_STREAK_DAYS).toInt()
+        set(value) = defaults.setInteger(value.coerceAtLeast(0).toLong(), KEY_STREAK_DAYS)
+
+    override var lastActiveDayStartMillis: Long
+        get() = defaults.integerForKey(KEY_LAST_ACTIVE_DAY_START)
+        set(value) = defaults.setInteger(value.coerceAtLeast(0L), KEY_LAST_ACTIVE_DAY_START)
+
+    override var practiceRoundsCompleted: Int
+        get() = defaults.integerForKey(KEY_PRACTICE_ROUNDS).toInt()
+        set(value) = defaults.setInteger(value.coerceAtLeast(0).toLong(), KEY_PRACTICE_ROUNDS)
+
     private companion object {
         const val KEY_ONBOARDING = "hasCompletedOnboarding"
         const val KEY_USER_LANG = "userLanguageCode"
@@ -75,6 +87,9 @@ class IosPreferencesManager : PreferencesManager {
         const val KEY_LAST_AUTH_USER = "lastAuthenticatedUserId"
         const val KEY_LAST_SYNC_AT = "lastSyncAt"
         const val KEY_LOCAL_REVISION = "localRevisionEpochMillis"
+        const val KEY_STREAK_DAYS = "streakDays"
+        const val KEY_LAST_ACTIVE_DAY_START = "lastActiveDayStartMillis"
+        const val KEY_PRACTICE_ROUNDS = "practiceRoundsCompleted"
         const val DEFAULT_BEE_BALANCE = 50
     }
 }
