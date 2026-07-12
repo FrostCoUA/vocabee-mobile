@@ -601,7 +601,8 @@ private fun HoldToTalkButton(
                 PrototypeLineIcon(
                     icon = PrototypeIcon.Mic,
                     modifier = Modifier.size(if (listening) 32.dp else 34.dp),
-                    color = PrototypeColor.White,
+                    // Літерал: кнопка завжди фіолетова, токен у дарку темнішає.
+                    color = Color.White,
                     strokeWidth = 1.9f,
                 )
             }
@@ -945,7 +946,7 @@ private fun AddWordResultRow(
                 PrototypeLineIcon(
                     icon = if (isAdded) PrototypeIcon.Check else PrototypeIcon.Plus,
                     modifier = Modifier.size(20.dp),
-                    color = PrototypeColor.White,
+                    color = Color.White,
                     strokeWidth = 2.6f,
                 )
             }

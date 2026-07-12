@@ -204,7 +204,9 @@ internal fun OnboardingScreen(onDone: () -> Unit) {
                 modifier = Modifier
                     .clickable(onClick = onDone)
                     .padding(8.dp),
-                color = PrototypeColor.White.copy(alpha = 0.8f),
+                // Літерали: слайди лежать на константному фіолеті, а токен White
+                // у темній темі фліпає в темну поверхню і текст зникає.
+                color = Color.White.copy(alpha = 0.8f),
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
             )
@@ -226,14 +228,14 @@ internal fun OnboardingScreen(onDone: () -> Unit) {
                 text = slide.title,
                 fontSize = 29.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = PrototypeColor.White,
+                color = Color.White,
                 lineHeight = 34.sp,
                 letterSpacing = (-0.58).sp,
             )
             Text(
                 text = slide.subtitle,
                 modifier = Modifier.padding(top = 14.dp),
-                color = PrototypeColor.White.copy(alpha = 0.8f),
+                color = Color.White.copy(alpha = 0.8f),
                 fontWeight = FontWeight.Medium,
                 fontSize = 16.sp,
                 lineHeight = 25.sp,
@@ -258,7 +260,7 @@ internal fun OnboardingScreen(onDone: () -> Unit) {
                             .clip(CircleShape)
                             .background(
                                 if (active) PrototypeColor.Yellow
-                                else PrototypeColor.White.copy(alpha = 0.32f),
+                                else Color.White.copy(alpha = 0.32f),
                             ),
                     )
                 }
@@ -271,7 +273,7 @@ internal fun OnboardingScreen(onDone: () -> Unit) {
                         if (isLast) onDone() else index += 1
                     },
                 shape = RoundedCornerShape(16.dp),
-                color = PrototypeColor.White,
+                color = Color.White,
                 shadowElevation = 8.dp,
             ) {
                 Row(
@@ -315,8 +317,8 @@ private fun OnboardingArtwork(art: OnboardingArt) {
 
         when (art) {
             OnboardingArt.Read -> {
-                rect(34f, 30f, 152f, 140f, 16f, PrototypeColor.White.copy(alpha = 0.10f))
-                rect(52f, 52f, 116f, 96f, 12f, PrototypeColor.White)
+                rect(34f, 30f, 152f, 140f, 16f, Color.White.copy(alpha = 0.10f))
+                rect(52f, 52f, 116f, 96f, 12f, Color.White)
                 rect(66f, 70f, 64f, 8f, 4f, PrototypeColor.EmptyCardHex)
                 rect(66f, 86f, 88f, 8f, 4f, PrototypeColor.Tint)
                 rect(64f, 100f, 56f, 14f, 5f, PrototypeColor.Yellow)
@@ -348,9 +350,9 @@ private fun OnboardingArtwork(art: OnboardingArt) {
                 )
             }
             OnboardingArt.Organize -> {
-                rect(48f, 118f, 124f, 44f, 14f, PrototypeColor.White.copy(alpha = 0.16f))
+                rect(48f, 118f, 124f, 44f, 14f, Color.White.copy(alpha = 0.16f))
                 rect(40f, 86f, 140f, 44f, 14f, Color(0xFF7C5CF6))
-                rect(32f, 52f, 156f, 48f, 15f, PrototypeColor.White)
+                rect(32f, 52f, 156f, 48f, 15f, Color.White)
                 val hexPath = Path().apply {
                     val cx = x(54f)
                     val cy = y(76f)
@@ -368,7 +370,7 @@ private fun OnboardingArtwork(art: OnboardingArt) {
                 drawCircle(PrototypeColor.Yellow, radius = x(9f), center = Offset(x(160f), y(76f)))
             }
             OnboardingArt.Practice -> {
-                rect(56f, 40f, 108f, 132f, 18f, PrototypeColor.White)
+                rect(56f, 40f, 108f, 132f, 18f, Color.White)
                 rect(78f, 64f, 64f, 11f, 5.5f, PrototypeColor.Purple)
                 rect(84f, 86f, 52f, 7f, 3.5f, PrototypeColor.Tint)
                 rect(92f, 100f, 36f, 7f, 3.5f, PrototypeColor.Tint)
@@ -379,7 +381,7 @@ private fun OnboardingArtwork(art: OnboardingArt) {
                         lineTo(x(84.6f), y(141.6f))
                         lineTo(x(93f), y(134f))
                     },
-                    color = PrototypeColor.White,
+                    color = Color.White,
                     style = Stroke(width = x(3f)),
                 )
                 drawCircle(
@@ -731,7 +733,7 @@ private fun FacebookGlyph(modifier: Modifier = Modifier) {
             lineTo(cx - 1f * unit, cy - 2.5f * unit)
             close()
         }
-        drawPath(path = path, color = PrototypeColor.White)
+        drawPath(path = path, color = Color.White)
     }
 }
 
@@ -963,7 +965,7 @@ private fun LanguageCard(
                 PrototypeLineIcon(
                     icon = PrototypeIcon.Check,
                     modifier = Modifier.size(14.dp),
-                    color = PrototypeColor.White,
+                    color = Color.White,
                     strokeWidth = 2.6f,
                 )
             }

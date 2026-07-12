@@ -274,7 +274,8 @@ private fun SwatchTile(
             .then(
                 if (selected) {
                     Modifier
-                        .border(BorderStroke(3.dp, PrototypeColor.White), RoundedCornerShape(14.dp))
+                        // Літерал: рамка/чек лежать на константному кольорі словника.
+                        .border(BorderStroke(3.dp, Color.White), RoundedCornerShape(14.dp))
                         .border(BorderStroke(5.5.dp, color), RoundedCornerShape(16.dp))
                 } else {
                     Modifier
@@ -289,7 +290,7 @@ private fun SwatchTile(
             PrototypeLineIcon(
                 icon = PrototypeIcon.Check,
                 modifier = Modifier.size(18.dp),
-                color = PrototypeColor.White,
+                color = Color.White,
                 strokeWidth = 2.6f,
             )
         }
@@ -343,7 +344,7 @@ private fun IconTile(
         PrototypeLineIcon(
             icon = icon,
             modifier = Modifier.size(23.dp),
-            color = if (selected) PrototypeColor.White else PrototypeColor.Muted,
+            color = if (selected) Color.White else PrototypeColor.Muted,
             strokeWidth = 2f,
         )
     }
@@ -489,7 +490,7 @@ private fun LanguageSheetRow(
                 PrototypeLineIcon(
                     icon = PrototypeIcon.Check,
                     modifier = Modifier.size(15.dp),
-                    color = PrototypeColor.White,
+                    color = Color.White,
                     strokeWidth = 2.6f,
                 )
             }
