@@ -61,6 +61,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vocabee.android.core.presentation.designsystem.PrototypeColor
+import com.vocabee.android.core.presentation.designsystem.manropeFamily
 import com.vocabee.android.core.presentation.designsystem.PrototypeIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLanguage
 import com.vocabee.android.core.presentation.designsystem.PrototypeLanguages
@@ -70,13 +71,14 @@ import com.vocabee.android.core.presentation.designsystem.prototypeLanguage
 import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
 import kotlinx.coroutines.delay
 
-/** Reusable Manrope-leaning typography for the prototype screens. */
-private val TitleStyle = TextStyle(
+/** Reusable title typography for the prototype screens (bundled Manrope). */
+@Composable
+private fun titleStyle() = TextStyle(
     fontWeight = FontWeight.ExtraBold,
     fontSize = 30.sp,
     letterSpacing = (-0.6).sp,
     color = PrototypeColor.Ink,
-    fontFamily = FontFamily.SansSerif,
+    fontFamily = manropeFamily(),
 )
 
 private val SplashGradient = Brush.radialGradient(
@@ -439,7 +441,7 @@ internal fun AuthScreen(onDone: () -> Unit) {
             Spacer(modifier = Modifier.height(22.dp))
             Text(
                 text = if (isSignup) "Створи акаунт" else "З поверненням",
-                style = TitleStyle,
+                style = titleStyle(),
                 letterSpacing = (-0.6).sp,
             )
             Text(
@@ -568,6 +570,7 @@ private fun VocabeeInputField(
         ),
         visualTransformation = if (hidden) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         textStyle = TextStyle(
+                fontFamily = manropeFamily(),
             color = PrototypeColor.Ink,
             fontWeight = FontWeight.SemiBold,
             fontSize = 16.sp,

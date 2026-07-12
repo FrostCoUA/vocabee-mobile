@@ -74,6 +74,7 @@ kotlin {
             implementation(libs.koin.core)
             implementation(libs.jetbrains.ui.backhandler)
             implementation(libs.qrose)
+            implementation(compose.components.resources)
         }
 
         androidMain.dependencies {
@@ -129,6 +130,10 @@ android {
 
 room {
     schemaDirectory("$projectDir/schemas")
+}
+
+compose.resources {
+    packageOfResClass = "com.vocabee.android.resources"
 }
 
 dependencies {

@@ -112,6 +112,8 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.vocabee.android.core.presentation.designsystem.HoneycombWatermark
 import com.vocabee.android.core.presentation.designsystem.PrototypeColor
+import com.vocabee.android.core.presentation.designsystem.manropeFamily
+import com.vocabee.android.core.presentation.designsystem.manropeTypography
 import com.vocabee.android.core.presentation.designsystem.PrototypeIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLogo
@@ -1513,6 +1515,7 @@ private fun VocabeeTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
+        typography = manropeTypography(),
         content = content,
     )
 }
@@ -2626,6 +2629,7 @@ private fun InlineAddWordBar(
                     singleLine = false,
                     maxLines = 5,
                     textStyle = TextStyle(
+                fontFamily = manropeFamily(),
                         color = PrototypeColor.Ink,
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp,

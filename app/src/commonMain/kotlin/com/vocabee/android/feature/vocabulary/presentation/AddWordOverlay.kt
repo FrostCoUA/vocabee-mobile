@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vocabee.android.core.presentation.designsystem.PrototypeColor
+import com.vocabee.android.core.presentation.designsystem.manropeFamily
 import com.vocabee.android.core.presentation.designsystem.PrototypeIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.languageFlag
@@ -452,6 +453,7 @@ private fun AddWordSearchField(
                 .focusRequester(focusRequester),
             singleLine = true,
             textStyle = TextStyle(
+                fontFamily = manropeFamily(),
                 color = PrototypeColor.Ink,
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,

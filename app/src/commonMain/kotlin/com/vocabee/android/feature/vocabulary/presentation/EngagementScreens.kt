@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vocabee.android.core.presentation.designsystem.HoneycombWatermark
 import com.vocabee.android.core.presentation.designsystem.PrototypeColor
+import com.vocabee.android.core.presentation.designsystem.manropeFamily
 import com.vocabee.android.core.presentation.designsystem.PrototypeIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLogo
@@ -396,6 +397,7 @@ internal fun HelpSupportScreen(
                             onValueChange = { message = it },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 98.dp),
                             textStyle = TextStyle(
+                fontFamily = manropeFamily(),
                                 color = PrototypeColor.Ink,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 15.sp,
@@ -462,6 +464,7 @@ internal fun HelpSupportScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 textStyle = TextStyle(
+                fontFamily = manropeFamily(),
                                     color = PrototypeColor.Ink,
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 16.sp,

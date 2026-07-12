@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vocabee.android.core.presentation.designsystem.PrototypeColor
+import com.vocabee.android.core.presentation.designsystem.manropeFamily
 import com.vocabee.android.core.presentation.designsystem.PrototypeIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLanguage
 import com.vocabee.android.core.presentation.designsystem.PrototypeLanguages
@@ -187,6 +188,7 @@ internal fun CreateDictionarySheet(
                     )
                 },
                 textStyle = TextStyle(
+                fontFamily = manropeFamily(),
                     color = PrototypeColor.Ink,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
