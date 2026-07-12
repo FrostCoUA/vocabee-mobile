@@ -167,6 +167,26 @@ internal enum class AppFlow { Splash, Onboarding, Auth, LanguageSelect, Main }
  * Falls back to local options when no API is plumbed (previews, tests) so the UI
  * still has something to render.
  */
+/** Lightweight lookup for the in-sentence peek: top translation only. */
+private suspend fun peekTranslateRemotely(
+    useCase: RemoteLexiconSearchUseCase?,
+    word: String,
+    topic: DictionaryTopic,
+): String? {
+    if (useCase == null) return null
+    val result = useCase(
+        word,
+        topic.targetLanguage.code,
+        topic.sourceLanguage.code,
+        emptySet(),
+    )
+    return (result as? RemoteLexiconSearchUseCase.Result.Ok)
+        ?.options
+        ?.firstOrNull()
+        ?.value
+        ?.takeIf { it.isNotBlank() }
+}
+
 private suspend fun searchRemotely(
     useCase: RemoteLexiconSearchUseCase?,
     input: String,
@@ -686,6 +706,7 @@ private fun MainApp(
                         } else {
                             DictionaryDetailScreen(
                                 topic = topic,
+                                initialQuery = route.initialQuery,
                                 recentlyAddedWordId = state.recentlyAddedWordId,
                                 onBack = { backStack.removeLastOrNull() },
                                 onOpenLanguageSheet = {
@@ -741,6 +762,21 @@ private fun MainApp(
                         PracticeScreen(
                             topics = state.topics,
                             onOpenDictionaries = { openRoot(VocabeeRoute.DictionaryHome) },
+                            peekTranslate = { word, topic ->
+                                peekTranslateRemotely(remoteLexiconSearch, word, topic)
+                            },
+                            canSpendPeek = { store.canSearchTranslation() },
+                            onSpendPeek = { store.spendTranslationBee() },
+                            onPeekBlocked = {
+                                sheet = if (store.anonymousWordLimitReached()) {
+                                    PrototypeSheet.AuthRequired(AuthGateReason.WordLimit)
+                                } else {
+                                    PrototypeSheet.NeedBees(BeeGateReason.TranslationSearch)
+                                }
+                            },
+                            onOpenBookmark = { topicId, word ->
+                                backStack.add(VocabeeRoute.TopicDetail(topicId, word))
+                            },
                             onAnswerWord = { topicId, wordId, deltaPercent ->
                                 store.onEvent(
                                     VocabeeEvent.AdjustWordKnowledge(
@@ -2206,6 +2242,7 @@ private fun EmptyDictionariesIllustration(modifier: Modifier = Modifier) {
 @Composable
 private fun DictionaryDetailScreen(
     topic: DictionaryTopic,
+    initialQuery: String? = null,
     recentlyAddedWordId: String?,
     onBack: () -> Unit,
     onOpenLanguageSheet: () -> Unit,
@@ -2223,7 +2260,7 @@ private fun DictionaryDetailScreen(
     val density = LocalDensity.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    var query by remember(topic.id) { mutableStateOf("") }
+    var query by remember(topic.id) { mutableStateOf(initialQuery.orEmpty()) }
     val cleanedQuery = query.trim()
     var searchState by remember(topic.id) { mutableStateOf(AddWordSearchState()) }
     var partialText by remember(topic.id) { mutableStateOf("") }
@@ -3521,6 +3558,11 @@ private fun PracticeScreen(
     topics: List<DictionaryTopic>,
     onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
     onOpenDictionaries: () -> Unit,
+    peekTranslate: suspend (word: String, topic: DictionaryTopic) -> String?,
+    canSpendPeek: () -> Boolean,
+    onSpendPeek: () -> Boolean,
+    onPeekBlocked: () -> Unit,
+    onOpenBookmark: (topicId: String, word: String) -> Unit,
     onRoundCompleted: () -> Unit,
 ) {
     val trainableTopics = topics.filter { topic -> topic.words.isNotEmpty() }
@@ -3562,8 +3604,14 @@ private fun PracticeScreen(
     if (mode == PracticeMode.Context) {
         ContextPracticeSession(
             topics = trainableTopics.filter { topic -> topic.id in selectedTopicIds },
+            allTopics = topics,
             onAnswerWord = onAnswerWord,
             onExit = { practiceStarted = false },
+            peekTranslate = peekTranslate,
+            canSpendPeek = canSpendPeek,
+            onSpendPeek = onSpendPeek,
+            onPeekBlocked = onPeekBlocked,
+            onOpenBookmark = onOpenBookmark,
             onRoundCompleted = onRoundCompleted,
         )
         return
