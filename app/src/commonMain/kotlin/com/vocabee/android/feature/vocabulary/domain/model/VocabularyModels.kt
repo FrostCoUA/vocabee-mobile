@@ -28,6 +28,12 @@ data class WordForm(
  */
 @Serializable
 data class WordDetails(
+    /**
+     * Індекс sense'а (в [senses]), який рендерить переклад цієї пари — з
+     * бекендової атрибуції. Null — ще не атрибутовано (старі збереження);
+     * контекстне тренування тоді відступає до першого приклада слова.
+     */
+    val senseIndex: Int? = null,
     val senses: List<WordSense> = emptyList(),
     val synonyms: List<String> = emptyList(),
     val antonyms: List<String> = emptyList(),

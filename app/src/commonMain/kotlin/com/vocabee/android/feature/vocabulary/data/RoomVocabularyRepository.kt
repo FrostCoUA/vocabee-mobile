@@ -271,6 +271,63 @@ class RoomVocabularyRepository(
         updatedWord?.toDomain()
     }
 
+    override fun updateWordEnrichment(
+        userKey: String,
+        topicId: String,
+        wordId: String,
+        ipa: String?,
+        details: WordDetails?,
+    ): WordEntry? = runBlocking(Dispatchers.IO) {
+        var updatedWord: WordEntity? = null
+
+        inTransaction {
+            val topic = vocabularyDao.topicById(userKey, topicId) ?: return@inTransaction
+            val word = vocabularyDao.wordById(
+                userKey = userKey,
+                topicId = topicId,
+                wordId = wordId,
+            ) ?: return@inTransaction
+            val now = currentEpochMillis()
+            val nextWordStatus = if (word.syncStatus == SyncStatus.PendingCreate) {
+                SyncStatus.PendingCreate
+            } else {
+                SyncStatus.PendingUpdate
+            }
+            val nextTopicStatus = if (topic.syncStatus == SyncStatus.PendingCreate) {
+                SyncStatus.PendingCreate
+            } else {
+                SyncStatus.PendingUpdate
+            }
+            val detailsJson = details?.let {
+                detailsCodec.encodeToString(WordDetails.serializer(), it)
+            }
+            val affected = vocabularyDao.updateWordEnrichment(
+                userKey = userKey,
+                topicId = topicId,
+                wordId = wordId,
+                detailsJson = detailsJson,
+                ipa = ipa,
+                updatedAtEpochMillis = now,
+                syncStatus = nextWordStatus,
+            )
+            if (affected == 0) return@inTransaction
+            vocabularyDao.updateTopicAfterWordInsert(
+                userKey = userKey,
+                topicId = topicId,
+                updatedAtEpochMillis = now,
+                syncStatus = nextTopicStatus,
+            )
+            updatedWord = word.copy(
+                detailsJson = detailsJson,
+                ipa = ipa ?: word.ipa,
+                updatedAtEpochMillis = now,
+                syncStatus = nextWordStatus,
+            )
+        }
+
+        updatedWord?.toDomain()
+    }
+
     override fun hasVocabulary(userKey: String): Boolean = runBlocking(Dispatchers.IO) {
         vocabularyDao.topicCountForUser(userKey) > 0 || vocabularyDao.wordCountForUser(userKey) > 0
     }

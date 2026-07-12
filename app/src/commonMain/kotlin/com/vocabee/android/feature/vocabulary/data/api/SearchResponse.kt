@@ -29,6 +29,8 @@ data class SearchVariant(
     val synonyms: List<String> = emptyList(),
     val antonyms: List<String> = emptyList(),
     val forms: List<SearchForm> = emptyList(),
+    /** Індекс sense'а (в [senses]), який рендерить цей переклад; null — не атрибутовано. */
+    val senseIndex: Int? = null,
     val source: String,
     val origin: String,
     val confidence: Double? = null,

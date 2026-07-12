@@ -96,6 +96,7 @@ private fun SearchVariant.toOption(existingTranslations: Set<String>): Translati
         learningWord = learningWord,
         ipa = ipa,
         details = WordDetails(
+            senseIndex = senseIndex,
             senses = senses.map { sense ->
                 WordSense(
                     definition = sense.definition,

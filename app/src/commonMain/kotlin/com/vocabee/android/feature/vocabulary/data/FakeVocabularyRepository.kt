@@ -127,6 +127,45 @@ class FakeVocabularyRepository : VocabularyRepository {
         return true
     }
 
+    override fun updateWordEnrichment(
+        userKey: String,
+        topicId: String,
+        wordId: String,
+        ipa: String?,
+        details: WordDetails?,
+    ): WordEntry? {
+        val topics = topicsByUser[userKey] ?: return null
+        val topicIndex = topics.indexOfFirst { it.id == topicId }
+        if (topicIndex == -1) return null
+
+        val topic = topics[topicIndex]
+        val wordIndex = topic.words.indexOfFirst { it.id == wordId }
+        if (wordIndex == -1) return null
+
+        val now = nextTimestamp()
+        val current = topic.words[wordIndex]
+        val updatedWord = current.copy(
+            ipa = ipa ?: current.ipa,
+            details = details,
+            updatedAtEpochMillis = now,
+            syncStatus = if (current.syncStatus == SyncStatus.PendingCreate) {
+                SyncStatus.PendingCreate
+            } else {
+                SyncStatus.PendingUpdate
+            },
+        )
+        topics[topicIndex] = topic.copy(
+            words = topic.words.toMutableList().also { words -> words[wordIndex] = updatedWord },
+            updatedAtEpochMillis = now,
+            syncStatus = if (topic.syncStatus == SyncStatus.PendingCreate) {
+                SyncStatus.PendingCreate
+            } else {
+                SyncStatus.PendingUpdate
+            },
+        )
+        return updatedWord
+    }
+
     override fun adjustWordKnowledgePercent(
         userKey: String,
         topicId: String,

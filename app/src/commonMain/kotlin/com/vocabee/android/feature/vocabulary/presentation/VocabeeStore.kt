@@ -21,6 +21,7 @@ import com.vocabee.android.feature.vocabulary.domain.usecase.RemoveWordUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.CreateTopicUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.LoadUserTopicsUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoveTopicUseCase
+import com.vocabee.android.feature.vocabulary.domain.usecase.UpdateWordEnrichmentUseCase
 import kotlin.math.roundToInt
 
 internal const val InitialBeeBalance = 50
@@ -140,6 +141,7 @@ class VocabeeStore(
     private val addWordUseCase = AddWordUseCase(repository, userSessionManager)
     private val removeWordUseCase = RemoveWordUseCase(repository, userSessionManager)
     private val adjustWordKnowledgeUseCase = AdjustWordKnowledgeUseCase(repository, userSessionManager)
+    private val updateWordEnrichmentUseCase = UpdateWordEnrichmentUseCase(repository, userSessionManager)
 
     var state by mutableStateOf(initialState())
         private set
@@ -274,6 +276,15 @@ class VocabeeStore(
             streakDays = refreshedStreakDays(),
             practiceRounds = preferencesManager.practiceRoundsCompleted,
         )
+    }
+
+    /**
+     * Бекфіл sense-збагачення: оновлює details/ipa збереженого слова і одразу
+     * перечитує топіки, щоб лічильники пар контекстного тренування ожили.
+     */
+    fun updateWordEnrichment(topicId: String, wordId: String, ipa: String?, details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?) {
+        updateWordEnrichmentUseCase(topicId = topicId, wordId = wordId, ipa = ipa, details = details) ?: return
+        state = state.copy(topics = loadUserTopicsUseCase())
     }
 
     /** Завершений раунд тренування (класика або контекст) — рахуємо в профіль. */

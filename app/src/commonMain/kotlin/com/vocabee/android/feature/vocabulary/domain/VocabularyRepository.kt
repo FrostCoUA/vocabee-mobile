@@ -52,6 +52,19 @@ interface VocabularyRepository {
         deltaPercent: Int,
     ): WordEntry?
 
+    /**
+     * Оновлює збагачення збереженого слова (details + ipa) — використовується
+     * бекфілом sense-атрибуції для контекстного тренування. Слово стає
+     * PendingUpdate, щоб збагачення доїхало на сервер звичайним sync'ом.
+     */
+    fun updateWordEnrichment(
+        userKey: String,
+        topicId: String,
+        wordId: String,
+        ipa: String?,
+        details: WordDetails?,
+    ): WordEntry?
+
     fun hasVocabulary(userKey: String): Boolean
 
     fun exportSyncSnapshot(

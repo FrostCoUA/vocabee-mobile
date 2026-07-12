@@ -153,8 +153,14 @@ private fun normalizePeekWord(raw: String): String =
 /* ---------- eligibility & deck building ---------- */
 
 internal fun WordEntry.contextSentence(): String? {
-    return details?.senses
-        ?.firstNotNullOfOrNull { sense -> sense.examples.firstOrNull { it.isNotBlank() } }
+    val details = details ?: return null
+    // Спершу — приклад ВЛАСНОГО значення пари (бекендова атрибуція): саме він
+    // робить картку чесною, коли інші переклади слова живуть в інших sense'ах.
+    val ownSense = details.senseIndex?.let { details.senses.getOrNull(it) }
+    val ownExample = ownSense?.examples?.firstOrNull { it.isNotBlank() }
+    if (ownExample != null) return ownExample.trim()
+    return details.senses
+        .firstNotNullOfOrNull { sense -> sense.examples.firstOrNull { it.isNotBlank() } }
         ?.trim()
 }
 
@@ -441,6 +447,7 @@ private fun PracticeModeCard(
 
 @Composable
 internal fun ContextPracticeEmptyState(
+    enriching: Boolean = false,
     onOpenDictionaries: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -463,7 +470,7 @@ internal fun ContextPracticeEmptyState(
             ) {}
         }
         Text(
-            text = "Немає слів із кількома перекладами",
+            text = if (enriching) "Готуємо пари…" else "Поки нема готових пар",
             modifier = Modifier.padding(top = 18.dp),
             fontSize = 20.sp,
             fontWeight = FontWeight.ExtraBold,
@@ -471,7 +478,11 @@ internal fun ContextPracticeEmptyState(
             textAlign = TextAlign.Center,
         )
         Text(
-            text = "Такі пари з’являються, коли слово має 2+ збережені значення. Додай перекладів — і цей режим відкриється.",
+            text = if (enriching) {
+                "Підбираємо кожному перекладу речення його значення. Це кілька секунд — лічильники пар оновляться самі."
+            } else {
+                "Пара — це слово з 2+ збереженими перекладами і реченням для кожного значення. Збережи кілька перекладів одного слова — і режим відкриється."
+            },
             modifier = Modifier.padding(top = 9.dp),
             color = PrototypeColor.Muted,
             fontWeight = FontWeight.Medium,

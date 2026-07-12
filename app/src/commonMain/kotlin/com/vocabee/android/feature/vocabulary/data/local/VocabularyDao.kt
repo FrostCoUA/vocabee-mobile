@@ -261,6 +261,29 @@ interface VocabularyDao {
 
     @Query(
         """
+        UPDATE vocabulary_words
+        SET details_json = :detailsJson,
+            ipa = COALESCE(:ipa, ipa),
+            updated_at_epoch_millis = :updatedAtEpochMillis,
+            sync_status = :syncStatus
+        WHERE user_key = :userKey
+            AND topic_id = :topicId
+            AND id = :wordId
+            AND sync_status != 'PendingDelete'
+        """,
+    )
+    suspend fun updateWordEnrichment(
+        userKey: String,
+        topicId: String,
+        wordId: String,
+        detailsJson: String?,
+        ipa: String?,
+        updatedAtEpochMillis: Long,
+        syncStatus: SyncStatus,
+    ): Int
+
+    @Query(
+        """
         UPDATE vocabulary_topics
         SET sync_status = 'Synced'
         WHERE user_key = :userKey

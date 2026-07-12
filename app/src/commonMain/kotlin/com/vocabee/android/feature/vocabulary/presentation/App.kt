@@ -134,6 +134,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
 import com.vocabee.android.feature.vocabulary.domain.model.TopicUpdatedLabel
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
+import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
 import com.vocabee.android.feature.vocabulary.presentation.navigation.AppTab
@@ -185,6 +186,51 @@ private suspend fun peekTranslateRemotely(
         ?.firstOrNull()
         ?.value
         ?.takeIf { it.isNotBlank() }
+}
+
+/**
+ * Бекфіл sense-збагачення для контекстного тренування: для груп слів із 2+
+ * перекладами, де пари ще не мають речення власного значення, перепитуємо
+ * лексикон (кеш — безкоштовно) і оновлюємо збережені details+senseIndex.
+ * Повертає true, якщо хоч одне слово оновилось.
+ */
+private suspend fun backfillContextSenseDetails(
+    useCase: RemoteLexiconSearchUseCase?,
+    topics: List<DictionaryTopic>,
+    updateWord: (topicId: String, wordId: String, ipa: String?, details: WordDetails?) -> Unit,
+): Boolean {
+    if (useCase == null) return false
+    var updatedAny = false
+    for (topic in topics) {
+        val groups = topic.words
+            .groupBy { it.source.trim().lowercase() }
+            .values
+            .filter { group -> group.size >= 2 }
+        for (group in groups) {
+            val needsEnrichment = group.any { member ->
+                val details = member.details
+                val ownSense = details?.senseIndex?.let { details.senses.getOrNull(it) }
+                ownSense?.examples?.none { it.isNotBlank() } ?: true
+            }
+            if (!needsEnrichment) continue
+            val result = useCase(
+                group.first().source.trim(),
+                topic.targetLanguage.code,
+                topic.sourceLanguage.code,
+                emptySet(),
+            ) as? RemoteLexiconSearchUseCase.Result.Ok ?: continue
+            for (member in group) {
+                val option = result.options.firstOrNull {
+                    it.value.trim().lowercase() == member.translation.trim().lowercase()
+                } ?: continue
+                val newDetails = option.details ?: continue
+                if (newDetails.senseIndex == null && member.details != null) continue
+                updateWord(topic.id, member.id, option.ipa, newDetails)
+                updatedAny = true
+            }
+        }
+    }
+    return updatedAny
 }
 
 private suspend fun searchRemotely(
@@ -788,6 +834,15 @@ private fun MainApp(
                                 syncVocabularyNow()
                             },
                             onRoundCompleted = { store.recordPracticeRoundCompleted() },
+                            onBackfillContextDetails = {
+                                backfillContextSenseDetails(
+                                    useCase = remoteLexiconSearch,
+                                    topics = store.state.topics,
+                                    updateWord = { topicId, wordId, ipa, details ->
+                                        store.updateWordEnrichment(topicId, wordId, ipa, details)
+                                    },
+                                )
+                            },
                         )
                     }
 
@@ -3564,17 +3619,31 @@ private fun PracticeScreen(
     onPeekBlocked: () -> Unit,
     onOpenBookmark: (topicId: String, word: String) -> Unit,
     onRoundCompleted: () -> Unit,
+    onBackfillContextDetails: suspend () -> Boolean,
 ) {
     val trainableTopics = topics.filter { topic -> topic.words.isNotEmpty() }
     val trainableTopicIds = trainableTopics.map { topic -> topic.id }
     var mode by remember { mutableStateOf(PracticeMode.Classic) }
     var selectedTopicIds by remember(trainableTopicIds) { mutableStateOf(emptySet<String>()) }
     var practiceStarted by remember(trainableTopicIds) { mutableStateOf(false) }
+    // Разовий бекфіл sense-збагачення на вхід у контекст-режим: старі слова
+    // отримують речення власного значення, і лічильники пар оживають.
+    var contextEnriching by remember { mutableStateOf(false) }
+    var contextEnrichAttempted by remember { mutableStateOf(false) }
+    LaunchedEffect(mode) {
+        if (mode == PracticeMode.Context && !contextEnrichAttempted) {
+            contextEnrichAttempted = true
+            contextEnriching = true
+            onBackfillContextDetails()
+            contextEnriching = false
+        }
+    }
 
     if (!practiceStarted) {
         PracticeSetupScreen(
             topics = trainableTopics,
             mode = mode,
+            contextEnriching = contextEnriching,
             onModeChange = { mode = it },
             selectedTopicIds = selectedTopicIds,
             onToggleTopic = { topicId ->
@@ -3789,6 +3858,7 @@ private fun PracticeScreen(
 private fun PracticeSetupScreen(
     topics: List<DictionaryTopic>,
     mode: PracticeMode,
+    contextEnriching: Boolean,
     onModeChange: (PracticeMode) -> Unit,
     selectedTopicIds: Set<String>,
     onToggleTopic: (String) -> Unit,
@@ -3837,6 +3907,7 @@ private fun PracticeSetupScreen(
                 modifier = Modifier.padding(start = 22.dp, top = 14.dp, end = 22.dp),
             )
             ContextPracticeEmptyState(
+                enriching = contextEnriching,
                 onOpenDictionaries = onOpenDictionaries,
                 modifier = Modifier.weight(1f),
             )

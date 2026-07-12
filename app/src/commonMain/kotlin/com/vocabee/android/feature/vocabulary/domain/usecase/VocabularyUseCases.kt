@@ -85,6 +85,26 @@ class RemoveWordUseCase(
     }
 }
 
+class UpdateWordEnrichmentUseCase(
+    private val repository: VocabularyRepository,
+    private val userSessionManager: UserSessionManager,
+) {
+    operator fun invoke(
+        topicId: String,
+        wordId: String,
+        ipa: String?,
+        details: WordDetails?,
+    ): WordEntry? {
+        return repository.updateWordEnrichment(
+            userKey = userSessionManager.currentUserKey,
+            topicId = topicId,
+            wordId = wordId,
+            ipa = ipa,
+            details = details,
+        )
+    }
+}
+
 class AdjustWordKnowledgeUseCase(
     private val repository: VocabularyRepository,
     private val userSessionManager: UserSessionManager,
