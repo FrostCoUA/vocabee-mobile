@@ -13,7 +13,7 @@ sealed interface VocabeeRoute : NavKey {
     data object DictionaryHome : VocabeeRoute
 
     @Serializable
-    data class TopicDetail(val topicId: String) : VocabeeRoute
+    data class TopicDetail(val topicId: String, val initialQuery: String? = null) : VocabeeRoute
 
     @Serializable
     data object Practice : VocabeeRoute

@@ -1,7 +1,11 @@
 package com.vocabee.android.feature.vocabulary.presentation
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +22,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,11 +34,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -55,6 +65,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import kotlin.random.Random
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /* ============================================================
  * «Слово в контексті» — pair-based practice (design board 6).
@@ -110,6 +121,35 @@ private data class ConfusionEntry(
     val chosenTranslation: String,
 )
 
+/* ---------- peek & bookmark (design board 7) ---------- */
+
+internal data class PeekBookmark(
+    val word: String,
+    val sentence: String,
+    val topicId: String,
+)
+
+private sealed interface PeekState {
+    data object Loading : PeekState
+
+    data class Flipped(
+        val text: String,
+        val savedTopicTitle: String? = null,
+    ) : PeekState
+}
+
+private data class ActivePeek(
+    val cardKey: String,
+    val wordKey: String,
+    val state: PeekState,
+)
+
+/** Config-driven later (D4); free in-round peeks before coins kick in. */
+private const val FreePeeksPerRound = 5
+
+private fun normalizePeekWord(raw: String): String =
+    raw.trim().trim { !it.isLetter() }.lowercase()
+
 /* ---------- eligibility & deck building ---------- */
 
 internal fun WordEntry.contextSentence(): String? {
@@ -120,12 +160,23 @@ internal fun WordEntry.contextSentence(): String? {
 
 private fun normalizedSource(word: WordEntry): String = word.source.trim().lowercase()
 
-/** Words that belong to a 2+-translation group and carry an example sentence. */
+/**
+ * Члени групи, чиє речення унікальне всередині групи. Коли переклади ділять один
+ * details-блоб (те саме слово збережене двічі), речення збігаються — тоді жодну
+ * відповідь не можна назвати правильною чесно, і такі члени не тренуються.
+ */
+private fun uniqueSentenceMembers(group: List<WordEntry>): List<Pair<WordEntry, String>> {
+    val withSentence = group.mapNotNull { member -> member.contextSentence()?.let { member to it } }
+    val counts = withSentence.groupingBy { it.second.trim().lowercase() }.eachCount()
+    return withSentence.filter { (counts[it.second.trim().lowercase()] ?: 0) == 1 }
+}
+
+/** Words that belong to a 2+-translation group and carry a unique example sentence. */
 internal fun DictionaryTopic.contextPairCount(): Int {
     return words.groupBy(::normalizedSource)
         .values
         .filter { group -> group.size >= 2 }
-        .sumOf { group -> group.count { it.contextSentence() != null } }
+        .sumOf { group -> uniqueSentenceMembers(group).size }
 }
 
 private fun buildContextPairs(topics: List<DictionaryTopic>): List<ContextPair> {
@@ -136,11 +187,9 @@ private fun buildContextPairs(topics: List<DictionaryTopic>): List<ContextPair> 
             .filter { group -> group.size >= 2 }
             .flatMap { group ->
                 val translations = group.map { it.translation }
-                val sentences = group.mapNotNull { member ->
-                    member.contextSentence()?.let { member.translation to it }
-                }.toMap()
-                group.mapNotNull { member ->
-                    val sentence = member.contextSentence() ?: return@mapNotNull null
+                val members = uniqueSentenceMembers(group)
+                val sentences = members.associate { (member, sentence) -> member.translation to sentence }
+                members.map { (member, sentence) ->
                     ContextPair(
                         topicId = topic.id,
                         topicTitle = topic.title,
@@ -470,8 +519,14 @@ internal fun ContextPracticeEmptyState(
 @Composable
 internal fun ContextPracticeSession(
     topics: List<DictionaryTopic>,
+    allTopics: List<DictionaryTopic>,
     onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
     onExit: () -> Unit,
+    peekTranslate: suspend (word: String, topic: DictionaryTopic) -> String?,
+    canSpendPeek: () -> Boolean,
+    onSpendPeek: () -> Boolean,
+    onPeekBlocked: () -> Unit,
+    onOpenBookmark: (topicId: String, word: String) -> Unit,
 ) {
     val topicIds = topics.map { it.id }
     var shuffleSeed by remember(topicIds) { mutableIntStateOf(Random.nextInt()) }
@@ -481,7 +536,84 @@ internal fun ContextPracticeSession(
     var done by remember(deck) { mutableStateOf(false) }
     val confusions = remember(deck) { mutableListOf<ConfusionEntry>() }
 
+    // --- peek & bookmarks (board 7) ---
+    val scope = rememberCoroutineScope()
+    var freePeeksLeft by remember(deck) { mutableIntStateOf(FreePeeksPerRound) }
+    val peekCache = remember(deck) { mutableStateMapOf<String, String>() }
+    val bookmarks = remember(deck) { mutableStateListOf<PeekBookmark>() }
+    var activePeek by remember(deck) { mutableStateOf<ActivePeek?>(null) }
+
+    fun addBookmark(rawWord: String, sentence: String, topicId: String) {
+        val word = normalizePeekWord(rawWord)
+        if (word.isBlank() || bookmarks.any { it.word == word }) return
+        bookmarks += PeekBookmark(word = word, sentence = sentence, topicId = topicId)
+    }
+
+    fun requestPeek(cardKey: String, rawWord: String, topicId: String) {
+        val word = normalizePeekWord(rawWord)
+        if (word.isBlank()) return
+        val wordKey = "$cardKey:$word"
+        if (activePeek?.wordKey == wordKey) {
+            activePeek = null
+            return
+        }
+
+        // Saved words: instant, free, offline — user's own translations.
+        val savedMatches = allTopics.flatMap { topic ->
+            topic.words.filter { normalizedSource(it) == word }.map { topic to it }
+        }
+        if (savedMatches.isNotEmpty()) {
+            val translations = savedMatches.map { it.second.translation }.distinct().take(3)
+            activePeek = ActivePeek(
+                cardKey = cardKey,
+                wordKey = wordKey,
+                state = PeekState.Flipped(
+                    text = translations.joinToString(" · "),
+                    savedTopicTitle = savedMatches.first().first.title,
+                ),
+            )
+            return
+        }
+
+        peekCache[word]?.let { cached ->
+            activePeek = ActivePeek(cardKey, wordKey, PeekState.Flipped(cached))
+            return
+        }
+
+        if (freePeeksLeft <= 0) {
+            if (!canSpendPeek() || !onSpendPeek()) {
+                onPeekBlocked()
+                return
+            }
+        } else {
+            freePeeksLeft -= 1
+        }
+
+        val topic = allTopics.firstOrNull { it.id == topicId } ?: topics.firstOrNull() ?: return
+        activePeek = ActivePeek(cardKey, wordKey, PeekState.Loading)
+        scope.launch {
+            val translation = peekTranslate(word, topic)
+            if (activePeek?.wordKey != wordKey) return@launch
+            if (translation.isNullOrBlank()) {
+                activePeek = null
+            } else {
+                peekCache[word] = translation
+                activePeek = ActivePeek(cardKey, wordKey, PeekState.Flipped(translation))
+            }
+        }
+    }
+
+    // Auto-revert the flip after ~2.2s.
+    LaunchedEffect(activePeek) {
+        val current = activePeek ?: return@LaunchedEffect
+        if (current.state is PeekState.Flipped) {
+            delay(2200)
+            if (activePeek == current) activePeek = null
+        }
+    }
+
     fun moveNext() {
+        activePeek = null
         if (index + 1 >= deck.size) done = true else index += 1
     }
 
@@ -496,6 +628,7 @@ internal fun ContextPracticeSession(
             total = deck.size,
             correct = correctAnswers,
             showProgress = deck.isNotEmpty() && !done,
+            bookmarksCount = bookmarks.size,
             onClose = onExit,
         )
 
@@ -509,6 +642,8 @@ internal fun ContextPracticeSession(
                 correctAnswers = correctAnswers,
                 total = deck.size,
                 confusions = confusions,
+                bookmarks = bookmarks,
+                onOpenBookmark = onOpenBookmark,
                 onRestart = {
                     shuffleSeed = Random.nextInt()
                 },
@@ -522,6 +657,14 @@ internal fun ContextPracticeSession(
                     when (card) {
                         is ContextCard.Recognition -> RecognitionCardView(
                             card = card,
+                            activePeek = activePeek,
+                            freePeeksLeft = freePeeksLeft,
+                            onPeek = { word -> requestPeek(card.key, word, card.pair.topicId) },
+                            onBookmark = { word -> addBookmark(word, card.pair.sentence, card.pair.topicId) },
+                            onBookmarkFromPeek = { word ->
+                                addBookmark(word, card.pair.sentence, card.pair.topicId)
+                                activePeek = null
+                            },
                             onAnswered = { correct, chosen ->
                                 onAnswerWord(
                                     card.pair.topicId,
@@ -543,6 +686,14 @@ internal fun ContextPracticeSession(
 
                         is ContextCard.Recall -> RecallCardView(
                             card = card,
+                            activePeek = activePeek,
+                            freePeeksLeft = freePeeksLeft,
+                            onPeek = { word -> requestPeek(card.key, word, card.pair.topicId) },
+                            onBookmark = { word -> addBookmark(word, card.pair.sentence, card.pair.topicId) },
+                            onBookmarkFromPeek = { word ->
+                                addBookmark(word, card.pair.sentence, card.pair.topicId)
+                                activePeek = null
+                            },
                             onAnswered = { correct ->
                                 onAnswerWord(
                                     card.pair.topicId,
@@ -588,6 +739,7 @@ private fun ContextSessionHeader(
     total: Int,
     correct: Int,
     showProgress: Boolean,
+    bookmarksCount: Int,
     onClose: () -> Unit,
 ) {
     Column(modifier = Modifier.padding(start = 24.dp, top = 8.dp, end = 24.dp)) {
@@ -608,6 +760,32 @@ private fun ContextSessionHeader(
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.5.sp,
                     )
+                }
+            }
+            if (bookmarksCount > 0) {
+                Surface(
+                    modifier = Modifier.padding(end = 9.dp),
+                    shape = CircleShape,
+                    color = PrototypeColor.Yellow.copy(alpha = 0.25f),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Bookmark,
+                            modifier = Modifier.size(14.dp),
+                            color = PrototypeColor.NoteYellowText,
+                            strokeWidth = 2.2f,
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "$bookmarksCount",
+                            color = PrototypeColor.NoteYellowText,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp,
+                        )
+                    }
                 }
             }
             Box(
@@ -800,11 +978,188 @@ private fun NextButton(
     }
 }
 
+/* ---------- peekable sentence (board 7) ---------- */
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
+@Composable
+private fun PeekableSentence(
+    sentence: String,
+    targetWord: String,
+    blankTarget: Boolean,
+    cardKey: String,
+    activePeek: ActivePeek?,
+    freePeeksLeft: Int,
+    onPeek: (word: String) -> Unit,
+    onBookmark: (word: String) -> Unit,
+    onBookmarkFromPeek: (word: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val targetNormalized = normalizePeekWord(targetWord)
+    Column(modifier = modifier) {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            sentence.split(" ").forEach { token ->
+                val core = normalizePeekWord(token)
+                val isTarget = core.isNotBlank() &&
+                    (core == targetNormalized || core.startsWith(targetNormalized))
+                val wordKey = "$cardKey:$core"
+                val peek = activePeek?.takeIf { it.wordKey == wordKey }
+                when {
+                    isTarget -> Surface(shape = RoundedCornerShape(7.dp), color = PrototypeColor.Yellow) {
+                        Text(
+                            text = if (blankTarget) " ____ " else token,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp),
+                            color = PrototypeColor.YellowText,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 22.sp,
+                            lineHeight = 30.sp,
+                        )
+                    }
+
+                    peek != null -> PeekedWordChip(
+                        state = peek.state,
+                        onBookmark = { onBookmarkFromPeek(core) },
+                    )
+
+                    core.isBlank() -> Text(
+                        text = token,
+                        color = PrototypeColor.Ink,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp,
+                        lineHeight = 30.sp,
+                    )
+
+                    else -> Text(
+                        text = token,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(7.dp))
+                            .combinedClickable(
+                                onClick = { onPeek(core) },
+                                onLongClick = { onBookmark(core) },
+                            ),
+                        color = PrototypeColor.Ink,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp,
+                        lineHeight = 30.sp,
+                    )
+                }
+            }
+        }
+        val showCounter = activePeek?.cardKey == cardKey &&
+            activePeek.state is PeekState.Flipped &&
+            (activePeek.state as PeekState.Flipped).savedTopicTitle == null
+        if (showCounter && freePeeksLeft <= 2) {
+            Text(
+                text = if (freePeeksLeft > 0) {
+                    "ще $freePeeksLeft ${ukrainianPlural(freePeeksLeft, "безкоштовне", "безкоштовні", "безкоштовних")}"
+                } else {
+                    "далі — 1 монетка за підглядання"
+                },
+                modifier = Modifier.padding(top = 8.dp),
+                color = PrototypeColor.Muted2,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.5.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PeekedWordChip(
+    state: PeekState,
+    onBookmark: () -> Unit,
+) {
+    when (state) {
+        is PeekState.Loading -> Box(
+            modifier = Modifier
+                .padding(top = 3.dp)
+                .size(width = 92.dp, height = 26.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(PrototypeColor.NeutralSurface)
+                .alpha(0.8f),
+        )
+
+        is PeekState.Flipped -> {
+            val saved = state.savedTopicTitle != null
+            val accent = if (saved) Color(0xFF0E9FA5) else PrototypeColor.PurpleText
+            var appeared by remember(state) { mutableStateOf(false) }
+            LaunchedEffect(state) { appeared = true }
+            val rotation by animateFloatAsState(
+                targetValue = if (appeared) 0f else 180f,
+                animationSpec = tween(250),
+                label = "peek-flip",
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    modifier = Modifier.graphicsLayer {
+                        rotationX = rotation
+                        cameraDistance = 12f * density
+                    },
+                    shape = RoundedCornerShape(topStart = 7.dp, topEnd = 7.dp, bottomStart = 3.dp, bottomEnd = 3.dp),
+                    color = if (saved) accent.copy(alpha = 0.14f) else PrototypeColor.Tint,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 1.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = state.text,
+                            color = accent,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 20.sp,
+                            lineHeight = 30.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (!saved) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            PrototypeLineIcon(
+                                icon = PrototypeIcon.Bookmark,
+                                modifier = Modifier
+                                    .size(15.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable(onClick = onBookmark),
+                                color = accent,
+                                strokeWidth = 2.2f,
+                            )
+                        }
+                    }
+                }
+                if (saved) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.Transparent,
+                        border = BorderStroke(1.2.dp, accent),
+                    ) {
+                        Text(
+                            text = "у ${state.savedTopicTitle}",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            color = accent,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 10.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 /* ---------- format 1: recognition ---------- */
 
 @Composable
 private fun RecognitionCardView(
     card: ContextCard.Recognition,
+    activePeek: ActivePeek?,
+    freePeeksLeft: Int,
+    onPeek: (word: String) -> Unit,
+    onBookmark: (word: String) -> Unit,
+    onBookmarkFromPeek: (word: String) -> Unit,
     onAnswered: (correct: Boolean, chosenWrong: String?) -> Unit,
     onNext: () -> Unit,
 ) {
@@ -829,17 +1184,17 @@ private fun RecognitionCardView(
                 direction = card.direction,
                 formatLabel = if (card.direction == ContextDirection.UkToEn) "вживання" else "впізнавання",
             )
-            Text(
-                text = highlightedSentence(
-                    sentence = card.pair.sentence,
-                    target = card.pair.word.source,
-                    blank = card.direction == ContextDirection.UkToEn,
-                ),
+            PeekableSentence(
+                sentence = card.pair.sentence,
+                targetWord = card.pair.word.source,
+                blankTarget = card.direction == ContextDirection.UkToEn,
+                cardKey = card.key,
+                activePeek = activePeek,
+                freePeeksLeft = freePeeksLeft,
+                onPeek = onPeek,
+                onBookmark = onBookmark,
+                onBookmarkFromPeek = onBookmarkFromPeek,
                 modifier = Modifier.padding(top = 18.dp),
-                color = PrototypeColor.Ink,
-                fontWeight = FontWeight.Bold,
-                fontSize = 22.sp,
-                lineHeight = 34.sp,
             )
             if (card.direction == ContextDirection.UkToEn) {
                 Row(
@@ -976,6 +1331,11 @@ private fun RecognitionCardView(
 @Composable
 private fun RecallCardView(
     card: ContextCard.Recall,
+    activePeek: ActivePeek?,
+    freePeeksLeft: Int,
+    onPeek: (word: String) -> Unit,
+    onBookmark: (word: String) -> Unit,
+    onBookmarkFromPeek: (word: String) -> Unit,
     onAnswered: (correct: Boolean) -> Unit,
     onNext: () -> Unit,
 ) {
@@ -986,13 +1346,17 @@ private fun RecallCardView(
         ContextBigCard {
             CardTagRow(direction = ContextDirection.EnToUk, formatLabel = "згадування")
             if (!flipped) {
-                Text(
-                    text = highlightedSentence(card.pair.sentence, card.pair.word.source),
+                PeekableSentence(
+                    sentence = card.pair.sentence,
+                    targetWord = card.pair.word.source,
+                    blankTarget = false,
+                    cardKey = card.key,
+                    activePeek = activePeek,
+                    freePeeksLeft = freePeeksLeft,
+                    onPeek = onPeek,
+                    onBookmark = onBookmark,
+                    onBookmarkFromPeek = onBookmarkFromPeek,
                     modifier = Modifier.padding(top = 18.dp),
-                    color = PrototypeColor.Ink,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 22.sp,
-                    lineHeight = 34.sp,
                 )
                 Text(
                     text = "Як перекладається тут?",
@@ -1342,6 +1706,8 @@ private fun ContextDoneState(
     correctAnswers: Int,
     total: Int,
     confusions: List<ConfusionEntry>,
+    bookmarks: List<PeekBookmark>,
+    onOpenBookmark: (topicId: String, word: String) -> Unit,
     onRestart: () -> Unit,
     onChooseTopics: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1450,6 +1816,113 @@ private fun ContextDoneState(
                         fontSize = 13.sp,
                         lineHeight = 18.sp,
                     )
+                }
+            }
+        }
+
+        if (bookmarks.isNotEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = PrototypeColor.White,
+                shadowElevation = 6.dp,
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "НОВІ СЛОВА З РЕЧЕНЬ (${bookmarks.size})",
+                            modifier = Modifier.weight(1f),
+                            color = PrototypeColor.Muted2,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 11.5.sp,
+                            letterSpacing = 0.6.sp,
+                        )
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Bookmark,
+                            modifier = Modifier.size(15.dp),
+                            color = PrototypeColor.NoteYellowText,
+                            strokeWidth = 2.2f,
+                        )
+                    }
+                    bookmarks.forEachIndexed { bookmarkIndex, bookmark ->
+                        if (bookmarkIndex > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(PrototypeColor.DividerLight),
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onOpenBookmark(bookmark.topicId, bookmark.word) }
+                                .padding(vertical = 12.dp, horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Surface(
+                                modifier = Modifier.size(36.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = PrototypeColor.Yellow.copy(alpha = 0.25f),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    PrototypeLineIcon(
+                                        icon = PrototypeIcon.Bookmark,
+                                        modifier = Modifier.size(16.dp),
+                                        color = PrototypeColor.NoteYellowText,
+                                        strokeWidth = 2.2f,
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f).padding(start = 11.dp, end = 8.dp)) {
+                                Text(
+                                    text = bookmark.word,
+                                    color = PrototypeColor.Ink,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.5.sp,
+                                )
+                                Text(
+                                    text = "з речення: “${bookmark.sentence.take(38)}…”",
+                                    modifier = Modifier.padding(top = 1.dp),
+                                    color = PrototypeColor.Muted,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            PrototypeLineIcon(
+                                icon = PrototypeIcon.ChevronRight,
+                                modifier = Modifier.size(17.dp),
+                                color = PrototypeColor.Muted3,
+                                strokeWidth = 2.2f,
+                            )
+                        }
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp)
+                            .height(48.dp)
+                            .clickable {
+                                bookmarks.firstOrNull()?.let { onOpenBookmark(it.topicId, it.word) }
+                            },
+                        shape = RoundedCornerShape(14.dp),
+                        color = PrototypeColor.Tint,
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "Розібрати всі (${bookmarks.size})",
+                                color = PrototypeColor.PurpleText,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.5.sp,
+                            )
+                        }
+                    }
                 }
             }
         }
