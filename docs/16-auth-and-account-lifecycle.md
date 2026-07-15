@@ -104,7 +104,7 @@ Vocabee має два стани користувача (загальний ко
 | Guard | Поведінка | Де застосований |
 |---|---|---|
 | `JwtAccessGuard` (`jwt-access.guard.ts`) | Класичний: немає/невалідний/прострочений токен → **401**. | `auth.controller.ts:58` (`GET /auth/me`); `users.controller.ts:13`; `wallet.controller.ts:13`; `topics.controller.ts:26`. |
-| `OptionalJwtAccessGuard` (`optional-jwt.guard.ts`) | Прострочений/відсутній/невалідний токен → `req.user = null`, віддає **200** (не 401). Працює і для аноніма, і для автентифікованого. | `lexicon.controller.ts:27` (`/search`). |
+| `OptionalJwtAccessGuard` (`optional-jwt.guard.ts`) | Прострочений/відсутній/невалідний токен → `req.user = null`, віддає **200** (не 401). Працює і для аноніма, і для автентифікованого. | `client-search/client-search.controller.ts` (`/search`). |
 | `RegisteredUserGuard` (`registered-user.guard.ts`) | Після `JwtAccessGuard`: `!user` → 403 `Authentication required`; `user.isAnonymous` → 403 `A registered account is required`. | **[ЗАРАЗ] не застосований ніде** — клас визначений, але жоден контролер його не вішає (grep по `src` дає лише саме визначення). Зарезервований під майбутні маршрути, що вимагають справжнього зареєстрованого. Оскільки серверних анонімних рядків зараз нема, його `isAnonymous`-гілка de-facto мертва, поки D2/[МАЙБУТНЄ] не введе гостьові акаунти. |
 
 ### OptionalJwt і прострочений токен

@@ -138,7 +138,7 @@ Mobile-контракт обслуговує
 **Запит `SearchQueryDto`** (`search.dto.ts`): `q` (1..200, trim), `speak` (IsIn кодів — відома мова), `learn` (IsIn кодів — мова, що вивчається). Dictionary DTO додає `limit`; client завжди передає свій tier cap (зараз 50).
 
 **Логіка списання та tier** (`client-search.controller.ts`):
-- tier визначається з рядка `users` за `is_premium` (`tierFromUserRow`): `anonymous` (без токена) / `registered` / `premium`. **[ЗАРАЗ]** `TIER_MAX_RESULTS` у коді = **50/50/50** (капи знято для всіх). Старий Swagger-опис «3/5/10» застарів — відкрите питання й рекомендація синхронізувати описи див. `13-add-word-and-ai-search.md` §13 та `10-edge-cases-and-open-items.md` O3.
+- tier визначається з рядка `users` за `is_premium` (`tierFromUserRow`): `anonymous` (без токена) / `registered` / `premium`. **[ЗАРАЗ]** `TIER_MAX_RESULTS` у коді = **50/50/50** (капи знято для всіх), і backend Swagger синхронізовано з цим контрактом. Майбутня різниця tier лишається продуктовим питанням — див. `13-add-word-and-ai-search.md` §13 та `10-edge-cases-and-open-items.md` O1/O3.
 - якщо токен присутній — `walletService.spendBees(user.id, TRANSLATION_SEARCH_BEE_COST)`; `TRANSLATION_SEARCH_BEE_COST = 1` (−1 монетка за пошук). Це **legacy v1**, superseded by D11 після v2 rollout. Анонім **не** списується (узгоджено з **D2**).
 - `meta.beeBalance` = баланс після списання, або `null` для аноніма.
 

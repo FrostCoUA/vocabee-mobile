@@ -99,7 +99,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | `providerReason` (meta) | `exact_cached / not_a_word / echo / no_provider_data / translated`. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
 | AI-атрибуція | Футер «Переклади та приклади згенеровано AI» + Sparkle per-row. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §5 |
 | Ціна 1 монетка за пошук (auth) | Сервер списує `TRANSLATION_SEARCH_BEE_COST`, повертає `meta.beeBalance`. | [ЗАРАЗ]/[НОВЕ] D1 | [13](13-add-word-and-ai-search.md) §7 |
-| Тіри й `maxResults` | `TIER_MAX_RESULTS` = 50/50/50 (капи знято); Swagger-опис 3/5/10 застарів. | [ЗАРАЗ] / відкрите | [13](13-add-word-and-ai-search.md) §13, [10](10-edge-cases-and-open-items.md) O3 |
+| Тіри й `maxResults` | `TIER_MAX_RESULTS` = 50/50/50 (капи знято); backend Swagger синхронізовано з цим контрактом. | [ЗАРАЗ]; майбутня різниця tier — відкрита | [13](13-add-word-and-ai-search.md) §13, [10](10-edge-cases-and-open-items.md) O1/O3 |
 | Не брати монетку за 0 результатів | Списувати лише за успішну видачу (зараз списується до пошуку). | [НОВЕ] D1 | [10](10-edge-cases-and-open-items.md) #6 |
 | Search по парі словника | Пошук має брати пару зі словника, а не профілю (після D6). | [НОВЕ] D6/D8 | [08](08-languages-speech-themes.md) §3.5 |
 | Офлайн/empty/error-стани пошуку | «Немає звʼязку, спробуй ще раз» + «Повторити»; «Переклад не знайдено». | [НОВЕ] | [10](10-edge-cases-and-open-items.md) #1, #6 |

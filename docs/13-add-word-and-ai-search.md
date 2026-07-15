@@ -134,7 +134,7 @@ isAdded = option.alreadyAdded                                   // сервер 
 
 | Сторона | Що робить | Код |
 |---|---|---|
-| **Сервер** (авторитетний) | `LexiconController.search` для **залогінених** викликає `walletService.spendBees(user.id, 1)` ДО пошуку, повертає `meta.beeBalance` | `lexicon.controller.ts:42-49`, `:56` |
+| **Сервер** (авторитетний) | `ClientSearchController.search` для **залогінених** викликає `walletService.spendBees(user.id, 1)` ДО делегації, повертає `meta.beeBalance` | `client-search/client-search.controller.ts` |
 | **Клієнт** (локальний) | `App.kt` має `onSpendSearchBee = { store.spendTranslationBee() }`; `spendTranslationBee` для auth викликає `spendBees(1)` локально | `App.kt:686`, `VocabeeStore.kt:241-244`, `:362-370` |
 | Звірка | `searchRemotely` бере серверний `result.beeBalance` → `onBeeBalanceChanged` → `VocabeeEvent.SetBeeBalance` → клієнт **приймає серверне значення** як істину | `App.kt:175-177`, `:701-703`, `VocabeeStore.kt:372-376` |
 
@@ -167,7 +167,7 @@ isAdded = option.alreadyAdded                                   // сервер 
 
 ### Гостьовий режим (анонім, D2)
 
-- Сервер для аноніма **не списує** (`if (user)` — `lexicon.controller.ts:43`), `beeBalance=null`.
+- Сервер для аноніма **не списує** (`if (user)` у `client-search.controller.ts`), `beeBalance=null`.
 - Клієнтський `spendTranslationBee` для не-auth повертає `canSearchTranslation()` без списання (`VocabeeStore.kt:242`).
 - Замість монеток — ліміт 50 слів (див. §9).
 
@@ -211,7 +211,9 @@ isAdded = option.alreadyAdded                                   // сервер 
 
 ## 10. [ЗАРАЗ] Серверний `/search`-пайплайн
 
-`GET /v1/search?q=&speak=&learn=` (`KtorVocabeeApi.kt:28-48` → `LexiconController.search` → `LexiconService.search`).
+`GET /v1/search?q=&speak=&learn=` (`KtorVocabeeApi.kt:28-48` →
+`ClientSearchController.search` → `DictionaryClientService` → внутрішній HTTP
+`DictionarySearchController.search` → `LexiconService.search`).
 
 **[НОВЕ, split]** Мобільний клієнт і надалі звертається лише до `client-gateway`.
 Його `GET /v1/search` є compatibility facade, а app-neutral пошук живе у
@@ -297,20 +299,30 @@ DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak
 
 ---
 
-## 13. Тіри та `maxResults` — ВІДКРИТЕ ПИТАННЯ
+## 13. Тіри та `maxResults` — поточний контракт і майбутня політика
 
-Розбіжність між кодом і коментарями — **позначено як відкрите**:
+Backend-код і Swagger тепер узгоджені; відкритим лишається майбутнє продуктове
+рішення про різницю між tier та застарілий KDoc мобільного API:
 
 | Джерело | Заявлене | Код |
 |---|---|---|
 | `TIER_MAX_RESULTS` (істина в коді) | `anonymous=50, registered=50, premium=50` — капи **знято** для всіх | `user-tier.ts:14-18` |
-| Swagger-опис контролера | «anonymous tier, max 3 results … registered → 5 … premium → 10» | `lexicon.controller.ts:32-34` |
+| Swagger-опис client facade | Усі tier зараз отримують до 50 варіантів | `client-search.controller.ts` |
 | Док-стрінг `VocabeeApi.search` (моб) | «Without a token the gateway responds with up to 3 variants» | `VocabeeApi.kt:8-10` |
 | Моб footer-caption | per-tier капи знято; «до N варіантів»/«увійди для більше» **прибрано**, лишилась лише AI-атрибуція | `AddWordOverlay.kt:791-796` |
 
-**Стан:** фактично всі tier-и бачать `min(50, variantsPerCall провайдера)` — без штучного гейтингу (`user-tier.ts:5-13`: «нема монетизаційного важеля, поки не вийде premium»). Коментарі контролера й моб-API **застарілі** (3/5/10).
+**Стан:** фактично всі tier-и бачать `min(50, variantsPerCall провайдера)` — без
+штучного гейтингу (`user-tier.ts:5-13`: «нема монетизаційного важеля, поки не вийде
+premium»). Backend Swagger уже показує 50; KDoc `VocabeeApi.search` про 3 варіанти
+лишається **застарілим**.
 
-**Припущення (уточнити):** чи лишається `50/50/50` довгостроково, чи `premium` згодом отримає реальний lever (тоді `maxResults` стане tier-залежним і `footerCaptionFor` поверне copy «увійди для більше»)? `tierFromUserRow`/`maxResultsForTier` (`user-tier.ts:25-33`) вже готові під tier-залежність — слот зарезервовано. **Рекомендація:** синхронізувати Swagger-опис і `VocabeeApi.search` KDoc з реальним `TIER_MAX_RESULTS`, або реалізувати капи.
+**Припущення (уточнити):** чи лишається `50/50/50` довгостроково, чи `premium`
+згодом отримає реальний lever (тоді `maxResults` стане tier-залежним і
+`footerCaptionFor` поверне copy «увійди для більше»)?
+`tierFromUserRow`/`maxResultsForTier` (`user-tier.ts:25-33`) вже готові під
+tier-залежність — слот зарезервовано. **Рекомендація:** зараз синхронізувати лише
+`VocabeeApi.search` KDoc з реальним `TIER_MAX_RESULTS`; майбутню зміну капів робити
+одночасно в policy, Swagger і mobile copy.
 
 ---
 
