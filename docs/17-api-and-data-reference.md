@@ -182,10 +182,13 @@ projection: password/token hashes, raw credentials, OAuth provider ids, metadata
 hard delete**. `ban/deactivate` атомарно revoke refresh rows, а mobile access strategy
 звіряє свіжий status на кожному запиті, тому вже виданий access одразу отримує 401.
 
-Кожна мутація всередині однієї PostgreSQL transaction повторно валідує actor,
-блокує target `FOR UPDATE`, робить зміну/revoke і вставляє рівно один audit event;
-audit failure відкочує все. `beforeValue/afterValue` проходять strict recursive
-allowlist (дозволений nested `profile`), а UPDATE/DELETE журналу відхиляє DB trigger.
+Для мутацій уже наявного target одна PostgreSQL transaction повторно валідує actor,
+блокує target `FOR UPDATE`, робить зміну/revoke і вставляє рівно один audit event.
+`createAdmin` не має наявного target для lock: у тій самій transaction він повторно
+валідує actor, перевіряє duplicate env/DB email, вставляє admin + audit, а concurrent
+unique race (`23505`) перетворює на 409. Audit failure відкочує все.
+`beforeValue/afterValue` проходять strict recursive allowlist (дозволений nested
+`profile`), а UPDATE/DELETE журналу відхиляє DB trigger.
 Bootstrap env admin list (`BOOTSTRAP_ADMIN_EMAILS`, початково
 `frost.co.ua@gmail.com`) immutable; додані через API admins лежать у БД. Admin JWT:
 RS256, default 15 хв, issuer `vocabee-client-gateway`, audience `vocabee-admin`,
