@@ -1,10 +1,10 @@
 # 13 — Додавання слова + AI-пошук / переклад
 
-Сигнатурний флов Vocabee: морф-оверлей «Додати слово» → дебаунсений текстовий/голосовий ввід → серверний `/search`-пайплайн (детект мови → кеш lexicon → провайдери перекладу → AI-збагачення) → список результатів із кнопкою `+`/`✓`.
+**[ЗАРАЗ]** Сигнатурний флов Vocabee: морф-оверлей «Додати слово» → дебаунсений текстовий/голосовий ввід → серверний `/search`-пайплайн (детект мови → кеш lexicon → провайдери перекладу → AI-збагачення) → список результатів із кнопкою `+`/`✓`.
 
 Суміжні документи (не дублюються тут): онбординг — `02`, дані/кеш — `03`, економіка/монетки — `04`, sync+мерж — `06`, мови/мовлення/теми (деталі STT) — `08`, крайові випадки — `10`, motion-бриф (морф-анімація) — `12`.
 
-Легенда: **[ЗАРАЗ]** — як у коді сьогодні; **[НОВЕ]** — затверджена зміна (D1–D10); **[МАЙБУТНЄ]** — відкладено.
+Легенда: **[ЗАРАЗ]** — як у коді сьогодні; **[НОВЕ]** — затверджена зміна (D1–D11); **[МАЙБУТНЄ]** — відкладено.
 
 ---
 
@@ -122,13 +122,13 @@ isAdded = option.alreadyAdded                                   // сервер 
 | Toggle | `isAdded` → клік `onRemove` (фіолетова `✓`); інакше `onAdd` (акцент `+`). Хост перерендерює оверлей зі свіжим `topic` після стор-апдейту | `AddWordOverlay.kt:898-903`, `:319-330` |
 | Нормалізація | `.trim().lowercase()` з обох боків при порівнянні | `AddWordOverlay.kt:155`, `:755` |
 
-Видалення з рядка `+`/`✓` — **без повернення монеток** + Undo-снекбар (D3), деталі — `07-deletion.md`.
+**[ЗАРАЗ, legacy]** Видалення з рядка `+`/`✓` — без повернення монеток + Undo-снекбар (історична цінова деталь D3, superseded by D11). **[НОВЕ]** Після v2 delete повертає точний word-charge, якщо від нього минуло не більше 3600 секунд; Undo/soft-delete лишаються. Деталі — `07-deletion.md`.
 
 ---
 
-## 7. Ціна 1 монетка за пошук — ДЕ enforced
+## 7. [ЗАРАЗ, legacy v1] Ціна 1 монетка за пошук — де enforced
 
-Константа: `TRANSLATION_SEARCH_BEE_COST = 1` (gateway `wallet.constants.ts:5`) == `TranslationSearchBeeCost` (моб).
+**[ЗАРАЗ, legacy v1]** Константа: `TRANSLATION_SEARCH_BEE_COST = 1` (gateway `wallet.constants.ts:5`) == `TranslationSearchBeeCost` (моб); superseded by D11 у v2.
 
 ### [ЗАРАЗ] — подвійне списання (клієнт + сервер)
 
@@ -140,11 +140,30 @@ isAdded = option.alreadyAdded                                   // сервер 
 
 > Ризик: клієнт може списати локально **і** сервер списує своє — без звірки це −2 за один пошук. Зараз серверний `beeBalance` затирає локальний баланс, тож кінцеве значення = серверне, але порядок подій крихкий.
 
-### [НОВЕ] D1 — економіка СЕРВЕР-АВТОРИТЕТНА
+### [ІСТОРИЧНИЙ ПЛАН D1] Серверне списання за пошук — superseded by D11
 
-- Списання рахує **лише сервер** (`spendBees` у контролері), клієнт — **оптимістичний показ + звірка** з `meta.beeBalance`.
+- На час rollout legacy v1 списання рахує **сервер** (`spendBees` у контролері), клієнт — **оптимістичний показ + звірка** з `meta.beeBalance`.
 - Прибрати локальне `spendBees` як джерело істини; `spendTranslationBee`/`onSpendSearchBee` стають оптимістичним preview, що завжди підтверджується серверним балансом.
-- Усуває подвійне списання. Економіка лишається тільки для **authenticated** (D2: анонім без монеток).
+- Це не цільова ціна: правило «платний пошук» **superseded by D11**. Економіка лишається тільки для **authenticated** (D2: анонім без монеток).
+
+### [НОВЕ за D11] Безкоштовний lookup, оплата конкретного збереженого результату
+
+`POST client-gateway /v2/translation-lookups` створює безкоштовний lookup receipt.
+Кожен показаний варіант має opaque `resultId`, який сервер прив'язує до точних
+`translationId`/`revisionId` із `dictionary-gateway`; мобільний клієнт не може
+підмінити ці dictionary ids.
+
+`POST client-gateway /v2/topics/{topicId}/words/from-result` приймає `resultId`,
+`savedWordId` і `Idempotency-Key`. Для авторизованого користувача одна транзакція:
+
+1. перевіряє, що result належить його lookup і ще придатний до збереження;
+2. створює snapshot saved word;
+3. списує окремий immutable word-charge за активною політикою (початково −1);
+4. повертає підтверджений баланс.
+
+Два варіанти перекладу — це два `resultId`, два saved word і два незалежні charge.
+Пошук має `searchCost=0`; D11 не вмикається, доки не випущено сумісний v2-клієнт.
+`GET client-gateway /v1/search` і його legacy pricing лишаються без змін лише на час rollout.
 
 ### Гостьовий режим (анонім, D2)
 
@@ -154,7 +173,7 @@ isAdded = option.alreadyAdded                                   // сервер 
 
 ---
 
-## 8. Гейти: `canSearchTranslation` / `canAddWordToDictionary`
+## 8. [ЗАРАЗ, legacy v1] Гейти: `canSearchTranslation` / `canAddWordToDictionary`
 
 `VocabeeStore.kt:229-239`:
 
@@ -173,7 +192,7 @@ isAdded = option.alreadyAdded                                   // сервер 
 | У сторі (захист) | `addWord` повторно перевіряє `canAddWordToDictionary()` перед `addWordUseCase` | `VocabeeStore.kt:313` |
 | Поріг ≤3 | `CriticalBeeThreshold` рендерить критичні бейджі/банер «Лишилось N монеток» | `App.kt:774-778`, `:1631` |
 
-> [НОВЕ] D1: фінальне рішення «достатньо монеток / списання» — за сервером (`spendBees` кине, якщо балансу нема). Клієнтські гейти лишаються для миттєвого UX (показати шит, не слати запит), але **не** є джерелом істини.
+> **[НОВЕ D11/v2]:** `canSearchTranslation()` більше не перевіряє баланс для authenticated: lookup безкоштовний. NeedBees перевіряється перед `words/from-result`, але фінальне рішення, сума та charge — лише за `client-gateway`. Анонімний ліміт 50 saved words лишається окремим правилом D2.
 
 ---
 
@@ -190,9 +209,15 @@ isAdded = option.alreadyAdded                                   // сервер 
 
 ---
 
-## 10. Серверний `/search`-пайплайн
+## 10. [ЗАРАЗ] Серверний `/search`-пайплайн
 
 `GET /v1/search?q=&speak=&learn=` (`KtorVocabeeApi.kt:28-48` → `LexiconController.search` → `LexiconService.search`).
+
+**[НОВЕ, split]** Мобільний клієнт і надалі звертається лише до `client-gateway`.
+Його `GET /v1/search` є compatibility facade, а app-neutral пошук живе у
+`GET dictionary-gateway /v1/search` під `X-API-Key`. У v2 client-gateway створює
+lookup/result receipts поверх dictionary response; `dictionary-gateway` не отримує
+app JWT, user id, premium status або баланс.
 
 DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak`/`learn` (ISO-639-1 з `SUPPORTED_LANGUAGE_CODES`). Токен — опціональний bearer; без нього tier `anonymous` (`OptionalJwtAccessGuard`).
 
@@ -291,6 +316,8 @@ DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak
 
 ## 14. Підсумок флову (E2E)
 
+### [ЗАРАЗ, legacy v1]
+
 ```
 Пігулка «+»  ─morph→  AddWordOverlay
    │
@@ -317,4 +344,16 @@ onAdd → canAddWordToDictionary() → AddWord (learningWord, value, ipa, detail
    │   серверний meta.beeBalance → SetBeeBalance (звірка балансу, D1)
    ▼
 AddedCountBar «N слів додано · Готово» → close() (morph назад)
+```
+
+### [НОВЕ, D11/v2]
+
+```text
+query → POST client-gateway /v2/translation-lookups (searchCost=0)
+      → client-gateway → GET dictionary-gateway /v1/search (X-API-Key)
+      ← resultId + snapshot/provenance ids
+      → користувач натискає «+» на конкретному resultId
+      → POST /v2/topics/{topicId}/words/from-result + Idempotency-Key
+      → атомарно: saved word + immutable word-charge(wordAdditionCost=1)
+      ← підтверджений баланс
 ```
