@@ -215,11 +215,11 @@ isAdded = option.alreadyAdded                                   // сервер 
 `ClientSearchController.search` → `DictionaryClientService` → внутрішній HTTP
 `DictionarySearchController.search` → `LexiconService.search`).
 
-**[НОВЕ, split]** Мобільний клієнт і надалі звертається лише до `client-gateway`.
+**[ЗАРАЗ, split foundation]** Мобільний клієнт і надалі звертається лише до `client-gateway`.
 Його `GET /v1/search` є compatibility facade, а app-neutral пошук живе у
-`GET dictionary-gateway /v1/search` під `X-API-Key`. У v2 client-gateway створює
-lookup/result receipts поверх dictionary response; `dictionary-gateway` не отримує
-app JWT, user id, premium status або баланс.
+`GET dictionary-gateway /v1/search` під `X-API-Key`; `dictionary-gateway` не отримує
+app JWT, user id, premium status або баланс. **[НОВЕ, v2]** `client-gateway` створює
+lookup/result receipts поверх dictionary response.
 
 DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak`/`learn` (ISO-639-1 з `SUPPORTED_LANGUAGE_CODES`). Токен — опціональний bearer; без нього tier `anonymous` (`OptionalJwtAccessGuard`).
 
