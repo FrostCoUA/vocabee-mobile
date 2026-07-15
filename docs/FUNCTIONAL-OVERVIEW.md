@@ -277,7 +277,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Партиціювання lexicon (LIST за мовою) | `lexicon_*` партиціоновані по `word_lang` (7 партицій). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §3.2, [14](14-word-details-and-audio.md) §2.1 |
 | Soft-delete + ретеншн | `deleted_at` всюди; GC/hard-delete немає (GDPR-питання). | [ЗАРАЗ] / [МАЙБУТНЄ] | [07](07-deletion.md) §7, [10](10-edge-cases-and-open-items.md) O4 |
 | Провайдери перекладу/словника | Wiktionary/DeepL/MyMemory/OpenAI; FreeDictionary/OpenAI. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §11 |
-| Міграції БД | `0001–0012` наявні; наступна міграція полів тренування для D10 ще [НОВЕ]. | [ЗАРАЗ]/[НОВЕ] | [17](17-api-and-data-reference.md) §3.3 |
+| Міграції БД | `0001–0012` наявні; майбутня `0013_training_fields.sql` для D10 ще [НОВЕ] і не створена. | [ЗАРАЗ]/[НОВЕ] | [17](17-api-and-data-reference.md) §3.3 |
 | Cron лідерборда | Щопонеділка 00:00 UTC: нарахування топ-10 + обнулення тижневого агрегату. | [НОВЕ] D4 | [05](05-promo-api-and-banners.md) §6 |
 | Bump Room до v5 (поля D10) | Нові колонки тренування + Room-міграція. | [НОВЕ] D10 | [17](17-api-and-data-reference.md) §3.1 |
 
@@ -314,7 +314,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | N8 | Пікер іконок тем (14) + поле `iconKey` + синк | D7 | [08](08-languages-speech-themes.md) §6.2 |
 | N9 | Напрямок STT зберігається по словнику (Room-поле + sync) | D8 | [08](08-languages-speech-themes.md) §3.4 |
 | N10 | Справжній мерж при вході (5 варіантів + вартість у монетках) | D9 | [06](06-sync-and-account-merge.md) §4 |
-| N11 | Гібрид-тренування (пріоритет+Leitner+анти-повтор) + поля знань + міграція 0008 + Room v5 | D10 | [11](11-practice-training.md) |
+| N11 | Гібрид-тренування (пріоритет+Leitner+анти-повтор) + поля знань + майбутня `0013_training_fields.sql` **[НОВЕ, ще не створена]** + Room v5 | D10 | [11](11-practice-training.md) |
 | N12 | Undo-снекбар (~6с) для слів і словників; без повернення монеток | D3 | [07](07-deletion.md) §4, [12](12-motion-and-interaction-brief.md) §D/E |
 | N13 | Інлайн-довідка «?» (20 тултіпів) | — | [09](09-inline-help-tooltips.md) |
 | N14 | Токени руху + апгрейд анімацій (flip/свайп/прогрес/морф) | — | [12](12-motion-and-interaction-brief.md) |
