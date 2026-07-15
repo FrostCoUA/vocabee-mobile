@@ -217,7 +217,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Android 14+ детект/switch мови | Авто-визначення мови вводу серед пари (тільки SDK≥34). | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §3.3 |
 | TTS (озвучення) | `AndroidSpeechOutputController`; асинхронна ініціалізація (перший тап може мовчати). | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §4, [14](14-word-details-and-audio.md) §4 |
 | Бекенд `lang-detect` | Визначення мови вводу між двома мовами (скрипт + franc-min). | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §5 |
-| Підтримувані мови (7) | `uk, en, de, es, fr, pl, it` — `GET /v1/languages`. | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §0, [17](17-api-and-data-reference.md) §1.7 |
+| Підтримувані мови (13) | `uk, en, de, es, fr, pl, it, pt, tr, he, ar, lt, cs` — `GET /v1/languages`. | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §0, [17](17-api-and-data-reference.md) §1.7 |
 | `speechTag` (BCP-47) | `uk-UA`, `en-US` для STT/TTS; ≠ ISO-код. | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §7 |
 
 ### 3.10 Персоналізація (теми / налаштування)
@@ -267,7 +267,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Wallet-ендпоінти | `GET /v1/wallet`, `POST /v1/wallet/rewarded-ad`. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.4 |
 | Search/Lexicon-ендпоінт | `GET /v1/search` (OptionalJwt). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.5 |
 | Topics-ендпоінти | `/v1/topics`, `/sync`, `/sync/apply`, `:id/words` (CRUD + sync). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.6 |
-| Languages-ендпоінт | `GET /v1/languages` (7 мов). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.7 |
+| Languages-ендпоінт | `GET /v1/languages` (13 мов). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.7 |
 | Promo-ендпоінти | `/v1/promos`, `/{id}/claim`, `/leaderboard/ad-watchers`. | [НОВЕ] D4 | [17](17-api-and-data-reference.md) §1.8, [05](05-promo-api-and-banners.md) §7 |
 | Guard-стратегія | `JwtAccessGuard` (401) / `OptionalJwtAccessGuard` (200 деградація) / `RegisteredUserGuard` (мертвий). | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.4 |
 | Room-схема (клієнт) | `vocabulary_topics` + `vocabulary_words`, version 4, конвертери. | [ЗАРАЗ] | [03](03-data-caching.md) §1, [17](17-api-and-data-reference.md) §3.1 |

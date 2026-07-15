@@ -4,6 +4,10 @@ import com.vocabee.android.feature.vocabulary.data.FakeVocabularyRepository
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
 import com.vocabee.android.feature.vocabulary.domain.manager.StaticUserSessionManager
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
+import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
+import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
+import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import com.vocabee.android.feature.vocabulary.domain.model.WordSense
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -224,6 +228,53 @@ class VocabeeStoreTest {
         assertEquals(AnonymousFreeWordLimit, store.topicForTest(topic.id).words.size)
     }
 
+    @Test
+    fun contextPracticeSkipsAmbiguousSameSenseTranslations() {
+        val details = WordDetails(
+            senseIndex = 0,
+            senses = listOf(
+                WordSense(
+                    definition = "a bright device or light used to signal",
+                    examples = listOf("He used a flare to signal for help."),
+                ),
+            ),
+        )
+        val topic = testTopic(
+            words = listOf(
+                testWord(id = "flare-signal", source = "flare", translation = "сигнальна ракета", details = details),
+                testWord(id = "flare-flash", source = "flare", translation = "спалах", details = details),
+            ),
+        )
+
+        assertEquals(0, topic.contextPairCount())
+    }
+
+    @Test
+    fun contextPracticeCountsSeparatedSenseTranslations() {
+        val signalDetails = WordDetails(
+            senseIndex = 0,
+            senses = listOf(
+                WordSense(
+                    definition = "a bright device or light used to signal",
+                    examples = listOf("He used a flare to signal for help."),
+                ),
+                WordSense(
+                    definition = "a sudden burst of bright light",
+                    examples = listOf("A flare lit the night sky for a moment."),
+                ),
+            ),
+        )
+        val flashDetails = signalDetails.copy(senseIndex = 1)
+        val topic = testTopic(
+            words = listOf(
+                testWord(id = "flare-signal", source = "flare", translation = "сигнальна ракета", details = signalDetails),
+                testWord(id = "flare-flash", source = "flare", translation = "спалах", details = flashDetails),
+            ),
+        )
+
+        assertEquals(2, topic.contextPairCount())
+    }
+
     private fun VocabeeStore.authenticateForTest() {
         onEvent(
             VocabeeEvent.ApplyAuthenticatedAccount(
@@ -252,4 +303,28 @@ class VocabeeStoreTest {
     private fun VocabeeStore.topicForTest(id: String): DictionaryTopic {
         return state.topics.first { it.id == id }
     }
+
+    private fun testTopic(words: List<WordEntry>): DictionaryTopic {
+        val english = LanguageOption(code = "en", name = "English", shortName = "EN", speechTag = "en-US")
+        val ukrainian = LanguageOption(code = "uk", name = "Українська", shortName = "UK", speechTag = "uk-UA")
+        return DictionaryTopic(
+            id = "topic",
+            title = "Test",
+            sourceLanguage = english,
+            targetLanguage = ukrainian,
+            words = words,
+        )
+    }
+
+    private fun testWord(
+        id: String,
+        source: String,
+        translation: String,
+        details: WordDetails,
+    ): WordEntry = WordEntry(
+        id = id,
+        source = source,
+        translation = translation,
+        details = details,
+    )
 }

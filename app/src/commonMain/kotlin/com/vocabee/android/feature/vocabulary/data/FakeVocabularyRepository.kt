@@ -16,6 +16,14 @@ class FakeVocabularyRepository : VocabularyRepository {
         LanguageOption("pl", "Polish", "PL", "pl-PL"),
         LanguageOption("de", "German", "DE", "de-DE"),
         LanguageOption("es", "Spanish", "ES", "es-ES"),
+        LanguageOption("fr", "French", "FR", "fr-FR"),
+        LanguageOption("it", "Italian", "IT", "it-IT"),
+        LanguageOption("pt", "Portuguese", "PT", "pt-PT"),
+        LanguageOption("tr", "Turkish", "TR", "tr-TR"),
+        LanguageOption("he", "Hebrew", "HE", "he-IL"),
+        LanguageOption("ar", "Arabic", "AR", "ar-SA"),
+        LanguageOption("lt", "Lithuanian", "LT", "lt-LT"),
+        LanguageOption("cs", "Czech", "CS", "cs-CZ"),
     )
 
     private val topicsByUser = mutableMapOf<String, MutableList<DictionaryTopic>>()

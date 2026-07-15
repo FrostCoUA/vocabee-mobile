@@ -771,6 +771,12 @@ internal val PrototypeLanguages: List<PrototypeLanguage> = listOf(
     PrototypeLanguage("fr", "Французька", "🇫🇷"),
     PrototypeLanguage("pl", "Польська", "🇵🇱"),
     PrototypeLanguage("it", "Італійська", "🇮🇹"),
+    PrototypeLanguage("pt", "Португальська", "🇵🇹"),
+    PrototypeLanguage("tr", "Турецька", "🇹🇷"),
+    PrototypeLanguage("he", "Іврит", "🇮🇱"),
+    PrototypeLanguage("ar", "Арабська", "🇸🇦"),
+    PrototypeLanguage("lt", "Литовська", "🇱🇹"),
+    PrototypeLanguage("cs", "Чеська", "🇨🇿"),
 )
 
 internal fun prototypeLanguage(code: String): PrototypeLanguage {

@@ -207,11 +207,16 @@ private suspend fun backfillContextSenseDetails(
             .values
             .filter { group -> group.size >= 2 }
         for (group in groups) {
+            val hasAmbiguousSense = group
+                .mapNotNull { member -> member.details?.senseIndex }
+                .groupingBy { it }
+                .eachCount()
+                .any { (_, count) -> count > 1 }
             val needsEnrichment = group.any { member ->
                 val details = member.details
                 val ownSense = details?.senseIndex?.let { details.senses.getOrNull(it) }
                 ownSense?.examples?.none { it.isNotBlank() } ?: true
-            }
+            } || hasAmbiguousSense
             if (!needsEnrichment) continue
             val result = useCase(
                 group.first().source.trim(),
@@ -4221,94 +4226,127 @@ private fun PracticeFlipCard(
                 modifier = Modifier.fillMaxSize().padding(30.dp),
                 contentAlignment = Alignment.Center,
             ) {
-            if (showBack) {
-                Column(
-                    modifier = Modifier.graphicsLayer { rotationY = 180f },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = card.word.translation,
-                        color = Color.White,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 32.sp,
-                        letterSpacing = (-0.64).sp,
-                        textAlign = TextAlign.Center,
-                    )
-                }
-            } else {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Surface(
-                        shape = CircleShape,
-                        color = card.accent.copy(alpha = 0.12f),
+                if (showBack) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer { rotationY = 180f },
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(7.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier.size(8.dp).clip(CircleShape).background(card.accent),
-                            )
-                            Text(
-                                text = card.topicTitle,
-                                color = card.accent,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                    Text(
-                        text = card.word.source,
-                        modifier = Modifier.padding(top = 34.dp),
-                        color = PrototypeColor.Ink,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 40.sp,
-                        letterSpacing = (-1.2).sp,
-                        textAlign = TextAlign.Center,
-                    )
-                    val ipa = card.word.ipa?.takeIf { it.isNotBlank() }
-                    if (ipa != null) {
-                        Text(
-                            text = ipa,
-                            modifier = Modifier.padding(top = 8.dp),
-                            color = PrototypeColor.Muted2,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp,
+                        PracticeCardMainText(
+                            text = card.word.translation,
+                            color = Color.White,
+                            baseFontSize = 32,
                         )
                     }
-                    PracticeKnowledgeLevel(
-                        percent = card.word.knowledgePercent,
-                        accent = card.accent,
-                        modifier = Modifier.padding(top = 18.dp),
-                    )
-                    Surface(
-                        modifier = Modifier.padding(top = 18.dp).size(48.dp),
-                        shape = RoundedCornerShape(15.dp),
-                        color = PrototypeColor.NeutralSurface,
+                } else {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            PrototypeLineIcon(
-                                icon = PrototypeIcon.Sound,
-                                modifier = Modifier.size(21.dp),
-                                color = PrototypeColor.PurpleText,
+                        Surface(
+                            shape = CircleShape,
+                            color = card.accent.copy(alpha = 0.12f),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(8.dp).clip(CircleShape).background(card.accent),
+                                )
+                                Text(
+                                    text = card.topicTitle,
+                                    color = card.accent,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        PracticeCardMainText(
+                            text = card.word.source,
+                            modifier = Modifier.padding(top = 34.dp),
+                            color = PrototypeColor.Ink,
+                            baseFontSize = 40,
+                        )
+                        val ipa = card.word.ipa?.takeIf { it.isNotBlank() }
+                        if (ipa != null) {
+                            Text(
+                                text = ipa,
+                                modifier = Modifier.padding(top = 8.dp),
+                                color = PrototypeColor.Muted2,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 16.sp,
                             )
                         }
+                        PracticeKnowledgeLevel(
+                            percent = card.word.knowledgePercent,
+                            accent = card.accent,
+                            modifier = Modifier.padding(top = 18.dp),
+                        )
+                        Surface(
+                            modifier = Modifier.padding(top = 18.dp).size(48.dp),
+                            shape = RoundedCornerShape(15.dp),
+                            color = PrototypeColor.NeutralSurface,
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                PrototypeLineIcon(
+                                    icon = PrototypeIcon.Sound,
+                                    modifier = Modifier.size(21.dp),
+                                    color = PrototypeColor.PurpleText,
+                                )
+                            }
+                        }
                     }
+                    Text(
+                        text = "Торкнись, щоб побачити переклад",
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        color = PrototypeColor.Muted2,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.5.sp,
+                        textAlign = TextAlign.Center,
+                    )
                 }
-                Text(
-                    text = "Торкнись, щоб побачити переклад",
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    color = PrototypeColor.Muted2,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.5.sp,
-                    textAlign = TextAlign.Center,
-                )
-            }
             }
         }
     }
+}
+
+@Composable
+private fun PracticeCardMainText(
+    text: String,
+    color: Color,
+    baseFontSize: Int,
+    modifier: Modifier = Modifier,
+) {
+    val wordCount = text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+    val fontSize = when {
+        text.length > 28 -> (baseFontSize - 12).sp
+        wordCount >= 3 -> (baseFontSize - 8).sp
+        wordCount == 2 -> (baseFontSize - 4).sp
+        else -> baseFontSize.sp
+    }
+    val lineHeight = when {
+        text.length > 28 -> (baseFontSize - 6).sp
+        wordCount >= 2 -> (baseFontSize + 2).sp
+        else -> (baseFontSize + 6).sp
+    }
+
+    Text(
+        text = text,
+        modifier = modifier.fillMaxWidth(),
+        color = color,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = fontSize,
+        lineHeight = lineHeight,
+        letterSpacing = 0.sp,
+        textAlign = TextAlign.Center,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 @Composable

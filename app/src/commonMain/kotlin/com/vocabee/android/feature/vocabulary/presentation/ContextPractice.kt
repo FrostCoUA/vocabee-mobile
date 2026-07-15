@@ -184,10 +184,9 @@ private fun uniqueSentenceMembers(group: List<WordEntry>): List<Pair<WordEntry, 
 }
 
 /**
- * Тренується ОДИН представник на значення: синоніми одного sense'а
- * (керувати/функціонувати/виконувати для run «to operate») рендерять те саме
- * значення й ділять приклад — розрізняти їх реченням неможливо, тож решта
- * кластера тренується класикою. Представник = перший збережений член.
+ * Тренуються тільки однозначні sense-кластери. Якщо кілька збережених перекладів
+ * вказують на той самий sense, речення не може чесно відрізнити один переклад
+ * від іншого; такий кластер лишається класиці до повторної атрибуції.
  * Легасі-члени без атрибуції йдуть старим правилом унікального речення;
  * фінальний дедуп страхує від збігу речень між значеннями.
  */
@@ -200,7 +199,8 @@ private fun senseRepresentatives(group: List<WordEntry>): List<Pair<WordEntry, S
     val representatives = attributed
         .groupBy { (_, senseIndex, _) -> senseIndex }
         .values
-        .map { cluster -> cluster.first().let { (member, _, sentence) -> member to sentence } }
+        .filter { cluster -> cluster.size == 1 }
+        .map { cluster -> cluster.single().let { (member, _, sentence) -> member to sentence } }
     val legacy = uniqueSentenceMembers(
         group.filter { it.details?.senseIndex == null },
     )
