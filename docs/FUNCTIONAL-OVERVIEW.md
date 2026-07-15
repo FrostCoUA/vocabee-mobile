@@ -182,7 +182,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Картка ідентичності (профіль) | Аватар (ініціали «НК» захардкоджено), displayName, email, Edit (мертва). | [ЗАРАЗ] | [15](15-profile-and-settings.md) §2.2 |
 | Редагування `displayName` / фото | Кнопка Edit активна; ініціали з імені; фото Google. | [МАЙБУТНЄ] | [15](15-profile-and-settings.md) §2.2 |
 | Мерж акаунтів (різні Google) | Перенесення словників між акаунтами за монетки. | [МАЙБУТНЄ] D9 | [06](06-sync-and-account-merge.md) §5 |
-| Гостьовий серверний рядок | Справжній анонімний акаунт (`is_anonymous`, `RegisteredUserGuard`). | [МАЙБУТНЄ] | [16](16-auth-and-account-lifecycle.md) §16.9 |
+| Гостьовий серверний рядок | Справжній анонімний акаунт (`is_anonymous`, `RegisteredUserGuard`). | [МАЙБУТНЄ] | [16](16-auth-and-account-lifecycle.md) §16.10 |
 
 ### 3.8 Синхронізація / офлайн
 

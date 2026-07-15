@@ -5,7 +5,9 @@
 Маркування поведінки: **[ЗАРАЗ]** — як у коді сьогодні; **[НОВЕ]** — затверджена зміна; **[МАЙБУТНЄ]** — відкладено.
 
 Джерела істини (код):
-- Gateway: `vocabee-gateway/src/auth/*`, `vocabee-gateway/src/db/schema/users.ts`.
+- Gateway: `vocabee-gateway/src/auth/*`, `vocabee-gateway/src/admin-auth/*`,
+  `vocabee-gateway/src/client-admin/*`, `vocabee-gateway/src/db/schema/users.ts`,
+  `vocabee-gateway/src/db/schema/admin.ts`.
 - Mobile: `…/data/api/AuthResponse.kt`, `AuthTokenStore.kt`, `KtorVocabeeApi.kt`, `…/presentation/platform/GoogleAuthController.kt`, `…/domain/manager/UserSessionManager.kt`, `…/presentation/App.kt`.
 
 ---
@@ -236,7 +238,72 @@ OpenAPI для обох OptionalJwt маршрутів явно публікує
 
 ---
 
-## 16.9 Зведення відкритих питань
+## 16.9 Адміністративне керування акаунтом (окремий credential domain)
+
+**[ЗАРАЗ]** Адміністратор не є «mobile user з додатковим прапором». У
+`client-gateway` є окрема площина ідентичності:
+
+- `POST /v1/admin/auth/google` звіряє Google ID token з окремим
+  `GOOGLE_ADMIN_CLIENT_ID`; нормалізований email має бути або в immutable env-list
+  `BOOTSTRAP_ADMIN_EMAILS` (початково `frost.co.ua@gmail.com`), або в активному
+  рядку `admin_accounts`;
+- gateway видає short-lived RS256 JWT (дефолт 15 хв): issuer
+  `vocabee-client-gateway`, audience `vocabee-admin`, `typ=admin`, pinned `kid`,
+  opaque `sub`, фіксована роль і дозволений subset scopes; email у токен не входить;
+- admin JWT не сумісний із mobile JWT і не має refresh-flow. JWKS
+  `/v1/admin/auth/jwks.json` публікує лише public key; `/v1/admin/me` перевіряє
+  credential;
+- ролі фіксовані: `super_admin`, `client_admin`, `dictionary_admin`. Поточні
+  client-admin маршрути вимагають точні `client:*`/`admin:manage` scopes;
+  dictionary-admin API ще **[МАЙБУТНЄ]**.
+
+### Стани користувача й сесії
+
+**[ЗАРАЗ]** Адмін API дозволяє лише явні реверсивні переходи:
+
+```text
+active ──ban──────▶ banned ──unban──────▶ active
+active ──deactivate▶ deactivated ─reactivate▶ active
+```
+
+Це **не hard delete**: словники, слова, профіль і баланс лишаються в БД. Кожна
+дія вимагає trimmed reason 3..500; неправильний або вже фінальний стан дає 409.
+`ban`/`deactivate` в одній транзакції відкликають усі live refresh-сесії. Окрім
+цього, `JwtAccessStrategy` читає свіжий `account_status` на кожному mobile bearer
+запиті, тому вже виданий access перестає працювати одразу. `unban`/`reactivate`
+не відновлюють відкликані refresh-токени: користувач входить заново.
+
+Окремо адмін може revoke одну сесію або всі live сесії. В адмін-відповідях видно
+лише session id/timestamps та user-agent/IP, якщо вони є; `token_hash` і raw tokens не
+серіалізуються.
+
+### Premium, адміністратори й аудит
+
+**[ЗАРАЗ]** Premium-операція змінює тільки `users.is_premium`. Підписки/платіжного
+entitlement ще немає, а `anonymous/registered/premium` мають однаковий search cap
+50; це не слід показувати як реалізовану premium-перевагу.
+
+Environment-admin записи read-only/immutable. Нового адміністратора можна створити
+в `admin_accounts`, а потім enable/disable; duplicate env/DB email дає 409,
+самовимкнення заборонене. Високоризикові мутації повторно валідують actor у БД
+всередині транзакції, тому disabled DB-admin не може продовжити write навіть зі
+ще не протермінованим JWT.
+
+Кожна мутація робить target lock, зміну/відкликання сесій та рівно один
+`admin_audit_events` insert атомарно; audit failure відкочує все. Історія
+append-only також на рівні PostgreSQL trigger. `before_value/after_value` мають
+строгий allowlist: без password/token hash, raw token, OAuth provider id, metadata
+чи secret. `rewarded_ad_events` так само append-only, але має статус
+`unverified_legacy`: це журнал нових +10 credit після міграції 0012, **не** SSV і
+не доказ ідемпотентності.
+
+**[МАЙБУТНЄ]** `client-admin-web` ще не реалізований; зараз ці можливості доступні
+через захищений API/Swagger. Mobile не викликає admin routes і не отримує причину
+модерації: неактивний акаунт бачить нормалізований 401, як у §16.1.
+
+---
+
+## 16.10 Зведення відкритих питань
 
 | # | Питання | Стан |
 |---|---|---|
