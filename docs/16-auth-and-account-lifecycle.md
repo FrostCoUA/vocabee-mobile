@@ -16,7 +16,7 @@ Vocabee має два стани користувача (загальний ко
 
 **[ЗАРАЗ]** На сервері анонім — це «стан без авторизації на дроті», а **не** рядок у БД і **не** JWT.
 
-- `users.ts:24` — колонка `is_anonymous boolean not null default false` існує у схемі, але жоден кодовий шлях не створює рядок з `isAnonymous: true`: і `register` (`auth.service.ts:66`), і `loginWithGoogle` (`auth.service.ts:118`) явно ставлять `isAnonymous: false`. Тобто колонка зараз фактично спляча.
+- `users.ts:24` — колонка `is_anonymous boolean not null default false` існує у схемі, але жоден кодовий шлях не створює рядок з `isAnonymous: true`: і `register` (`auth.service.ts:69`), і `loginWithGoogle` (`auth.service.ts:127`) явно ставлять `isAnonymous: false`. Тобто колонка зараз фактично спляча.
 - `jwt-payload.type.ts:1-11` — `JwtSubjectKind = 'user'` (єдиний вид), коментар прямо каже: «anonymous callers send no token at all». У payload немає прапора анонімності.
 - `user-tier.ts:25-29` — `tierFromUserRow(null) → 'anonymous'`; коментар: «we deliberately do not store anything for anonymous users».
 
@@ -45,12 +45,20 @@ Vocabee має два стани користувача (загальний ко
 централізовано перевіряють його через `UsersService.requireActiveById`: лише
 `active` може отримати/оновити токени або пройти access-JWT strategy. Саме цей
 gate для відсутнього, заблокованого й деактивованого рядка дає однаковий
-`401 UnauthorizedException('Account is not active')`, без причини модерації у
-відповіді. Password login до успішної перевірки credentials зберігає generic
-`401 Invalid credentials` для невідомого email, відсутнього hash і хибного пароля.
+внутрішній `UnauthorizedException('Account is not active')`, без причини модерації.
+Password login до успішної перевірки credentials зберігає внутрішній generic
+`UnauthorizedException('Invalid credentials')` для невідомого email, відсутнього
+hash і хибного пароля.
 Публічний `UserResponseDto` містить лише сам `accountStatus`;
 `statusReason/statusChangedAt/statusChangedBy` і password/hash поля назовні не
 серіалізуються.
+
+> **Внутрішній exception ≠ HTTP body.** Наведені вище англомовні рядки потрібні
+> сервісним тестам і серверній діагностиці. Глобальний `ApiExceptionFilter`
+> нормалізує звичайні auth-401 на дроті до
+> `{ "statusCode": 401, "errorType": "unauthorized", "message": "Потрібна повторна авторизація.", "requestId": "…" }`.
+> Mobile не повинен розрізняти account status, наявність email або тип хибного
+> JWT за внутрішнім текстом exception.
 
 ---
 
@@ -60,23 +68,23 @@ gate для відсутнього, заблокованого й деактив
 
 ### Email + пароль — register / login
 
-**[ЗАРАЗ]** `auth.controller.ts:23-34`, `auth.service.ts:44-84`.
+**[ЗАРАЗ]** `auth.controller.ts:23-34`, `auth.service.ts:47-85`.
 
 - `POST /auth/register` (`RegisterDto`): `email` (`@IsEmail`), `password` (`@MinLength(8) @MaxLength(72)`), опційні `displayName` (≤120), `speakLang`/`learnLang` (з `SUPPORTED_LANGUAGE_CODES`). Сервіс перевіряє унікальність email (lower-case), хешує bcrypt cost=12, створює рядок `isAnonymous:false` зі схемним дефолтом `accountStatus='active'`, одразу видає пару токенів. Дублікат email → `409 ConflictException`.
-- `POST /auth/login` (`LoginDto`): `email` + `password` (`@MinLength(1)`). Якщо немає рядка або немає `passwordHash` (наприклад, акаунт лише через Google) або bcrypt не збігся → `401 UnauthorizedException('Invalid credentials')` (однакове повідомлення в обох випадках — не розкриває існування email). Лише **після** успішного bcrypt сервіс викликає `requireActiveById`; `banned/deactivated` → generic `401 Account is not active`, токени не видаються.
+- `POST /auth/login` (`LoginDto`): `email` + `password` (`@MinLength(1)`). Кожна спроба виконує **рівно один** `bcrypt.compare`: з реальним cost-12 hash, якщо він є, або з фіксованим валідним cost-12 dummy hash для невідомого email / OAuth-only акаунта. Невідомий рядок, відсутній `passwordHash` і хибний пароль дають однаковий внутрішній `UnauthorizedException('Invalid credentials')`, тому не розкривають існування email ані повідомленням, ані пропуском дорогої перевірки. Лише **після** успішного bcrypt сервіс викликає `requireActiveById`; `banned/deactivated` → внутрішній generic `Account is not active`, токени не видаються. Wire-body для обох випадків нормалізований, як описано в §16.1.
 
 ### Google ID-token
 
-**[ЗАРАЗ]** `auth.controller.ts:36-41`, `auth.service.ts:86-128`.
+**[ЗАРАЗ]** `auth.controller.ts:36-41`, `auth.service.ts:88-137`.
 
 `POST /auth/google` (`GoogleAuthDto`): `idToken` (обов'язковий) + опційні `speakLang`/`learnLang`.
 
-Перевірка токена (`verifyGoogleIdToken`, `auth.service.ts:210-250`): тягне `https://oauth2.googleapis.com/tokeninfo?id_token=…`, вимагає `aud == auth.googleClientId`, `iss ∈ {accounts.google.com, https://accounts.google.com}`, і якщо email присутній — `email_verified === true`. Якщо Google не сконфігуровано на gateway → `503 ServiceUnavailableException`.
+Перевірка токена (`verifyGoogleIdToken`, `auth.service.ts:223-266`): тягне `https://oauth2.googleapis.com/tokeninfo?id_token=…`, вимагає `aud` з allowlist налаштованих `auth.googleClientId` / `auth.googleIosClientId`, `iss ∈ {accounts.google.com, https://accounts.google.com}`, і якщо email присутній — `email_verified` як boolean `true` або рядок `"true"`. Якщо жодного Google client id не сконфігуровано на gateway → `503 ServiceUnavailableException`.
 
 Логіка прив'язки акаунта (важливо — **колізія email = реюз існуючого рядка**):
 
 1. Шукаємо `oauth_accounts` за (`provider='google'`, `providerAccountId=sub`). Якщо знайдено — перевіряємо `linkedAccount.userId` через `requireActiveById` і лише тоді видаємо токени.
-2. Інакше шукаємо `users` за email (lower-case). **Якщо рядок із таким email уже існує — переюзуємо його**, але спершу вимагаємо `accountStatus='active'`. Для нового Google user `UsersService.create` не оверрайдить статус, тому працює схемний дефолт `active`.
+2. Інакше нормалізуємо verified email до lower-case і шукаємо `users` через SQL `lower(users.email) = normalizedEmail`. **Якщо рядок із таким email уже існує навіть в іншому регістрі — переюзуємо його**, але спершу вимагаємо `accountStatus='active'`. Для нового Google user `UsersService.create` не оверрайдить статус, тому працює схемний дефолт `active`.
 3. Лише для активного знайденого або щойно створеного користувача додаємо запис у `oauth_accounts` і видаємо токени. `banned/deactivated` існуючий email не отримує нового Google-link.
 
 > Наслідок: акаунт, заведений через email+пароль, при першому Google-вході з тим самим email **зливається в один рядок** (Google лінкується до існуючого user), без другого рядка та без втрати даних. Справжній «account merge» різних акаунтів — **[МАЙБУТНЄ]**, див. D9 і `06-sync-and-account-merge.md`.
@@ -85,26 +93,26 @@ gate для відсутнього, заблокованого й деактив
 
 ## 16.3 Токени: видача та ротація
 
-**[ЗАРАЗ]** `issueTokens` (`auth.service.ts:166-194`):
+**[ЗАРАЗ]** `issueTokens` (`auth.service.ts:177-205`):
 
 - **Access JWT**: підписаний `auth.accessSecret`, TTL `auth.accessTtl` (напр. `15m`). Payload = `{ sub, kind:'user', jti? }`.
-- **Refresh token**: окремий JWT, підписаний `auth.refreshSecret`, TTL `auth.refreshTtl` (напр. `30d`), з вкладеним `jti = randomBytes(48)`. У БД зберігається **лише SHA-256 хеш** (`AuthService.hashToken`, `auth.service.ts:206-208`) у `refresh_tokens` (`users.ts:39-59`) разом із `expiresAt`. Сирий refresh у БД не лежить.
+- **Refresh token**: окремий JWT, підписаний `auth.refreshSecret`, TTL `auth.refreshTtl` (напр. `30d`), з вкладеним `jti = randomBytes(48)`. У БД зберігається **лише SHA-256 хеш** (`AuthService.hashToken`, `auth.service.ts:219-220`) у `refresh_tokens` (`users.ts:39-59`) разом із `expiresAt`. Сирий refresh у БД не лежить.
 - Відповідь `AuthTokens = { accessToken, refreshToken, expiresIn }`, де `expiresIn` — секунди життя **access**-токена.
 
 ### Ротація refresh
 
-`POST /auth/refresh` (`RefreshDto.refreshToken`, `@MinLength(1)`) → `auth.service.ts:130-156`:
+`POST /auth/refresh` (`RefreshDto.refreshToken`, `@MinLength(1)`) → `auth.service.ts:139-166`:
 
-1. Криптоверифікація підпису refresh (`verifyRefreshToken`); невалідний → `401`.
-2. Пошук рядка в `refresh_tokens` за `tokenHash`, де `revokedAt IS NULL` і `expiresAt > now`. Якщо немає рядка або `row.userId != decoded.sub` → `401 Invalid refresh token`.
-3. Перевірка власника через `requireActiveById(decoded.sub)`. Відсутній або `banned/deactivated` user → generic `401 Account is not active`.
+1. Криптоверифікація підпису refresh (`verifyRefreshToken`) і runtime-перевірка claims: payload має бути object, `sub` — непорожній UUID, `kind === 'user'`. Невалідний підпис або malformed/missing/wrong-kind claims → generic `401` **до** запиту `refresh_tokens`/`users` і без мутацій.
+2. Пошук рядка в `refresh_tokens` за `tokenHash`, де `revokedAt IS NULL` і `expiresAt > now`. Якщо немає рядка або `row.userId != decoded.sub` → внутрішній `UnauthorizedException('Invalid refresh token')`.
+3. Перевірка власника через `requireActiveById(decoded.sub)`. Відсутній або `banned/deactivated` user → внутрішній generic `UnauthorizedException('Account is not active')`.
 4. Лише після активної перевірки — **revoke пред'явленого** (`set revokedAt = now`) і **видача нової пари** (`issueTokens`). Тобто rotation: один refresh = одне використання. Для неактивного user пред'явлений рядок не revoke і нова пара не створюється.
 
 > Reuse-detection відсутній: повторне пред'явлення вже відкликаного refresh просто отримає `401` (рядок уже `revoked`), без каскадного відкликання сімейства токенів. Підсилення (виявлення крадіжки) — **[МАЙБУТНЄ]**.
 
 ### Вихід (logout / revoke)
 
-`POST /auth/logout` (`@HttpCode(204)`, `RefreshDto`) → `auth.service.ts:158-164`: ставить `revokedAt = now` для рядка з відповідним `tokenHash`. Ідемпотентно (no-op якщо рядка немає). Дані користувача **не чіпає** — лише відкликає refresh.
+`POST /auth/logout` (`@HttpCode(204)`, `RefreshDto`) → `auth.service.ts:169-175`: ставить `revokedAt = now` для рядка з відповідним `tokenHash`. Ідемпотентно (no-op якщо рядка немає). Дані користувача **не чіпає** — лише відкликає refresh.
 
 ---
 
@@ -112,7 +120,7 @@ gate для відсутнього, заблокованого й деактив
 
 ### JWT-стратегія
 
-**[ЗАРАЗ]** `jwt-access.strategy.ts` (`'jwt-access'`): `ExtractJwt.fromAuthHeaderAsBearerToken()`, `ignoreExpiration:false`, secret `auth.accessSecret`. У `validate(payload)` викликає `usersService.requireActiveById(payload.sub)`; відсутній, `banned` або `deactivated` рядок → однаковий `401 'Account is not active'`. Для активного рядка стратегія кладе в `req.user` об'єкт `AuthenticatedUser = { id, kind, isAnonymous, speakLang, learnLang }` (`authenticated-user.ts`). Тобто status та `isAnonymous` звіряються зі **свіжим рядком БД**, а не довіряються токену.
+**[ЗАРАЗ]** `jwt-access.strategy.ts` (`'jwt-access'`): `ExtractJwt.fromAuthHeaderAsBearerToken()`, `ignoreExpiration:false`, secret `auth.accessSecret`. Перед будь-яким DB-запитом `parseUserJwtPayload` runtime-перевіряє object payload, непорожній UUID `sub` і `kind === 'user'`; підписаний JWT із malformed/missing/wrong-kind claims отримує generic 401 без DB lookup і без відлуння хибного claim у відповіді. Для валідних claims `validate(payload)` викликає `usersService.requireActiveById(sub)`; відсутній, `banned` або `deactivated` рядок → однаковий внутрішній `401 'Account is not active'`. Для активного рядка стратегія кладе в `req.user` об'єкт `AuthenticatedUser = { id, kind, isAnonymous, speakLang, learnLang }` (`authenticated-user.ts`). Тобто status та `isAnonymous` звіряються зі **свіжим рядком БД**, а не довіряються токену.
 
 ### Guard'и
 
@@ -132,12 +140,17 @@ gate для відсутнього, заблокованого й деактив
 не отримано. Неактивний user так само отримує 401 від JWT strategy. Отже invalid
 credential більше не може тихо перейти на anonymous tier.
 
+OpenAPI для обох OptionalJwt маршрутів явно публікує дві альтернативи
+`security`: `{}` (анонімний виклик) **або** `{ "access-token": [] }` (bearer), а
+не помилково обов'язковий bearer. Це лише опис контракту; runtime-правило guard'а
+вище лишається авторитетним.
+
 ### Таблиця: ендпоінт → потрібен суб'єкт → нотатки
 
 | Ендпоінт | Guard | Потрібен суб'єкт | Нотатки |
 |---|---|---|---|
 | `POST /auth/register` | — | будь-хто (публічний) | 409 при дублі email; видає пару токенів. |
-| `POST /auth/login` | — | будь-хто (публічний) | 401 `Invalid credentials` до успішного password check; потім неактивний status → generic 401. |
+| `POST /auth/login` | — | будь-хто (публічний) | Внутрішній `Invalid credentials` до успішного password check; потім неактивний status → generic 401. Wire-body в обох випадках нормалізований. |
 | `POST /auth/google` | — | будь-хто (публічний) | Реюз/лінк лише активного рядка; неактивний existing/linked user → 401 до link/token issue. 503 якщо Google не налаштовано. |
 | `POST /auth/refresh` | — (валідує сам сервіс) | валідний refresh активного user | Active-check до revoke/rotation; 401 на невалід/прострочений/revoked або неактивний акаунт. |
 | `POST /auth/logout` | — | будь-який refresh | 204; revoke за хешем; ідемпотентно. |
@@ -146,6 +159,7 @@ credential більше не може тихо перейти на anonymous tie
 | `… /wallet/*` | `JwtAccessGuard` | активний зареєстрований | Економіка лише для авторизованих (узгоджено з D1/D2). |
 | `… /topics/*`, `/topics/sync*` | `JwtAccessGuard` | активний зареєстрований | Sync словників (D9, doc 06). |
 | `GET /search` (lexicon) | `OptionalJwtAccessGuard` | без заголовка **або** активний зареєстрований | Відсутній `Authorization` → анонім, 200; будь-який supplied invalid/expired/inactive credential → 401. Tier → `TIER_MAX_RESULTS` (зараз усі 50). |
+| `POST /support` | `OptionalJwtAccessGuard` | без заголовка **або** активний зареєстрований | Guest-звернення без header; supplied invalid/expired/inactive credential → 401. OpenAPI показує anonymous/bearer alternatives. |
 
 > **[МАЙБУТНЄ]** маршрути, що мають бути недоступні анонімам як справжнім гостям, отримають `RegisteredUserGuard` поверх `JwtAccessGuard`.
 

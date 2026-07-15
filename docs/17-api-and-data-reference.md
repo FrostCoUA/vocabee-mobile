@@ -41,12 +41,19 @@ Legacy v1 pricing лишається **без змін лише на час roll
 charge за saved result) не можна enforce до релізу сумісного v2-клієнта.
 **[ЗАРАЗ]** Обидва gateway мають власні Swagger UI `/docs`, OpenAPI JSON
 `/openapi.json` і `/v1/health`; client Swagger описує bearer auth, dictionary
-Swagger — `X-API-Key`.
+Swagger — `X-API-Key`. Для Optional JWT операцій `/search` і `/support` client
+OpenAPI описує дві `security`-альтернативи: `{}` (анонім) або
+`{ "access-token": [] }` (bearer), а не обов'язкову авторизацію.
 
 Контракт «суб'єкт» нижче:
 - **public** — unguarded endpoint без серверного auth-суб'єкта; `Authorization` не інтерпретується (health, auth credential exchange, languages).
 - **Optional JWT** — `/search` і `/support`: без властивості `Authorization` guard ставить `user=null`; якщо заголовок передано, credential мусить бути валідним і належати `active` user, інакше 401 (empty/malformed/expired/inactive не деградують до аноніма).
-- **JWT** — обов'язковий `Authorization: Bearer <accessToken>`, гард `JwtAccessGuard`; strategy звіряє `users.account_status='active'`, `@CurrentUser()` дає `{ id }`.
+- **JWT** — обов'язковий `Authorization: Bearer <accessToken>`, гард `JwtAccessGuard`; access і refresh runtime-валідують object payload, UUID `sub` і `kind='user'` до DB lookup, а strategy потім звіряє `users.account_status='active'`; `@CurrentUser()` дає `{ id }`.
+
+Внутрішні auth exceptions (`Invalid credentials`, `Account is not active`,
+`Invalid refresh token`, bare `Unauthorized`) не є wire-контрактом. Глобальний
+`ApiExceptionFilter` повертає для звичайного 401 стабільне тіло
+`{ "statusCode": 401, "errorType": "unauthorized", "message": "Потрібна повторна авторизація.", "requestId": "…" }`; malformed claims не відлунюються клієнту.
 
 ### 1.1 Health
 
@@ -77,14 +84,17 @@ Swagger — `X-API-Key`.
 - `GoogleAuthDto` (`google-auth.dto.ts`): `idToken` (NotEmpty), `speakLang?`, `learnLang?`.
 - `RefreshDto` (`refresh.dto.ts`): `refreshToken` (MinLength 1).
 
-**[ЗАРАЗ] Account-status enforcement:** `login` викликає active-check лише після
-успішної password verification; linked/existing-email Google user перевіряється до
-OAuth-link/token issue; `refresh` перевіряє user до revoke/rotation; access strategy
-перевіряє статус на кожному bearer-запиті. Центральний active-gate для
-відсутнього, `banned` і `deactivated` акаунта має однакову відповідь
-`401 Account is not active`; невідомий email/no-hash/хибний password до цього gate
-лишається `401 Invalid credentials`. Нові register/Google users отримують схемний
-дефолт `active`.
+**[ЗАРАЗ] Account-status enforcement:** `login` завжди робить рівно один cost-12
+`bcrypt.compare` (реальний hash або фіксований валідний dummy для unknown/no-hash)
+і викликає active-check лише після успішної password verification.
+Linked/existing-email Google user знаходиться case-insensitively через
+`lower(users.email) = normalizedEmail` та перевіряється до OAuth-link/token issue;
+`refresh` валідує claims і user до revoke/rotation; access strategy валідує claims
+до DB та перевіряє статус на кожному bearer-запиті. Центральний active-gate для
+відсутнього, `banned` і `deactivated` акаунта має однаковий внутрішній exception
+`Account is not active`; невідомий email/no-hash/хибний password до цього gate має
+внутрішній `Invalid credentials`. Wire-body обох нормалізує глобальний фільтр, як
+описано вище. Нові register/Google users отримують схемний дефолт `active`.
 
 > **[ЗАРАЗ] Розбіжності з контекстом завдання:**
 > - **Немає `/auth/anonymous`.** Анонімність = відсутність JWT (міграція `0002_premium_flag.sql`: «anonymous = no JWT»; рядок у `users` для аноніма не створюється). Це збігається з рішенням **D2**.

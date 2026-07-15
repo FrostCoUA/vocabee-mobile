@@ -166,10 +166,10 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Функція | Короткий опис | Стан | Док |
 |---|---|---|---|
 | Анонім = відсутність JWT | Анонім не має серверного рядка; `is_anonymous` спляче поле. | [ЗАРАЗ] D2 | [16](16-auth-and-account-lifecycle.md) §16.1 |
-| Google ID-token вхід | `POST /v1/auth/google` (verify через tokeninfo); linked/existing-email рядок має бути `active` до link/token issue. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.2 |
-| Email+пароль (register/login) | Існують на бекенді, клієнтом **не** використовуються (вхід через Google). | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.2, [17](17-api-and-data-reference.md) §1.2 |
-| Account-status auth gate | Після valid credentials `active` проходить; missing/`banned`/`deactivated` → generic 401 у password-after-verify, Google, refresh і access strategy. Невідомий email/хибний пароль лишається `Invalid credentials`. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.1–16.4, [17](17-api-and-data-reference.md) §1.2 |
-| Видача/ротація токенів | Access JWT (15m) + refresh JWT (30d, SHA-256 у БД); rotation на refresh. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.3 |
+| Google ID-token вхід | `POST /v1/auth/google` (verify через tokeninfo); existing email шукається через `lower(email)`, а linked/existing рядок має бути `active` до link/token issue. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.2 |
+| Email+пароль (register/login) | Існують на бекенді, клієнтом **не** використовуються; login завжди робить один cost-12 bcrypt compare (real/dummy). | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.2, [17](17-api-and-data-reference.md) §1.2 |
+| Account-status auth gate | Після valid credentials `active` проходить; missing/`banned`/`deactivated` → generic internal 401. Internal auth messages глобальний фільтр нормалізує у wire `errorType=unauthorized` + «Потрібна повторна авторизація.». | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.1–16.4, [17](17-api-and-data-reference.md) §1.2 |
+| Видача/ротація токенів | Access JWT (15m) + refresh JWT (30d, SHA-256 у БД); обидва runtime-валідують UUID `sub` + `kind=user` до DB, rotation на refresh. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.3 |
 | Refresh-сесії | `POST /v1/auth/refresh` — active-check до revoke старого + нової пари; inactive refresh не revoke/rotate. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.3 |
 | Зберігання токенів (клієнт) | `AuthTokenStore` — реактивний `StateFlow` access; refresh у prefs. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.5 |
 | Реальний Google-вхід в онбордингу | Auth-екран стає справжнім входом (зараз бутафорський `onDone`). | [НОВЕ] D5 | [02](02-onboarding-and-launch.md) §1.3, [01](01-screens.md) §3 |
@@ -266,11 +266,11 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Auth-ендпоінти | `/v1/auth/{register,login,google,refresh,logout,me}`. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.2 |
 | Users-ендпоінти | `GET/PATCH /v1/me` — профіль, мови, тогли. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3, [15](15-profile-and-settings.md) §3 |
 | Wallet-ендпоінти | `GET /v1/wallet`, `POST /v1/wallet/rewarded-ad`. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.4 |
-| Search/Lexicon-ендпоінт | `GET /v1/search` (OptionalJwt). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.5 |
+| Search/Lexicon-ендпоінт | `GET /v1/search` (OptionalJwt); OpenAPI показує anonymous **або** bearer. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.5 |
 | Topics-ендпоінти | `/v1/topics`, `/sync`, `/sync/apply`, `:id/words` (CRUD + sync). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.6 |
 | Languages-ендпоінт | `GET /v1/languages` (13 мов). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.7 |
 | Promo-ендпоінти | `/v1/promos`, `/{id}/claim`, `/leaderboard/ad-watchers`. | [НОВЕ] D4 | [17](17-api-and-data-reference.md) §1.8, [05](05-promo-api-and-banners.md) §7 |
-| Guard-стратегія | `JwtAccessGuard` вимагає active user; `OptionalJwtAccessGuard` дає anonymous 200 лише без `Authorization`, а supplied invalid/expired/inactive → 401; `RegisteredUserGuard` мертвий. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.4 |
+| Guard-стратегія | `JwtAccessGuard` вимагає runtime-valid user claims + active user; `OptionalJwtAccessGuard` дає anonymous 200 лише без `Authorization`, а supplied invalid/expired/malformed/inactive → 401; `RegisteredUserGuard` мертвий. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.4 |
 | Room-схема (клієнт) | `vocabulary_topics` + `vocabulary_words`, version 4, конвертери. | [ЗАРАЗ] | [03](03-data-caching.md) §1, [17](17-api-and-data-reference.md) §3.1 |
 | Per-user партиціювання (Room) | `user_key` (`local-user`/userId) ізолює акаунти в одній базі. | [ЗАРАЗ] | [03](03-data-caching.md) §2 |
 | Postgres-схема | `users` з `account_status`/moderation audit fields, `refresh_tokens/oauth_accounts`, admin audit, topics/topic_words/languages/lexicon*. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §3.2 |
