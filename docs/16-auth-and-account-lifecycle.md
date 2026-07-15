@@ -38,6 +38,20 @@ Vocabee має два стани користувача (загальний ко
 
 > **Відкрите питання (premium).** `is_premium` (`users.ts:25`) і гілка `premium` існують, але жодного монетизаційного важеля немає (коментар `user-tier.ts:6-12`: «no monetisation lever until premium ships»). Що саме дає premium — **[МАЙБУТНЄ]**, уточнити.
 
+### Статус серверного акаунта
+
+**[ЗАРАЗ]** Рядок `users` має `accountStatus ∈ {active, banned, deactivated}`.
+Коли credential уже валідований і визначено user id, mobile auth paths
+централізовано перевіряють його через `UsersService.requireActiveById`: лише
+`active` може отримати/оновити токени або пройти access-JWT strategy. Саме цей
+gate для відсутнього, заблокованого й деактивованого рядка дає однаковий
+`401 UnauthorizedException('Account is not active')`, без причини модерації у
+відповіді. Password login до успішної перевірки credentials зберігає generic
+`401 Invalid credentials` для невідомого email, відсутнього hash і хибного пароля.
+Публічний `UserResponseDto` містить лише сам `accountStatus`;
+`statusReason/statusChangedAt/statusChangedBy` і password/hash поля назовні не
+серіалізуються.
+
 ---
 
 ## 16.2 Способи входу (gateway)
@@ -48,8 +62,8 @@ Vocabee має два стани користувача (загальний ко
 
 **[ЗАРАЗ]** `auth.controller.ts:23-34`, `auth.service.ts:44-84`.
 
-- `POST /auth/register` (`RegisterDto`): `email` (`@IsEmail`), `password` (`@MinLength(8) @MaxLength(72)`), опційні `displayName` (≤120), `speakLang`/`learnLang` (з `SUPPORTED_LANGUAGE_CODES`). Сервіс перевіряє унікальність email (lower-case), хешує bcrypt cost=12, створює рядок `isAnonymous:false`, одразу видає пару токенів. Дублікат email → `409 ConflictException`.
-- `POST /auth/login` (`LoginDto`): `email` + `password` (`@MinLength(1)`). Якщо немає рядка або немає `passwordHash` (наприклад, акаунт лише через Google) або bcrypt не збігся → `401 UnauthorizedException('Invalid credentials')` (однакове повідомлення в обох випадках — не розкриває існування email).
+- `POST /auth/register` (`RegisterDto`): `email` (`@IsEmail`), `password` (`@MinLength(8) @MaxLength(72)`), опційні `displayName` (≤120), `speakLang`/`learnLang` (з `SUPPORTED_LANGUAGE_CODES`). Сервіс перевіряє унікальність email (lower-case), хешує bcrypt cost=12, створює рядок `isAnonymous:false` зі схемним дефолтом `accountStatus='active'`, одразу видає пару токенів. Дублікат email → `409 ConflictException`.
+- `POST /auth/login` (`LoginDto`): `email` + `password` (`@MinLength(1)`). Якщо немає рядка або немає `passwordHash` (наприклад, акаунт лише через Google) або bcrypt не збігся → `401 UnauthorizedException('Invalid credentials')` (однакове повідомлення в обох випадках — не розкриває існування email). Лише **після** успішного bcrypt сервіс викликає `requireActiveById`; `banned/deactivated` → generic `401 Account is not active`, токени не видаються.
 
 ### Google ID-token
 
@@ -61,9 +75,9 @@ Vocabee має два стани користувача (загальний ко
 
 Логіка прив'язки акаунта (важливо — **колізія email = реюз існуючого рядка**):
 
-1. Шукаємо `oauth_accounts` за (`provider='google'`, `providerAccountId=sub`). Якщо знайдено — одразу видаємо токени для `linkedAccount.userId` (`auth.service.ts:93-104`).
-2. Інакше шукаємо `users` за email (lower-case). **Якщо рядок із таким email уже існує — переюзуємо його** (`existingUsers[0] ?? create(...)`, `auth.service.ts:107-119`), не створюючи дубль.
-3. До знайденого/створеного користувача додаємо запис у `oauth_accounts` (`auth.service.ts:121-125`) і видаємо токени.
+1. Шукаємо `oauth_accounts` за (`provider='google'`, `providerAccountId=sub`). Якщо знайдено — перевіряємо `linkedAccount.userId` через `requireActiveById` і лише тоді видаємо токени.
+2. Інакше шукаємо `users` за email (lower-case). **Якщо рядок із таким email уже існує — переюзуємо його**, але спершу вимагаємо `accountStatus='active'`. Для нового Google user `UsersService.create` не оверрайдить статус, тому працює схемний дефолт `active`.
+3. Лише для активного знайденого або щойно створеного користувача додаємо запис у `oauth_accounts` і видаємо токени. `banned/deactivated` існуючий email не отримує нового Google-link.
 
 > Наслідок: акаунт, заведений через email+пароль, при першому Google-вході з тим самим email **зливається в один рядок** (Google лінкується до існуючого user), без другого рядка та без втрати даних. Справжній «account merge» різних акаунтів — **[МАЙБУТНЄ]**, див. D9 і `06-sync-and-account-merge.md`.
 
@@ -83,7 +97,8 @@ Vocabee має два стани користувача (загальний ко
 
 1. Криптоверифікація підпису refresh (`verifyRefreshToken`); невалідний → `401`.
 2. Пошук рядка в `refresh_tokens` за `tokenHash`, де `revokedAt IS NULL` і `expiresAt > now`. Якщо немає рядка або `row.userId != decoded.sub` → `401 Invalid refresh token`.
-3. **Revoke пред'явленого** (`set revokedAt = now`) і **видача нової пари** (`issueTokens`). Тобто rotation: один refresh = одне використання.
+3. Перевірка власника через `requireActiveById(decoded.sub)`. Відсутній або `banned/deactivated` user → generic `401 Account is not active`.
+4. Лише після активної перевірки — **revoke пред'явленого** (`set revokedAt = now`) і **видача нової пари** (`issueTokens`). Тобто rotation: один refresh = одне використання. Для неактивного user пред'явлений рядок не revoke і нова пара не створюється.
 
 > Reuse-detection відсутній: повторне пред'явлення вже відкликаного refresh просто отримає `401` (рядок уже `revoked`), без каскадного відкликання сімейства токенів. Підсилення (виявлення крадіжки) — **[МАЙБУТНЄ]**.
 
@@ -97,36 +112,40 @@ Vocabee має два стани користувача (загальний ко
 
 ### JWT-стратегія
 
-**[ЗАРАЗ]** `jwt-access.strategy.ts` (`'jwt-access'`): `ExtractJwt.fromAuthHeaderAsBearerToken()`, `ignoreExpiration:false`, secret `auth.accessSecret`. У `validate(payload)` тягне `usersService.findById(payload.sub)`; якщо рядка нема → `401 'Subject not found'`; інакше кладе в `req.user` об'єкт `AuthenticatedUser = { id, kind, isAnonymous, speakLang, learnLang }` (`authenticated-user.ts`). Тобто `isAnonymous` в `req.user` береться зі **свіжого рядка БД**, а не з токена.
+**[ЗАРАЗ]** `jwt-access.strategy.ts` (`'jwt-access'`): `ExtractJwt.fromAuthHeaderAsBearerToken()`, `ignoreExpiration:false`, secret `auth.accessSecret`. У `validate(payload)` викликає `usersService.requireActiveById(payload.sub)`; відсутній, `banned` або `deactivated` рядок → однаковий `401 'Account is not active'`. Для активного рядка стратегія кладе в `req.user` об'єкт `AuthenticatedUser = { id, kind, isAnonymous, speakLang, learnLang }` (`authenticated-user.ts`). Тобто status та `isAnonymous` звіряються зі **свіжим рядком БД**, а не довіряються токену.
 
 ### Guard'и
 
 | Guard | Поведінка | Де застосований |
 |---|---|---|
 | `JwtAccessGuard` (`jwt-access.guard.ts`) | Класичний: немає/невалідний/прострочений токен → **401**. | `auth.controller.ts:58` (`GET /auth/me`); `users.controller.ts:13`; `wallet.controller.ts:13`; `topics.controller.ts:26`. |
-| `OptionalJwtAccessGuard` (`optional-jwt.guard.ts`) | Прострочений/відсутній/невалідний токен → `req.user = null`, віддає **200** (не 401). Працює і для аноніма, і для автентифікованого. | `client-search/client-search.controller.ts` (`/search`). |
+| `OptionalJwtAccessGuard` (`optional-jwt.guard.ts`) | **Лише відсутній** `Authorization` → `req.user = null`. Якщо заголовок присутній, Passport має повернути активного user; malformed/expired/invalid/inactive bearer → **401**, без деградації до аноніма. | `client-search/client-search.controller.ts` (`/search`) і `support/support.controller.ts` (`/support`). |
 | `RegisteredUserGuard` (`registered-user.guard.ts`) | Після `JwtAccessGuard`: `!user` → 403 `Authentication required`; `user.isAnonymous` → 403 `A registered account is required`. | **[ЗАРАЗ] не застосований ніде** — клас визначений, але жоден контролер його не вішає (grep по `src` дає лише саме визначення). Зарезервований під майбутні маршрути, що вимагають справжнього зареєстрованого. Оскільки серверних анонімних рядків зараз нема, його `isAnonymous`-гілка de-facto мертва, поки D2/[МАЙБУТНЄ] не введе гостьові акаунти. |
 
 ### OptionalJwt і прострочений токен
 
-**[ЗАРАЗ]** Ключова деталь `optional-jwt.guard.ts:14-34`: `canActivate` ловить будь-яку помилку Passport (включно з простроченим access) у `try/catch`, ставить `request.user = null` і повертає `true`; `handleRequest` при `err || !user` повертає `null` замість кидати. Декоратор `@OptionalUser()` (`optional-user.decorator.ts`) повертає `req.user ?? null`. Підсумок: на `/search` **прострочений токен деградує до аноніма (200)**, а не валить запит 401 — анонім і «протух» бачать однаковий результат (`tierFromUserRow(null)='anonymous'`).
-
-> Контраст: на захищених `JwtAccessGuard`-маршрутах прострочений access → 401, і клієнт має зробити refresh (див. 16.6 startup-sync).
+**[ЗАРАЗ]** `canActivate` перевіряє саме наявність raw
+`request.headers.authorization`. Якщо властивість відсутня — ставить
+`request.user=null` і дозволяє анонімний `/search`. Будь-яке передане значення
+(включно з порожнім, неправильною схемою, malformed або expired bearer) проходить
+звичайний Passport flow; `handleRequest` перекидає помилку або кидає 401, коли user
+не отримано. Неактивний user так само отримує 401 від JWT strategy. Отже invalid
+credential більше не може тихо перейти на anonymous tier.
 
 ### Таблиця: ендпоінт → потрібен суб'єкт → нотатки
 
 | Ендпоінт | Guard | Потрібен суб'єкт | Нотатки |
 |---|---|---|---|
 | `POST /auth/register` | — | будь-хто (публічний) | 409 при дублі email; видає пару токенів. |
-| `POST /auth/login` | — | будь-хто (публічний) | 401 `Invalid credentials` (єдине повідомлення). |
-| `POST /auth/google` | — | будь-хто (публічний) | Реюз рядка за email; лінк `oauth_accounts`. 503 якщо Google не налаштовано. |
-| `POST /auth/refresh` | — (валідує сам сервіс) | валідний refresh | Rotation: revoke старого + нова пара; 401 на невалід/прострочений/revoked. |
+| `POST /auth/login` | — | будь-хто (публічний) | 401 `Invalid credentials` до успішного password check; потім неактивний status → generic 401. |
+| `POST /auth/google` | — | будь-хто (публічний) | Реюз/лінк лише активного рядка; неактивний existing/linked user → 401 до link/token issue. 503 якщо Google не налаштовано. |
+| `POST /auth/refresh` | — (валідує сам сервіс) | валідний refresh активного user | Active-check до revoke/rotation; 401 на невалід/прострочений/revoked або неактивний акаунт. |
 | `POST /auth/logout` | — | будь-який refresh | 204; revoke за хешем; ідемпотентно. |
-| `GET /auth/me` | `JwtAccessGuard` | зареєстрований (будь-який рядок) | 401 без/прострочений токен. |
-| `PATCH /me`, `GET /me` (users) | `JwtAccessGuard` | зареєстрований | Профіль/налаштування. |
-| `… /wallet/*` | `JwtAccessGuard` | зареєстрований | Економіка лише для авторизованих (узгоджено з D1/D2). |
-| `… /topics/*`, `/topics/sync*` | `JwtAccessGuard` | зареєстрований | Sync словників (D9, doc 06). |
-| `GET /search` (lexicon) | `OptionalJwtAccessGuard` | анонім **або** зареєстрований | Прострочений/відсутній токен → анонім, 200. Tier → `TIER_MAX_RESULTS` (зараз усі 50). |
+| `GET /auth/me` | `JwtAccessGuard` | активний зареєстрований | 401 без/прострочений/неактивний токен. |
+| `PATCH /me`, `GET /me` (users) | `JwtAccessGuard` | активний зареєстрований | Профіль/налаштування. |
+| `… /wallet/*` | `JwtAccessGuard` | активний зареєстрований | Економіка лише для авторизованих (узгоджено з D1/D2). |
+| `… /topics/*`, `/topics/sync*` | `JwtAccessGuard` | активний зареєстрований | Sync словників (D9, doc 06). |
+| `GET /search` (lexicon) | `OptionalJwtAccessGuard` | без заголовка **або** активний зареєстрований | Відсутній `Authorization` → анонім, 200; будь-який supplied invalid/expired/inactive credential → 401. Tier → `TIER_MAX_RESULTS` (зараз усі 50). |
 
 > **[МАЙБУТНЄ]** маршрути, що мають бути недоступні анонімам як справжнім гостям, отримають `RegisteredUserGuard` поверх `JwtAccessGuard`.
 
@@ -186,7 +205,7 @@ Vocabee має два стани користувача (загальний ко
 4. Якщо є незалиті локальні зміни (`localRevisionEpochMillis > 0`) → `syncVocabularyNow()` (заливаємо локальне). Інакше — інкрементальний `syncTopics(since=lastSyncAt)`; за наявності змін застосовуємо знімок (`since==null` → повний).
 5. Будь-яка помилка ковтається (`catch (_) {}`): лишаємось офлайн/локально, явний вхід покаже помилки.
 
-> Тобто на кожному старті прострочений access відновлюється через refresh **до** першого захищеного запиту; завдяки 16.4 `/search` працює навіть якщо refresh не вдався (деградація до аноніма).
+> Тобто на кожному старті прострочений access відновлюється через refresh **до** першого захищеного запиту. Якщо refresh не вдався, але клієнт і далі надсилає збережений invalid/expired access, `/search` тепер поверне 401; anonymous search можливий лише без `Authorization`. Поточний startup `catch` токени автоматично не чистить — це слід врахувати в mobile session UX.
 
 ---
 

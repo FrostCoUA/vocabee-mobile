@@ -166,16 +166,17 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Функція | Короткий опис | Стан | Док |
 |---|---|---|---|
 | Анонім = відсутність JWT | Анонім не має серверного рядка; `is_anonymous` спляче поле. | [ЗАРАЗ] D2 | [16](16-auth-and-account-lifecycle.md) §16.1 |
-| Google ID-token вхід | `POST /v1/auth/google` (verify через tokeninfo); реюз рядка за email. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.2 |
+| Google ID-token вхід | `POST /v1/auth/google` (verify через tokeninfo); linked/existing-email рядок має бути `active` до link/token issue. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.2 |
 | Email+пароль (register/login) | Існують на бекенді, клієнтом **не** використовуються (вхід через Google). | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.2, [17](17-api-and-data-reference.md) §1.2 |
+| Account-status auth gate | Після valid credentials `active` проходить; missing/`banned`/`deactivated` → generic 401 у password-after-verify, Google, refresh і access strategy. Невідомий email/хибний пароль лишається `Invalid credentials`. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.1–16.4, [17](17-api-and-data-reference.md) §1.2 |
 | Видача/ротація токенів | Access JWT (15m) + refresh JWT (30d, SHA-256 у БД); rotation на refresh. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.3 |
-| Refresh-сесії | `POST /v1/auth/refresh` — revoke старого + нова пара; 401 на невалід. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.3 |
+| Refresh-сесії | `POST /v1/auth/refresh` — active-check до revoke старого + нової пари; inactive refresh не revoke/rotate. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.3 |
 | Зберігання токенів (клієнт) | `AuthTokenStore` — реактивний `StateFlow` access; refresh у prefs. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.5 |
 | Реальний Google-вхід в онбордингу | Auth-екран стає справжнім входом (зараз бутафорський `onDone`). | [НОВЕ] D5 | [02](02-onboarding-and-launch.md) §1.3, [01](01-screens.md) §3 |
 | Вхід із профілю | `startGoogleSignIn()` — реальний потік + перевірка конфлікту. | [ЗАРАЗ] | [15](15-profile-and-settings.md) §2, [16](16-auth-and-account-lifecycle.md) §16.6 |
 | Анонім → зареєстрований | `moveUserVocabulary` (UPDATE user_key) + перезапис балансу/мов/теми. | [ЗАРАЗ] | [03](03-data-caching.md) §5, [16](16-auth-and-account-lifecycle.md) §16.6 |
 | Вихід (sign-out) | Чистить токени + `signOutKeepLastUserState` (дані лишаються). | [ЗАРАЗ] | [15](15-profile-and-settings.md) §6, [16](16-auth-and-account-lifecycle.md) §16.8 |
-| Колізія email (Google на password-юзера) | Реюз існуючого рядка; email-індекс **не** унікальний (ризик дублів). | [ЗАРАЗ] / ризик | [10](10-edge-cases-and-open-items.md) #12 |
+| Колізія email (Google на password-юзера) | Реюз існуючого рядка; deployed migration має unique `lower(email)`, але Drizzle metadata описує plain index (schema drift). | [ЗАРАЗ] / ризик | [10](10-edge-cases-and-open-items.md) #12 |
 | Клієнт кличе `/auth/logout` | Revoke refresh на сервері при виході (зараз не кличе). | [НОВЕ] / уточнити | [16](16-auth-and-account-lifecycle.md) §16.8 O4 |
 | Refresh-failed → sign-out | При стійкому 401 на refresh переводити в анонім. | [НОВЕ] / уточнити | [02](02-onboarding-and-launch.md) §5.2 |
 | Картка ідентичності (профіль) | Аватар (ініціали «НК» захардкоджено), displayName, email, Edit (мертва). | [ЗАРАЗ] | [15](15-profile-and-settings.md) §2.2 |
@@ -269,14 +270,14 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Topics-ендпоінти | `/v1/topics`, `/sync`, `/sync/apply`, `:id/words` (CRUD + sync). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.6 |
 | Languages-ендпоінт | `GET /v1/languages` (13 мов). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.7 |
 | Promo-ендпоінти | `/v1/promos`, `/{id}/claim`, `/leaderboard/ad-watchers`. | [НОВЕ] D4 | [17](17-api-and-data-reference.md) §1.8, [05](05-promo-api-and-banners.md) §7 |
-| Guard-стратегія | `JwtAccessGuard` (401) / `OptionalJwtAccessGuard` (200 деградація) / `RegisteredUserGuard` (мертвий). | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.4 |
+| Guard-стратегія | `JwtAccessGuard` вимагає active user; `OptionalJwtAccessGuard` дає anonymous 200 лише без `Authorization`, а supplied invalid/expired/inactive → 401; `RegisteredUserGuard` мертвий. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.4 |
 | Room-схема (клієнт) | `vocabulary_topics` + `vocabulary_words`, version 4, конвертери. | [ЗАРАЗ] | [03](03-data-caching.md) §1, [17](17-api-and-data-reference.md) §3.1 |
 | Per-user партиціювання (Room) | `user_key` (`local-user`/userId) ізолює акаунти в одній базі. | [ЗАРАЗ] | [03](03-data-caching.md) §2 |
-| Postgres-схема | `users/refresh_tokens/oauth_accounts/topics/topic_words/languages/lexicon*`. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §3.2 |
+| Postgres-схема | `users` з `account_status`/moderation audit fields, `refresh_tokens/oauth_accounts`, admin audit, topics/topic_words/languages/lexicon*. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §3.2 |
 | Партиціювання lexicon (LIST за мовою) | `lexicon_*` партиціоновані по `word_lang` (7 партицій). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §3.2, [14](14-word-details-and-audio.md) §2.1 |
 | Soft-delete + ретеншн | `deleted_at` всюди; GC/hard-delete немає (GDPR-питання). | [ЗАРАЗ] / [МАЙБУТНЄ] | [07](07-deletion.md) §7, [10](10-edge-cases-and-open-items.md) O4 |
 | Провайдери перекладу/словника | Wiktionary/DeepL/MyMemory/OpenAI; FreeDictionary/OpenAI. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §11 |
-| Міграції БД | `0001–0007` наявні; `0008_training_fields` для D10. | [ЗАРАЗ]/[НОВЕ] | [17](17-api-and-data-reference.md) §3.3 |
+| Міграції БД | `0001–0012` наявні; наступна міграція полів тренування для D10 ще [НОВЕ]. | [ЗАРАЗ]/[НОВЕ] | [17](17-api-and-data-reference.md) §3.3 |
 | Cron лідерборда | Щопонеділка 00:00 UTC: нарахування топ-10 + обнулення тижневого агрегату. | [НОВЕ] D4 | [05](05-promo-api-and-banners.md) §6 |
 | Bump Room до v5 (поля D10) | Нові колонки тренування + Room-міграція. | [НОВЕ] D10 | [17](17-api-and-data-reference.md) §3.1 |
 
