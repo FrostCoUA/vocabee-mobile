@@ -247,9 +247,12 @@ Dictionary admin приймає лише окремий RS256 `admin-access-toke
 повну картку обох lexical entries та альтернативи, provider status, consumers/keys,
 usage й audit. Translation filters за замовчуванням `en → uk`: обидві мови —
 dropdown-и з `GET /v1/languages`, `Усі` явно зберігається в shareable URL як UI-only
-`all` і не надсилається gateway. `Origin` та provider tier — динамічні dropdown-и
-під згорнутими «Розширеними фільтрами»; секція автоматично відкривається для
-активного provenance-фільтра. Write-scope відкриває delete/restore перекладу та
+`all` і не надсилається gateway. Форма йде від загального до конкретного: мови
+стоять першим рядом 50/50, далі — згорнуті «Розширені фільтри» зі статусом,
+джерелом, `Origin` і provider tier, а текстовий пошук та кнопка «Застосувати»
+розташовані останнім рядом безпосередньо перед результатами. `Origin` і provider
+tier — динамічні dropdown-и; секція автоматично відкривається для будь-якого
+активного недефолтного розширеного фільтра. Write-scope відкриває delete/restore перекладу та
 consumer/key controls; кожна небезпечна дія вимагає причину. Browser не отримує
 consumer `X-API-Key`.
 
