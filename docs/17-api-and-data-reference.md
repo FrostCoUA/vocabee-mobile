@@ -248,18 +248,16 @@ Dictionary admin приймає лише окремий RS256 `admin-access-toke
 | POST | `/v1/admin/api-keys/:keyId/rotate` | `dictionary:keys:write` | Active successor + one-time raw; predecessor `retiring` на 900 с |
 | POST | `/v1/admin/api-keys/:keyId/revoke` | `dictionary:keys:write` | Незворотний revoke; останній usable system key захищений 409 |
 
-`dictionary-admin-web` **[ЗАРАЗ]** показує dashboard, active/deleted/all translations,
-повну картку обох lexical entries та альтернативи, provider status, consumers/keys,
-usage й audit. Translation filters за замовчуванням `en → uk`: обидві мови —
-dropdown-и з `GET /v1/languages`, `Усі` явно зберігається в shareable URL як UI-only
-`all` і не надсилається gateway. Форма йде від загального до конкретного: мови
-стоять першим рядом 50/50, далі — згорнуті «Розширені фільтри» зі статусом,
-джерелом, `Origin` і provider tier, а текстовий пошук та кнопка «Застосувати»
-розташовані останнім рядом безпосередньо перед результатами. `Origin` і provider
-tier — динамічні dropdown-и; секція автоматично відкривається для будь-якого
-активного недефолтного розширеного фільтра. Write-scope відкриває delete/restore перекладу та
-consumer/key controls; кожна небезпечна дія вимагає причину. Browser не отримує
-consumer `X-API-Key`.
+`dictionary-admin-web` **[ЗАРАЗ]** використовує спільну Vocabee soft-admin
+дизайн-систему та мобільний знак із трьох сот. Список перекладів за замовчуванням
+показує `active` і `deleted` разом (`status=all`), щоб останню видалену ревізію можна
+було знайти й відновити. Видимі фільтри обмежені двома dropdown-ами мов (default
+`en → uk`), текстом і кнопкою «Застосувати»; `origin`, provider tier, source та status
+лишаються API-параметрами, але не полями цієї адмін-форми.
+
+`client-admin-web` **[ЗАРАЗ]** використовує ту саму базову дизайн-систему для Login,
+shell, метрик, таблиць, карток користувача, адміністраторів і журналу змін. Візуальний
+рефакторинг не змінює Google auth, admin scopes, mobile login або API контракти.
 
 Create external consumer завжди дає `external-standard`, `dictionary:search`, 60
 admissions/min і 1000/UTC-day. Quota атомарна на consumer, тому rotation не обнуляє
