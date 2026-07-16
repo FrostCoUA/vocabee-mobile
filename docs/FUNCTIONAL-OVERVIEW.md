@@ -92,10 +92,11 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Детект мови вводу | `LanguageDetector.detectBetween`: скрипт-евристика → franc-min → fallback `learnLang`. | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §5, [13](13-add-word-and-ai-search.md) §10 |
 | Префікс-кеш lexicon | `LIKE 'q%'` живі підказки (exact-first → primary → коротші). | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
 | Word-validator (квота-гейт) | Hunspell перевіряє плаузибельність перед провайдером (бережемо квоту). | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §12 |
-| Ланцюг перекладу (провайдери) | `Wiktionary → DeepL → MyMemory → OpenAI` (перший непорожній виграє). | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §11 |
+| Провайдер перекладу | OpenAI structured output (`gpt-5.6-sol` за замовчуванням); генерує лише запитаний напрямок. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10–11 |
 | Echo-гард | Якщо провайдер віддав ввід дослівно → «нема перекладу», не персистимо. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
-| Збагачення (dictionary-ланцюг) | `FreeDictionary → OpenAI`: IPA, audio, senses+приклади, синоніми/антоніми, форми. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §11, [14](14-word-details-and-audio.md) §2 |
-| Кеш-персист + mirror | Upsert lexicon + translations cache + зворотний mirror target→source. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
+| Збагачення (dictionary-ланцюг) | `OpenAI → FreeDictionary`: IPA, audio, senses+приклади, синоніми/антоніми, форми. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §11, [14](14-word-details-and-audio.md) §2 |
+| Напрямний кеш без mirror | Upsert source/target lexicon + translation cache лише для `detectedLang → otherLang`; зворотний напрямок генерується окремим запитом. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
+| Остання відновлювана ревізія | Dictionary admin може soft-delete переклад з причиною та відновити той самий рядок; пошук не показує видалені варіанти й дозаповнює тільки відсутній слот. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10, [17](17-api-and-data-reference.md) §1.3/3.2 |
 | `providerReason` (meta) | `exact_cached / not_a_word / echo / no_provider_data / translated`. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
 | AI-атрибуція | Футер «Переклади та приклади згенеровано AI» + Sparkle per-row. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §5 |
 | Ціна 1 монетка за пошук (auth) | Сервер списує `TRANSLATION_SEARCH_BEE_COST`, повертає `meta.beeBalance`. | [ЗАРАЗ]/[НОВЕ] D1 | [13](13-add-word-and-ai-search.md) §7 |
@@ -277,7 +278,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Партиціювання lexicon (LIST за мовою) | `lexicon_*` партиціоновані по `word_lang` (7 партицій). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §3.2, [14](14-word-details-and-audio.md) §2.1 |
 | Soft-delete + ретеншн | `deleted_at` всюди; GC/hard-delete немає (GDPR-питання). | [ЗАРАЗ] / [МАЙБУТНЄ] | [07](07-deletion.md) §7, [10](10-edge-cases-and-open-items.md) O4 |
 | Провайдери перекладу/словника | Wiktionary/DeepL/MyMemory/OpenAI; FreeDictionary/OpenAI. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §11 |
-| Міграції БД | `0001–0013` наявні; `0013_dictionary_api_consumers.sql` додає Dictionary API consumers/keys/quotas/audit; майбутня `0014_training_fields.sql` для D10 ще [НОВЕ] і не створена. | [ЗАРАЗ]/[НОВЕ] | [17](17-api-and-data-reference.md) §3.3 |
+| Міграції БД | `0001–0014` наявні; `0014_translation_lifecycle.sql` додає soft-delete/repair перекладів; майбутня `0015_training_fields.sql` для D10 ще [НОВЕ] і не створена. | [ЗАРАЗ]/[НОВЕ] | [17](17-api-and-data-reference.md) §3.3 |
 | Cron лідерборда | Щопонеділка 00:00 UTC: нарахування топ-10 + обнулення тижневого агрегату. | [НОВЕ] D4 | [05](05-promo-api-and-banners.md) §6 |
 | Bump Room до v5 (поля D10) | Нові колонки тренування + Room-міграція. | [НОВЕ] D10 | [17](17-api-and-data-reference.md) §3.1 |
 
@@ -314,7 +315,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | N8 | Пікер іконок тем (14) + поле `iconKey` + синк | D7 | [08](08-languages-speech-themes.md) §6.2 |
 | N9 | Напрямок STT зберігається по словнику (Room-поле + sync) | D8 | [08](08-languages-speech-themes.md) §3.4 |
 | N10 | Справжній мерж при вході (5 варіантів + вартість у монетках) | D9 | [06](06-sync-and-account-merge.md) §4 |
-| N11 | Гібрид-тренування (пріоритет+Leitner+анти-повтор) + поля знань + майбутня `0014_training_fields.sql` **[НОВЕ, ще не створена]** + Room v5 | D10 | [11](11-practice-training.md) |
+| N11 | Гібрид-тренування (пріоритет+Leitner+анти-повтор) + поля знань + майбутня `0015_training_fields.sql` **[НОВЕ, ще не створена]** + Room v5 | D10 | [11](11-practice-training.md) |
 | N12 | Undo-снекбар (~6с) для слів і словників; без повернення монеток | D3 | [07](07-deletion.md) §4, [12](12-motion-and-interaction-brief.md) §D/E |
 | N13 | Інлайн-довідка «?» (20 тултіпів) | — | [09](09-inline-help-tooltips.md) |
 | N14 | Токени руху + апгрейд анімацій (flip/свайп/прогрес/морф) | — | [12](12-motion-and-interaction-brief.md) |
