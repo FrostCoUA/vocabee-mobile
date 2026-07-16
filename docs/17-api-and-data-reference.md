@@ -19,8 +19,8 @@
 |---|---|---|
 | `client-gateway` | mobile API, users/auth, wallet, rewarded ads, premium, topics, saved words, sync, compatibility search facade і захищений client-admin API | lookup receipts, feedback outbox, D11 save-time economy |
 | `dictionary-gateway` | app-neutral directional search, lexicon, translation generation/cache, DB-backed consumer keys/quotas, consumer/key lifecycle, dashboard/lexicon/provider-status/usage/audit admin API, soft-delete/restore останньої ревізії | повна immutable історія всіх ревізій, reviewed imports, quality feedback, provider-secret write API, optional MCP |
-| `client-admin-web` | Реалізований у source: users/premium/sessions/admin accounts/audit через `client-gateway`, без прямого DB-доступу | **[НОВЕ]** independent container, Compose wiring і deployed-browser verification |
-| `dictionary-admin-web` | dashboard, active/deleted/all translations, повна lexical detail, soft-delete/restore з причиною, provider status, consumers+keys/usage/audit через `dictionary-gateway` | **[МАЙБУТНЄ]** provider-secret/import/full-revision-history/feedback/MCP UI |
+| `client-admin-web` | Реалізований у source: users/premium/sessions/admin accounts/audit через `client-gateway`, server-side фільтр словників за парою мов, без прямого DB-доступу | **[НОВЕ]** independent container, Compose wiring і deployed-browser verification |
+| `dictionary-admin-web` | dashboard, active/deleted/all translations, language/provenance dropdown-фільтри, повна lexical detail, soft-delete/restore з причиною, provider status, consumers+keys/usage/audit через `dictionary-gateway` | **[МАЙБУТНЄ]** provider-secret/import/full-revision-history/feedback/MCP UI |
 
 **[ЗАРАЗ]** Мобільний застосунок викликає **лише `client-gateway`**.
 `ClientSearchController` делегує пошук через `DictionaryClientService` у
@@ -163,7 +163,7 @@ credential domain, не розширення mobile user JWT.
 | GET | `/v1/admin/dashboard` | `client:dashboard:read` | 200 | Агрегати users/status/premium/topics/words/reward events |
 | GET | `/v1/admin/users` | `client:users:read` | 200 | Cursor-list; `q?`, `status?`, `premium?`, `limit?`, `cursor?` |
 | GET | `/v1/admin/users/:userId` | `client:users:read` | 200 | Allowlisted user summary |
-| GET | `/v1/admin/users/:userId/topics` | `client:users:read` | 200 | Словники власника |
+| GET | `/v1/admin/users/:userId/topics` | `client:users:read` | 200 | Словники власника; optional validated `sourceLang?`/`targetLang?` застосовуються в DB до cursor pagination |
 | GET | `/v1/admin/users/:userId/topics/:topicId/words` | `client:users:read` | 200 | Слова лише user-owned словника |
 | GET | `/v1/admin/users/:userId/rewarded-ad-events` | `client:users:read` | 200 | Append-only +10 history, без `requestId` у DTO |
 | GET | `/v1/admin/users/:userId/sessions` | `client:users:read` | 200 | Session id/timestamps та UA/IP, якщо є; без token hash |
@@ -228,6 +228,7 @@ Dictionary admin приймає лише окремий RS256 `admin-access-toke
 |---|---|---|---|
 | GET | `/v1/admin/dictionary/dashboard` | `dictionary:usage:read` | Consumers, active/retiring/revoked keys, calls і quota failures від UTC midnight |
 | GET | `/v1/admin/lexicon/translations` | `dictionary:lexicon:read` | Cursor-list; `status=active\|deleted\|all` (default active), `sourceLang?`, `targetLang?`, `source?`, `origin?`, `providerTier?`, `q?` |
+| GET | `/v1/admin/lexicon/translation-filter-options` | `dictionary:lexicon:read` | Sorted distinct non-empty `origins` і `providerTiers`, які реально є в translation rows; без metadata/credentials |
 | GET | `/v1/admin/lexicon/translations/:translationId` | `dictionary:lexicon:read` | Останній active або soft-deleted рядок: source/target lexical entry, IPA, senses/examples, synonyms/antonyms/forms, alternatives, provenance і safe metadata; не повна immutable history |
 | POST | `/v1/admin/lexicon/translations/:translationId/delete` | `dictionary:lexicon:write` | `{reason}` 3..500; soft-delete + pending pair repair + audit в одній transaction; repeated state →409 |
 | POST | `/v1/admin/lexicon/translations/:translationId/restore` | `dictionary:lexicon:write` | `{reason}` 3..500; відновлює останній рядок і скасовує pending repair slot, якщо його ще не спожито; audit atomically |
@@ -244,8 +245,13 @@ Dictionary admin приймає лише окремий RS256 `admin-access-toke
 
 `dictionary-admin-web` **[ЗАРАЗ]** показує dashboard, active/deleted/all translations,
 повну картку обох lexical entries та альтернативи, provider status, consumers/keys,
-usage й audit. Write-scope відкриває delete/restore перекладу та consumer/key controls;
-кожна небезпечна дія вимагає причину. Browser не отримує consumer `X-API-Key`.
+usage й audit. Translation filters за замовчуванням `en → uk`: обидві мови —
+dropdown-и з `GET /v1/languages`, `Усі` явно зберігається в shareable URL як UI-only
+`all` і не надсилається gateway. `Origin` та provider tier — динамічні dropdown-и
+під згорнутими «Розширеними фільтрами»; секція автоматично відкривається для
+активного provenance-фільтра. Write-scope відкриває delete/restore перекладу та
+consumer/key controls; кожна небезпечна дія вимагає причину. Browser не отримує
+consumer `X-API-Key`.
 
 Create external consumer завжди дає `external-standard`, `dictionary:search`, 60
 admissions/min і 1000/UTC-day. Quota атомарна на consumer, тому rotation не обнуляє

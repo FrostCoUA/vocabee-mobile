@@ -270,6 +270,8 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Search/Lexicon-ендпоінт | `GET /v1/search` (OptionalJwt); OpenAPI показує anonymous **або** bearer. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.5 |
 | Topics-ендпоінти | `/v1/topics`, `/sync`, `/sync/apply`, `:id/words` (CRUD + sync). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.6 |
 | Languages-ендпоінт | `GET /v1/languages` (13 мов). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.7 |
+| Client admin: фільтр словників | `sourceLang?`/`targetLang?` фільтрують словники користувача на сервері; web default `en → uk`, кожен dropdown має `Усі`. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.1 |
+| Dictionary admin: фільтри перекладів | Мови — dropdown-и з canonical language API; Origin/model — динамічні dropdown-и з БД у «Розширених фільтрах». | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.2 |
 | Promo-ендпоінти | `/v1/promos`, `/{id}/claim`, `/leaderboard/ad-watchers`. | [НОВЕ] D4 | [17](17-api-and-data-reference.md) §1.8, [05](05-promo-api-and-banners.md) §7 |
 | Guard-стратегія | `JwtAccessGuard` вимагає runtime-valid user claims + active user; `OptionalJwtAccessGuard` дає anonymous 200 лише без `Authorization`, а supplied invalid/expired/malformed/inactive → 401; `RegisteredUserGuard` мертвий. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.4 |
 | Room-схема (клієнт) | `vocabulary_topics` + `vocabulary_words`, version 4, конвертери. | [ЗАРАЗ] | [03](03-data-caching.md) §1, [17](17-api-and-data-reference.md) §3.1 |
