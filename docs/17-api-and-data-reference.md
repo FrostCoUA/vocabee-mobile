@@ -183,6 +183,7 @@ projection: password/token hashes, raw credentials, OAuth provider ids, metadata
 | POST | `/v1/admin/users/:userId/deactivate` | `client:users:write` | `{reason}` | `active→deactivated`, revoke всіх live refresh |
 | POST | `/v1/admin/users/:userId/reactivate` | `client:users:write` | `{reason}` | `deactivated→active`, сесії не відновлюються |
 | PATCH | `/v1/admin/users/:userId/premium` | `client:premium:write` | `{isPremium,reason}` | Лише stored flag; same value →409 |
+| POST | `/v1/admin/users/:userId/topics/:topicId/rename` | `client:users:write` | `{name,reason}` | Active user-owned словник; name після trim 1..120, same name→409, missing/deleted/cross-user→404 |
 | POST | `/v1/admin/users/:userId/sessions/:sessionId/revoke` | `client:users:write` | `{reason}` | Лише належна user unrevoked session (навіть expired); missing/cross-user→404, revoked→409 |
 | POST | `/v1/admin/users/:userId/sessions/revoke-all` | `client:users:write` | `{reason}` | Лише live; zero live→409 |
 | POST | `/v1/admin/admin-accounts` | `admin:manage` | `{email,role,reason}` | Normalized DB admin; duplicate env/DB email→409 |
@@ -192,6 +193,9 @@ projection: password/token hashes, raw credentials, OAuth provider ids, metadata
 `reason` після trim обов'язково 3..500. User moderation — reversible status, **не
 hard delete**. `ban/deactivate` атомарно revoke refresh rows, а mobile access strategy
 звіряє свіжий status на кожному запиті, тому вже виданий access одразу отримує 401.
+Перейменування словника оновлює `topics.name` і `updatedAt` в одній transaction з
+audit action `topic.renamed`; стандартний delta-sync підхоплює зміну без окремої
+mobile API-схеми або міграції БД.
 
 Для мутацій уже наявного target одна PostgreSQL transaction повторно валідує actor,
 блокує target `FOR UPDATE`, робить зміну/revoke і вставляє рівно один audit event.
