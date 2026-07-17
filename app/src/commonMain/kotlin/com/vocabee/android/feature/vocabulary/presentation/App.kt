@@ -823,22 +823,6 @@ private fun MainApp(
                             onBottomPanelVisibilityChanged = { visible ->
                                 practiceBottomPanelVisible = visible
                             },
-                            onOpenDictionaries = { openRoot(VocabeeRoute.DictionaryHome) },
-                            peekTranslate = { word, topic ->
-                                peekTranslateRemotely(remoteLexiconSearch, word, topic)
-                            },
-                            canSpendPeek = { store.canSearchTranslation() },
-                            onSpendPeek = { store.spendTranslationBee() },
-                            onPeekBlocked = {
-                                sheet = if (store.anonymousWordLimitReached()) {
-                                    PrototypeSheet.AuthRequired(AuthGateReason.WordLimit)
-                                } else {
-                                    PrototypeSheet.NeedBees(BeeGateReason.TranslationSearch)
-                                }
-                            },
-                            onOpenBookmark = { topicId, word ->
-                                backStack.add(VocabeeRoute.TopicDetail(topicId, word))
-                            },
                             onAnswerWord = { topicId, wordId, deltaPercent ->
                                 store.onEvent(
                                     VocabeeEvent.AdjustWordKnowledge(
@@ -850,15 +834,6 @@ private fun MainApp(
                                 syncVocabularyNow()
                             },
                             onRoundCompleted = { store.recordPracticeRoundCompleted() },
-                            onBackfillContextDetails = {
-                                backfillContextSenseDetails(
-                                    useCase = remoteLexiconSearch,
-                                    topics = store.state.topics,
-                                    updateWord = { topicId, wordId, ipa, details ->
-                                        store.updateWordEnrichment(topicId, wordId, ipa, details)
-                                    },
-                                )
-                            },
                         )
                     }
 
@@ -3640,46 +3615,21 @@ private fun PracticeScreen(
     topics: List<DictionaryTopic>,
     onBottomPanelVisibilityChanged: (Boolean) -> Unit,
     onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
-    onOpenDictionaries: () -> Unit,
-    peekTranslate: suspend (word: String, topic: DictionaryTopic) -> String?,
-    canSpendPeek: () -> Boolean,
-    onSpendPeek: () -> Boolean,
-    onPeekBlocked: () -> Unit,
-    onOpenBookmark: (topicId: String, word: String) -> Unit,
     onRoundCompleted: () -> Unit,
-    onBackfillContextDetails: suspend () -> Boolean,
 ) {
     val trainableTopics = topics.filter { topic -> topic.words.isNotEmpty() }
     val trainableTopicIds = trainableTopics.map { topic -> topic.id }
-    var mode by remember { mutableStateOf(PracticeMode.Classic) }
     var selectedTopicIds by remember(trainableTopicIds) { mutableStateOf(emptySet<String>()) }
     var practiceStarted by remember(trainableTopicIds) { mutableStateOf(false) }
-    val hasSetupFooter = !practiceStarted &&
-        trainableTopics.isNotEmpty() &&
-        (mode != PracticeMode.Context || trainableTopics.sumOf { it.contextPairCount() } > 0)
+    val hasSetupFooter = !practiceStarted && trainableTopics.isNotEmpty()
     DisposableEffect(hasSetupFooter) {
         onBottomPanelVisibilityChanged(hasSetupFooter)
         onDispose { onBottomPanelVisibilityChanged(false) }
-    }
-    // Разовий бекфіл sense-збагачення на вхід у контекст-режим: старі слова
-    // отримують речення власного значення, і лічильники пар оживають.
-    var contextEnriching by remember { mutableStateOf(false) }
-    var contextEnrichAttempted by remember { mutableStateOf(false) }
-    LaunchedEffect(mode) {
-        if (mode == PracticeMode.Context && !contextEnrichAttempted) {
-            contextEnrichAttempted = true
-            contextEnriching = true
-            onBackfillContextDetails()
-            contextEnriching = false
-        }
     }
 
     if (!practiceStarted) {
         PracticeSetupScreen(
             topics = trainableTopics,
-            mode = mode,
-            contextEnriching = contextEnriching,
-            onModeChange = { mode = it },
             selectedTopicIds = selectedTopicIds,
             onToggleTopic = { topicId ->
                 selectedTopicIds = if (topicId in selectedTopicIds) {
@@ -3700,23 +3650,6 @@ private fun PracticeScreen(
                     practiceStarted = true
                 }
             },
-            onOpenDictionaries = onOpenDictionaries,
-        )
-        return
-    }
-
-    if (mode == PracticeMode.Context) {
-        ContextPracticeSession(
-            topics = trainableTopics.filter { topic -> topic.id in selectedTopicIds },
-            allTopics = topics,
-            onAnswerWord = onAnswerWord,
-            onExit = { practiceStarted = false },
-            peekTranslate = peekTranslate,
-            canSpendPeek = canSpendPeek,
-            onSpendPeek = onSpendPeek,
-            onPeekBlocked = onPeekBlocked,
-            onOpenBookmark = onOpenBookmark,
-            onRoundCompleted = onRoundCompleted,
         )
         return
     }
@@ -3892,19 +3825,13 @@ private fun PracticeScreen(
 @Composable
 private fun PracticeSetupScreen(
     topics: List<DictionaryTopic>,
-    mode: PracticeMode,
-    contextEnriching: Boolean,
-    onModeChange: (PracticeMode) -> Unit,
     selectedTopicIds: Set<String>,
     onToggleTopic: (String) -> Unit,
     onSelectAllToggle: () -> Unit,
     onStart: () -> Unit,
-    onOpenDictionaries: () -> Unit,
 ) {
     val selectedTopics = topics.filter { topic -> topic.id in selectedTopicIds }
     val selectedWords = selectedTopics.sumOf { topic -> topic.words.size }
-    val selectedPairs = selectedTopics.sumOf { topic -> topic.contextPairCount() }
-    val totalPairs = topics.sumOf { topic -> topic.contextPairCount() }
     val allSelected = topics.isNotEmpty() && selectedTopicIds.size == topics.size
 
     if (topics.isEmpty()) {
@@ -3920,32 +3847,6 @@ private fun PracticeSetupScreen(
                 modifier = Modifier.padding(start = 24.dp, top = 8.dp, end = 24.dp),
             )
             PracticeEmptyState(modifier = Modifier.weight(1f))
-        }
-        return
-    }
-
-    if (mode == PracticeMode.Context && totalPairs == 0) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(PrototypeColor.Background)
-                .statusBarsPadding(),
-        ) {
-            PracticeSetupHeader(
-                title = "Почати практику",
-                subtitle = "Вибери словники для короткого раунду повторення.",
-                modifier = Modifier.padding(start = 24.dp, top = 8.dp, end = 24.dp),
-            )
-            PracticeModeCards(
-                mode = mode,
-                onModeChange = onModeChange,
-                modifier = Modifier.padding(start = 22.dp, top = 14.dp, end = 22.dp),
-            )
-            ContextPracticeEmptyState(
-                enriching = contextEnriching,
-                onOpenDictionaries = onOpenDictionaries,
-                modifier = Modifier.weight(1f),
-            )
         }
         return
     }
@@ -3966,12 +3867,6 @@ private fun PracticeSetupScreen(
                     title = "Почати практику",
                     subtitle = "Вибери словники для короткого раунду повторення.",
                     modifier = Modifier.padding(start = 2.dp, end = 2.dp, bottom = 4.dp),
-                )
-            }
-            item {
-                PracticeModeCards(
-                    mode = mode,
-                    onModeChange = onModeChange,
                 )
             }
             item {
@@ -3996,17 +3891,10 @@ private fun PracticeSetupScreen(
                 }
             }
             items(topics, key = { topic -> topic.id }) { topic ->
-                val contextSubtitle = if (mode == PracticeMode.Context) {
-                    val pairs = topic.contextPairCount()
-                    "${topic.words.size} ${ukrainianPlural(topic.words.size, "слово", "слова", "слів")} · " +
-                        "$pairs ${ukrainianPlural(pairs, "пара", "пари", "пар")} у контексті"
-                } else {
-                    null
-                }
                 PracticeTopicPickerRow(
                     topic = topic,
                     selected = topic.id in selectedTopicIds,
-                    subtitle = contextSubtitle,
+                    subtitle = null,
                     onClick = { onToggleTopic(topic.id) },
                 )
             }
@@ -4036,11 +3924,7 @@ private fun PracticeSetupScreen(
                     )
                     Box(modifier = Modifier.padding(horizontal = 8.dp).size(4.dp).clip(CircleShape).background(PrototypeColor.Muted3))
                     Text(
-                        text = if (mode == PracticeMode.Context) {
-                            "$selectedPairs ${ukrainianPlural(selectedPairs, "пара", "пари", "пар")}"
-                        } else {
-                            "$selectedWords ${ukrainianPlural(selectedWords, "слово", "слова", "слів")}"
-                        },
+                        text = "$selectedWords ${ukrainianPlural(selectedWords, "слово", "слова", "слів")}",
                         color = PrototypeColor.Muted,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
@@ -4048,7 +3932,7 @@ private fun PracticeSetupScreen(
                 }
                 PrimaryPillButton(
                     label = "Почати тренування",
-                    enabled = if (mode == PracticeMode.Context) selectedPairs > 0 else selectedWords > 0,
+                    enabled = selectedWords > 0,
                     onClick = onStart,
                 )
             }
