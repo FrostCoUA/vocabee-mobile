@@ -55,9 +55,12 @@ import kotlin.math.roundToInt
 internal fun ContextGlossarySentence(
     glossary: ContextGlossary,
     targetWord: String,
-    bookmarkedKeys: Set<String>,
-    onBookmark: (ContextGlossaryToken) -> Unit,
+    savedKeys: Set<String>,
+    action: ContextGlossaryTokenAction,
+    onAction: (ContextGlossaryToken) -> Unit,
     modifier: Modifier = Modifier,
+    maxLines: Int = 3,
+    textAlign: TextAlign = TextAlign.Center,
 ) {
     var textLayout by remember(glossary) { mutableStateOf<TextLayoutResult?>(null) }
     var selectedIndex by remember(glossary) { mutableStateOf<Int?>(null) }
@@ -108,8 +111,8 @@ internal fun ContextGlossarySentence(
             fontWeight = FontWeight.SemiBold,
             fontSize = 14.sp,
             lineHeight = 20.sp,
-            textAlign = TextAlign.Center,
-            maxLines = 3,
+            textAlign = textAlign,
+            maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
             onTextLayout = { layout ->
                 textLayout = layout
@@ -150,28 +153,32 @@ internal fun ContextGlossarySentence(
                             fontSize = 14.sp,
                         )
                         }
-                        val bookmarkKey = contextBookmarkKey(glossary, selectedToken)
-                        val isBookmarked = bookmarkKey in bookmarkedKeys
+                        val savedKey = contextBookmarkKey(glossary, selectedToken)
+                        val isSaved = savedKey in savedKeys
                         Box(
                             modifier = Modifier
                                 .padding(start = 10.dp)
                                 .size(34.dp)
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(
-                                    if (isBookmarked) PrototypeColor.Yellow.copy(alpha = 0.34f)
+                                    if (isSaved) PrototypeColor.Yellow.copy(alpha = 0.34f)
                                     else PrototypeColor.Tint,
                                 )
-                                .clickable {
-                                    onBookmark(selectedToken)
+                                .clickable(enabled = action == ContextGlossaryTokenAction.Bookmark || !isSaved) {
+                                    onAction(selectedToken)
                                     selectedIndex = null
                                     selectedBounds = null
                                 },
                             contentAlignment = Alignment.Center,
                         ) {
                             PrototypeLineIcon(
-                                icon = PrototypeIcon.Bookmark,
+                                icon = when {
+                                    action == ContextGlossaryTokenAction.AddToDictionary && isSaved -> PrototypeIcon.Check
+                                    action == ContextGlossaryTokenAction.AddToDictionary -> PrototypeIcon.Plus
+                                    else -> PrototypeIcon.Bookmark
+                                },
                                 modifier = Modifier.size(17.dp),
-                                color = if (isBookmarked) {
+                                color = if (isSaved) {
                                     PrototypeColor.NoteYellowText
                                 } else {
                                     PrototypeColor.PurpleText
@@ -186,6 +193,11 @@ internal fun ContextGlossarySentence(
     }
 }
 
+internal enum class ContextGlossaryTokenAction {
+    Bookmark,
+    AddToDictionary,
+}
+
 internal fun contextTokenIndexAtOffset(glossary: ContextGlossary, offset: Int): Int? =
     glossary.tokens.indexOfFirst { token -> offset in token.start until token.endExclusive }
         .takeIf { it >= 0 }
@@ -193,10 +205,23 @@ internal fun contextTokenIndexAtOffset(glossary: ContextGlossary, offset: Int): 
 internal fun contextBookmarkKey(
     glossary: ContextGlossary,
     token: ContextGlossaryToken,
+): String = contextTranslationKey(
+    sourceLang = glossary.sourceLang,
+    targetLang = glossary.targetLang,
+    source = token.lemma?.trim()?.takeIf { it.isNotEmpty() } ?: token.normalized,
+    translation = token.translation,
+)
+
+internal fun contextTranslationKey(
+    sourceLang: String,
+    targetLang: String,
+    source: String,
+    translation: String,
 ): String = listOf(
-    glossary.sourceLang,
-    glossary.targetLang,
-    token.lemma?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: token.normalized,
+    sourceLang.trim().lowercase(),
+    targetLang.trim().lowercase(),
+    source.trim().lowercase(),
+    translation.trim().lowercase(),
 ).joinToString(":")
 
 internal fun contextTargetTokenIndexes(

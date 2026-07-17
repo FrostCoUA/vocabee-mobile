@@ -186,6 +186,24 @@ class PracticeUiPolicyTest {
     }
 
     @Test
+    fun contextKeysKeepDifferentTranslationsOfTheSameWordSeparate() {
+        val glossary = ContextGlossary(
+            sentence = "The bank is near the river bank.",
+            sourceLang = "en",
+            targetLang = "uk",
+            tokens = emptyList(),
+        )
+        val financial = ContextGlossaryToken("bank", "bank", 4, 8, "банк", "bank")
+        val riverside = ContextGlossaryToken("bank", "bank", 27, 31, "берег", "bank")
+
+        assertFalse(contextBookmarkKey(glossary, financial) == contextBookmarkKey(glossary, riverside))
+        assertEquals(
+            contextBookmarkKey(glossary, financial),
+            contextTranslationKey("EN", "UK", "Bank", "Банк"),
+        )
+    }
+
+    @Test
     fun legacySavedUnitsGetConservativeLabelsWithoutRemoteResearch() {
         assertEquals(listOf("Фраза"), lexicalLabelsFor("by the way", details = null))
         assertEquals(listOf("Абревіатура"), lexicalLabelsFor("NATO", details = null))

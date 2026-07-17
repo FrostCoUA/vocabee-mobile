@@ -135,6 +135,7 @@ import com.vocabee.android.feature.vocabulary.data.preferences.PreferencesManage
 import com.vocabee.android.feature.vocabulary.data.sync.toApplySyncRequest
 import com.vocabee.android.feature.vocabulary.data.sync.toVocabularySyncSnapshot
 import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
+import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossaryToken
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
 import com.vocabee.android.feature.vocabulary.domain.model.LexicalRegisterTag
@@ -862,6 +863,36 @@ private fun MainApp(
                                         savedWord?.let { enrichContextGlossaryInBackground(topic, it) }
                                     } else {
                                         sheet = PrototypeSheet.AuthRequired(AuthGateReason.WordLimit)
+                                    }
+                                },
+                                onAddContextWord = addContextWord@ { glossary, token ->
+                                    val bookmark = practiceBookmark(glossary, token, topic.id)
+                                    val currentTopic = store.state.topics.firstOrNull { it.id == topic.id }
+                                        ?: return@addContextWord
+                                    val alreadyAdded = currentTopic.words.any { word ->
+                                        word.source.equals(bookmark.source, ignoreCase = true) &&
+                                            word.translation.equals(bookmark.translation, ignoreCase = true)
+                                    }
+                                    if (alreadyAdded) return@addContextWord
+
+                                    when {
+                                        state.account !is VocabeeAccountState.Authenticated -> {
+                                            sheet = PrototypeSheet.AuthRequired(AuthGateReason.BookmarkSave)
+                                        }
+                                        state.beeBalance < TranslationSearchBeeCost -> {
+                                            sheet = PrototypeSheet.NeedBees(BeeGateReason.BookmarkSave)
+                                        }
+                                        store.spendTranslationBee() -> {
+                                            store.onEvent(
+                                                VocabeeEvent.AddWord(
+                                                    topicId = topic.id,
+                                                    source = bookmark.source,
+                                                    translation = bookmark.translation,
+                                                    details = bookmark.toWordDetails(),
+                                                ),
+                                            )
+                                            syncVocabularyNow()
+                                        }
                                     }
                                 },
                                 onRemoveWord = { translation ->
@@ -2416,6 +2447,7 @@ private fun DictionaryDetailScreen(
     onTranslationSearchBlocked: () -> Unit,
     searchRemote: suspend (query: String) -> AddWordSearchState,
     onAddWord: (source: String, translation: String, ipa: String?, details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?) -> Unit,
+    onAddContextWord: (glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit,
     onRemoveWord: (translation: String) -> Unit,
     onSpeak: (text: String, languageTag: String) -> Unit,
 ) {
@@ -2442,6 +2474,16 @@ private fun DictionaryDetailScreen(
     val wordGroups = remember(topic.words) { topic.words.groupBySourceWord() }
     val existingTranslations = remember(topic.words) {
         topic.words.map { it.translation.trim().lowercase() }.toSet()
+    }
+    val savedContextKeys = remember(topic.words, topic.sourceLanguage.code, topic.targetLanguage.code) {
+        topic.words.mapTo(mutableSetOf()) { word ->
+            contextTranslationKey(
+                sourceLang = topic.sourceLanguage.code,
+                targetLang = topic.targetLanguage.code,
+                source = word.source,
+                translation = word.translation,
+            )
+        }
     }
     val showTranslationPanel =
         cleanedQuery.isNotBlank() ||
@@ -2620,6 +2662,8 @@ private fun DictionaryDetailScreen(
                         accent = accent,
                         highlighted = group.entries.any { it.id == recentlyAddedWordId },
                         modifier = Modifier.padding(horizontal = 16.dp),
+                        savedContextKeys = savedContextKeys,
+                        onAddContextWord = onAddContextWord,
                         onSpeak = { onSpeak(group.sourceWord, topic.sourceLanguage.speechTag) },
                         onRemove = {
                             group.translations.forEach(onRemoveWord)
@@ -3165,6 +3209,8 @@ private fun WordGroupRow(
     accent: Color,
     highlighted: Boolean,
     modifier: Modifier = Modifier,
+    savedContextKeys: Set<String>,
+    onAddContextWord: (glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit,
     onSpeak: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -3291,6 +3337,9 @@ private fun WordGroupRow(
                     WordDetailsBlock(
                         details = details,
                         accent = accent,
+                        targetWord = group.sourceWord,
+                        savedContextKeys = savedContextKeys,
+                        onAddContextWord = onAddContextWord,
                         modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 15.dp),
                     )
                 }
@@ -3454,6 +3503,9 @@ internal fun WordDetailsBlock(
     details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails,
     accent: Color,
     modifier: Modifier = Modifier,
+    targetWord: String? = null,
+    savedContextKeys: Set<String> = emptySet(),
+    onAddContextWord: ((glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
@@ -3472,7 +3524,12 @@ internal fun WordDetailsBlock(
             LexicalMetadataBlock(details = details, accent = accent)
         }
         details.contextGlossary?.let { glossary ->
-            ContextGlossaryDetailsBlock(glossary = glossary, accent = accent)
+            ContextGlossaryDetailsBlock(
+                glossary = glossary,
+                targetWord = targetWord,
+                savedContextKeys = savedContextKeys,
+                onAddContextWord = onAddContextWord,
+            )
         }
         if (details.senses.isNotEmpty()) {
             details.senses.take(3).forEachIndexed { index, sense ->
@@ -3498,17 +3555,36 @@ internal fun WordDetailsBlock(
 @Composable
 private fun ContextGlossaryDetailsBlock(
     glossary: ContextGlossary,
-    accent: Color,
+    targetWord: String?,
+    savedContextKeys: Set<String>,
+    onAddContextWord: ((glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit)?,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        LexicalMetadataValue(label = "Контекстний приклад", value = glossary.sentence)
-        WordChipsRow(
-            label = "Слова з контексту",
-            values = glossary.tokens
-                .distinctBy { token -> token.normalized }
-                .map { token -> "${token.surface} — ${token.translation}" },
-            accent = accent,
+        Text(
+            text = "Контекстний приклад",
+            color = PrototypeColor.Muted2,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 11.5.sp,
         )
+        if (targetWord != null && onAddContextWord != null) {
+            ContextGlossarySentence(
+                glossary = glossary,
+                targetWord = targetWord,
+                savedKeys = savedContextKeys,
+                action = ContextGlossaryTokenAction.AddToDictionary,
+                onAction = { token -> onAddContextWord(glossary, token) },
+                maxLines = Int.MAX_VALUE,
+                textAlign = TextAlign.Start,
+            )
+        } else {
+            Text(
+                text = highlightedSentence(glossary.sentence, targetWord.orEmpty()),
+                color = PrototypeColor.Muted,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+            )
+        }
     }
 }
 
@@ -3596,7 +3672,12 @@ private fun LexicalMetadataBlock(
             value = details.translatedExpansion,
         )
         LexicalMetadataValue(label = "Дослівно", value = details.literalTranslation)
-        LexicalMetadataValue(label = "Приклад", value = details.usageExample)
+        LexicalMetadataValue(
+            label = "Приклад",
+            value = details.usageExample?.takeUnless { example ->
+                example == details.contextGlossary?.sentence
+            },
+        )
         LexicalMetadataValue(label = "Переклад прикладу", value = details.usageExampleTranslation)
     }
 }
@@ -4892,8 +4973,9 @@ private fun PracticeFlipCard(
                             ContextGlossarySentence(
                                 glossary = glossary,
                                 targetWord = card.word.source,
-                                bookmarkedKeys = bookmarkedKeys,
-                                onBookmark = { token -> onBookmark(token, glossary) },
+                                savedKeys = bookmarkedKeys,
+                                action = ContextGlossaryTokenAction.Bookmark,
+                                onAction = { token -> onBookmark(token, glossary) },
                                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
                             )
                         } else {
