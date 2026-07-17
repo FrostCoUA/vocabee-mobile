@@ -3641,6 +3641,11 @@ internal fun shouldShowPracticeCardBack(rotationDegrees: Float): Boolean {
     return normalizedRotation > 90f && normalizedRotation < 270f
 }
 
+internal fun shouldRecordUnknownOnManualReveal(
+    isFlipped: Boolean,
+    waitingForNextAfterMiss: Boolean,
+): Boolean = !isFlipped && !waitingForNextAfterMiss
+
 @Composable
 private fun PracticeScreen(
     topics: List<DictionaryTopic>,
@@ -3753,7 +3758,7 @@ private fun PracticeScreen(
         moveNext()
     }
 
-    fun answerUnknown() {
+    fun recordUnknownAnswer() {
         if (waitingForNextAfterMiss) return
         val card = deck.getOrNull(index) ?: return
         onAnswerWord(
@@ -3761,16 +3766,28 @@ private fun PracticeScreen(
             card.word.id,
             -KnowledgeStepPercent,
         )
+        waitingForNextAfterMiss = true
+    }
+
+    fun answerUnknown() {
+        if (waitingForNextAfterMiss) return
         if (!flipped) {
             cardRotationTargetDegrees += PracticeFlipDirection.Tap.rotationDeltaDegrees
             flipped = true
         }
-        waitingForNextAfterMiss = true
+        recordUnknownAnswer()
     }
 
     fun flipCard(direction: PracticeFlipDirection) {
+        val recordsUnknown = shouldRecordUnknownOnManualReveal(
+            isFlipped = flipped,
+            waitingForNextAfterMiss = waitingForNextAfterMiss,
+        )
         cardRotationTargetDegrees += direction.rotationDeltaDegrees
         flipped = !flipped
+        if (recordsUnknown) {
+            recordUnknownAnswer()
+        }
     }
 
     fun requestExit() {

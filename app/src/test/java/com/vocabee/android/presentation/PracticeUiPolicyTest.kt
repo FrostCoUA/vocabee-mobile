@@ -103,4 +103,26 @@ class PracticeUiPolicyTest {
         assertEquals(PrototypeColor.Yellow, highlightedRange.item.background)
         assertEquals(PrototypeColor.YellowText, highlightedRange.item.color)
     }
+
+    @Test
+    fun manuallyRevealingTranslationRecordsUnknownOnlyOnce() {
+        assertTrue(
+            shouldRecordUnknownOnManualReveal(
+                isFlipped = false,
+                waitingForNextAfterMiss = false,
+            ),
+        )
+        assertFalse(
+            shouldRecordUnknownOnManualReveal(
+                isFlipped = true,
+                waitingForNextAfterMiss = false,
+            ),
+        )
+        assertFalse(
+            shouldRecordUnknownOnManualReveal(
+                isFlipped = false,
+                waitingForNextAfterMiss = true,
+            ),
+        )
+    }
 }
