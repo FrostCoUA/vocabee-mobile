@@ -11,10 +11,16 @@ val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
-val vocabeeApiBaseUrl: String =
-    localProps.getProperty("vocabee.api.baseUrl")
+val vocabeeDevApiBaseUrl: String =
+    localProps.getProperty("vocabee.api.devBaseUrl")
+        ?: localProps.getProperty("vocabee.api.baseUrl")
+        ?: System.getenv("VOCABEE_DEV_API_BASE_URL")
         ?: System.getenv("VOCABEE_API_BASE_URL")
-        ?: "http://10.0.2.2:3000"
+        ?: "https://dev-api.vocabee.online"
+val vocabeeProdApiBaseUrl: String =
+    localProps.getProperty("vocabee.api.prodBaseUrl")
+        ?: System.getenv("VOCABEE_PROD_API_BASE_URL")
+        ?: "https://api.vocabee.online"
 val vocabeeGoogleWebClientId: String =
     localProps.getProperty("vocabee.google.webClientId")
         ?: System.getenv("VOCABEE_GOOGLE_WEB_CLIENT_ID")
@@ -113,10 +119,18 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "VOCABEE_API_BASE_URL", "\"$vocabeeApiBaseUrl\"")
         buildConfigField("String", "VOCABEE_GOOGLE_WEB_CLIENT_ID", "\"$vocabeeGoogleWebClientId\"")
         buildConfigField("String", "VOCABEE_ADMOB_REWARDED_AD_UNIT_ID", "\"$vocabeeAdMobRewardedAdUnitId\"")
         resValue("string", "vocabee_admob_app_id", vocabeeAdMobAppId)
+    }
+
+    buildTypes {
+        debug {
+            buildConfigField("String", "VOCABEE_API_BASE_URL", "\"$vocabeeDevApiBaseUrl\"")
+        }
+        release {
+            buildConfigField("String", "VOCABEE_API_BASE_URL", "\"$vocabeeProdApiBaseUrl\"")
+        }
     }
 
     compileOptions {

@@ -24,6 +24,9 @@ xcrun -sdk iphonesimulator swiftc \
   iosApp/Sources/iOSApp.swift
 
 cp iosApp/Info.plist "$APP_DIR/Info.plist"
+# The standalone simulator script does not run Xcode's Info.plist
+# substitution, so explicitly bind the Debug/dev gateway here.
+/usr/libexec/PlistBuddy -c "Set :VocabeeApiBaseUrl https://dev-api.vocabee.online" "$APP_DIR/Info.plist"
 codesign --force --sign - "$APP_DIR"
 
 echo "Built: $APP_DIR"

@@ -189,6 +189,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.vocabee.ios;
 				PRODUCT_NAME = VocabeeApp;
+				VOCABEE_API_BASE_URL = "https://dev-api.vocabee.online";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_VERSION = 5.0;
@@ -227,6 +228,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.vocabee.ios;
 				PRODUCT_NAME = VocabeeApp;
+				VOCABEE_API_BASE_URL = "https://api.vocabee.online";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_VERSION = 5.0;

@@ -1,8 +1,16 @@
 package com.vocabee.android.di
 
+import platform.Foundation.NSBundle
+
 /**
- * Gateway base URL, split per Apple target:
- *  - simulator shares the host network → localhost
- *  - a physical device reaches the Mac over LAN → the Mac's Wi-Fi IP
+ * The Xcode Debug/Release configuration writes this value into the app's
+ * Info.plist. The fallback keeps command-line framework builds usable when
+ * Info.plist substitution is not available.
  */
 internal expect val vocabeeIosBaseUrl: String
+
+internal fun configuredIosApiBaseUrl(fallback: String): String =
+    (NSBundle.mainBundle.objectForInfoDictionaryKey("VocabeeApiBaseUrl") as? String)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && !it.startsWith("$(") }
+        ?: fallback

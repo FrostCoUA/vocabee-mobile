@@ -30,6 +30,24 @@
 поточний Compose передає обом gateway один literal `DICTIONARY_APP_API_KEY` і тому
 працює через legacy fallback. Dictionary API app-neutral: без user id, app JWT, email,
 premium або балансу.
+
+### 1.0.1 Адреса gateway за build-конфігурацією
+
+**[ЗАРАЗ]** Мобільні build-конфігурації розділяють середовища:
+
+| Платформа / конфігурація | `client-gateway` |
+|---|---|
+| Android `debug` | `https://dev-api.vocabee.online` |
+| Android `release` | `https://api.vocabee.online` |
+| iOS `Debug` | `https://dev-api.vocabee.online` |
+| iOS `Release` | `https://api.vocabee.online` |
+
+Android може перевизначити адреси через `vocabee.api.devBaseUrl` /
+`vocabee.api.prodBaseUrl` у gitignored `local.properties` або через
+`VOCABEE_DEV_API_BASE_URL` / `VOCABEE_PROD_API_BASE_URL`. iOS бере адресу з
+`VocabeeApiBaseUrl` у `Info.plist`, яку Xcode підставляє з build setting.
+Окремі локальні LAN-адреси не є default і мають задаватися лише явним override.
+
 **[ЗАРАЗ]** Зовнішні consumers/ключі лежать у БД, raw key повертається лише один раз,
 ротація має default overlap 15 хв, а `external-standard` quota = 60/min + 1000/UTC-day
 на consumer (зміна ключа quota не скидає). DB-backed lifecycle є **[ЗАРАЗ]**
