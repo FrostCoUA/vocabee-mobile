@@ -1,10 +1,10 @@
 package com.vocabee.android.feature.vocabulary.presentation.platform
 
-/** Opens the platform share sheet with plain text (referral link etc.). */
+/** Opens the platform share sheet with referral copy and its PNG QR code. */
 interface ShareController {
-    fun shareText(text: String)
+    fun shareInvite(text: String, qrCodePng: ByteArray)
 }
 
 object NoShareController : ShareController {
-    override fun shareText(text: String) = Unit
+    override fun shareInvite(text: String, qrCodePng: ByteArray) = Unit
 }

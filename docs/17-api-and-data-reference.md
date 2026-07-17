@@ -155,6 +155,11 @@ Linked/existing-email Google user знаходиться case-insensitively че
 `passwordHash`, `referralCode`, `statusReason`, `statusChangedAt` і
 `statusChangedBy` у `UserResponseDto` не потрапляють.
 
+**Referral (`GET /v1/referral/me`, JWT).** Відповідь:
+`{ code, link, rewardBees }`, де `link = https://vocabee.app/i/<code>`, а
+`rewardBees = 50`. Це джерело суми для invite UI/share-copy; саме deferred
+deep-link зіставлення друга й фактичний credit обом ще [МАЙБУТНЄ].
+
 ### 1.3.1 Administrator identity + client administration (`/v1/admin`)
 
 `vocabee-gateway/src/client-admin/*`, `src/admin-auth/*`. **[ЗАРАЗ]** Це окремий

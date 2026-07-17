@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -52,10 +53,13 @@ import com.vocabee.android.core.presentation.designsystem.manropeFamily
 import com.vocabee.android.core.presentation.designsystem.PrototypeIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLogo
+import com.vocabee.android.feature.vocabulary.data.api.DefaultReferralRewardBees
 import com.vocabee.android.feature.vocabulary.data.api.SupportRequestBody
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApi
 import com.vocabee.android.feature.vocabulary.presentation.platform.ShareController
+import io.github.alexzhirkevich.qrose.ImageFormat
 import io.github.alexzhirkevich.qrose.rememberQrCodePainter
+import io.github.alexzhirkevich.qrose.toByteArray
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.Image
 
@@ -65,6 +69,9 @@ import androidx.compose.foundation.Image
  * ============================================================ */
 
 private const val FallbackInviteLink = "https://vocabee.app"
+
+internal fun inviteShareMessage(link: String, rewardBees: Int): String =
+    "Вчу слова у Vocabee — приєднуйся! Після першого входу отримаємо по $rewardBees монеток. $link"
 
 @Composable
 internal fun PushedScreenTopBar(
@@ -115,6 +122,7 @@ internal fun InviteFriendsScreen(
     onShowSnackbar: (String) -> Unit,
 ) {
     var link by remember { mutableStateOf(FallbackInviteLink) }
+    var rewardBees by remember { mutableIntStateOf(DefaultReferralRewardBees) }
     LaunchedEffect(isAuthenticated) {
         if (api != null && isAuthenticated) {
             val referral = runCatching { api.fetchReferral() }.getOrElse {
@@ -124,12 +132,20 @@ internal fun InviteFriendsScreen(
                     api.fetchReferral()
                 }.getOrNull()
             }
-            referral?.let { link = it.link }
+            referral?.let {
+                link = it.link
+                rewardBees = it.rewardBees
+            }
         }
     }
     val clipboard = LocalClipboardManager.current
-    val shareMessage =
-        "Вчу слова у Vocabee — приєднуйся! Обом впаде по +10 монеток: $link"
+    val shareMessage = inviteShareMessage(link, rewardBees)
+    val qrCodePainter = rememberQrCodePainter(link)
+    val shareQrCodePainter = rememberQrCodePainter(
+        data = link,
+        backgroundFill = SolidColor(Color.White),
+        scale = 0.84f,
+    )
 
     Column(
         modifier = Modifier
@@ -184,7 +200,7 @@ internal fun InviteFriendsScreen(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Image(
-                                    painter = rememberQrCodePainter(link),
+                                    painter = qrCodePainter,
                                     contentDescription = "QR-код запрошення",
                                     modifier = Modifier.fillMaxSize(),
                                 )
@@ -216,7 +232,7 @@ internal fun InviteFriendsScreen(
                         color = Color.White.copy(alpha = 0.16f),
                     ) {
                         Text(
-                            text = "🍯 +10 монеток тобі й другові",
+                            text = "🍯 +$rewardBees монеток тобі й другові",
                             modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
                             color = PrototypeColor.Yellow,
                             fontWeight = FontWeight.ExtraBold,
@@ -278,12 +294,23 @@ internal fun InviteFriendsScreen(
 
             PrimaryPillButton(
                 label = "Поділитися",
-                onClick = { shareController.shareText(shareMessage) },
+                onClick = {
+                    runCatching {
+                        val qrCodePng = shareQrCodePainter.toByteArray(
+                            width = 1024,
+                            height = 1024,
+                            format = ImageFormat.PNG,
+                        )
+                        shareController.shareInvite(shareMessage, qrCodePng)
+                    }.onFailure {
+                        onShowSnackbar("Не вдалося підготувати QR-код для поширення")
+                    }
+                },
             )
 
             if (!isAuthenticated) {
                 Text(
-                    text = "Увійди через Google, щоб отримати персональну лінку і бонус +10 монеток за друга.",
+                    text = "Увійди через Google, щоб отримати персональну лінку і бонус +$rewardBees монеток за друга.",
                     color = PrototypeColor.Muted2,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.5.sp,

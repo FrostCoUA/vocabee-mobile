@@ -2,10 +2,13 @@ package com.vocabee.android.feature.vocabulary.data.api
 
 import kotlinx.serialization.Serializable
 
+const val DefaultReferralRewardBees = 50
+
 @Serializable
 data class ReferralResponse(
     val code: String,
     val link: String,
+    val rewardBees: Int = DefaultReferralRewardBees,
 )
 
 @Serializable
