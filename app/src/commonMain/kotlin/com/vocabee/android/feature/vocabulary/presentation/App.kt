@@ -449,6 +449,7 @@ private fun MainApp(
     var googleAuthLoading by remember { mutableStateOf(false) }
     var rewardAdLoading by remember { mutableStateOf(false) }
     var pendingSyncConflict by remember { mutableStateOf<PendingSyncConflict?>(null) }
+    var practiceBottomPanelVisible by remember { mutableStateOf(false) }
     val appSnackbarHostState = remember { SnackbarHostState() }
 
     fun openRoot(route: VocabeeRoute) {
@@ -702,6 +703,13 @@ private fun MainApp(
             if (showBottomBar) {
                 VocabeeBottomBar(
                     selectedTab = selectedTab,
+                    backdropColor = if (
+                        currentRoute == VocabeeRoute.Practice && practiceBottomPanelVisible
+                    ) {
+                        PrototypeColor.White
+                    } else {
+                        PrototypeColor.Background
+                    },
                     onTabClick = { tab -> openRoot(tab.route) },
                 )
             }
@@ -812,6 +820,9 @@ private fun MainApp(
                     entry<VocabeeRoute.Practice> {
                         PracticeScreen(
                             topics = state.topics,
+                            onBottomPanelVisibilityChanged = { visible ->
+                                practiceBottomPanelVisible = visible
+                            },
                             onOpenDictionaries = { openRoot(VocabeeRoute.DictionaryHome) },
                             peekTranslate = { word, topic ->
                                 peekTranslateRemotely(remoteLexiconSearch, word, topic)
@@ -3528,29 +3539,36 @@ private fun EmptyWordsIllustration(modifier: Modifier = Modifier) {
 @Composable
 private fun VocabeeBottomBar(
     selectedTab: AppTab,
+    backdropColor: Color,
     onTabClick: (AppTab) -> Unit,
 ) {
     val barShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(barShape)
-            .background(PrototypeColor.White)
-            .border(BorderStroke(1.dp, PrototypeColor.Line), barShape)
-            .navigationBarsPadding()
-            .height(72.dp),
+            .background(backdropColor),
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(barShape)
+                .background(PrototypeColor.White)
+                .border(BorderStroke(1.dp, PrototypeColor.Line), barShape)
+                .navigationBarsPadding()
+                .height(72.dp),
         ) {
-            AppTab.entries.forEach { tab ->
-                BottomTabButton(
-                    tab = tab,
-                    selected = selectedTab == tab,
-                    modifier = Modifier.weight(1f),
-                    onClick = { onTabClick(tab) },
-                )
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppTab.entries.forEach { tab ->
+                    BottomTabButton(
+                        tab = tab,
+                        selected = selectedTab == tab,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onTabClick(tab) },
+                    )
+                }
             }
         }
     }
@@ -3620,6 +3638,7 @@ internal const val KnowledgeStepPercent = 20
 @Composable
 private fun PracticeScreen(
     topics: List<DictionaryTopic>,
+    onBottomPanelVisibilityChanged: (Boolean) -> Unit,
     onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
     onOpenDictionaries: () -> Unit,
     peekTranslate: suspend (word: String, topic: DictionaryTopic) -> String?,
@@ -3635,6 +3654,13 @@ private fun PracticeScreen(
     var mode by remember { mutableStateOf(PracticeMode.Classic) }
     var selectedTopicIds by remember(trainableTopicIds) { mutableStateOf(emptySet<String>()) }
     var practiceStarted by remember(trainableTopicIds) { mutableStateOf(false) }
+    val hasSetupFooter = !practiceStarted &&
+        trainableTopics.isNotEmpty() &&
+        (mode != PracticeMode.Context || trainableTopics.sumOf { it.contextPairCount() } > 0)
+    DisposableEffect(hasSetupFooter) {
+        onBottomPanelVisibilityChanged(hasSetupFooter)
+        onDispose { onBottomPanelVisibilityChanged(false) }
+    }
     // Разовий бекфіл sense-збагачення на вхід у контекст-режим: старі слова
     // отримують речення власного значення, і лічильники пар оживають.
     var contextEnriching by remember { mutableStateOf(false) }
