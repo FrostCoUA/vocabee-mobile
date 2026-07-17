@@ -1,6 +1,8 @@
 package com.vocabee.android.feature.vocabulary.presentation
 
 import com.vocabee.android.core.presentation.designsystem.PrototypeColor
+import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
+import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossaryToken
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
@@ -67,6 +69,87 @@ class PracticeUiPolicyTest {
         )
 
         assertEquals("LOL, that was hilarious!", word.contextSentence())
+    }
+
+    @Test
+    fun practiceUsesTheExactSentenceStoredWithItsContextGlossary() {
+        val glossary = ContextGlossary(
+            sentence = "I left my keys by the bank.",
+            sourceLang = "en",
+            targetLang = "uk",
+            tokens = listOf(
+                ContextGlossaryToken("bank", "bank", 22, 26, "банк"),
+            ),
+        )
+        val word = WordEntry(
+            id = "bank",
+            source = "bank",
+            translation = "банк",
+            details = WordDetails(
+                usageExample = "A newer example must not replace the enriched sentence.",
+                contextGlossary = glossary,
+            ),
+        )
+
+        assertEquals(glossary.sentence, word.contextSentence())
+    }
+
+    @Test
+    fun contextPopupHitTestingSelectsWordsButNotPunctuation() {
+        val glossary = ContextGlossary(
+            sentence = "Hello, world!",
+            sourceLang = "en",
+            targetLang = "uk",
+            tokens = listOf(
+                ContextGlossaryToken("Hello", "hello", 0, 5, "привіт"),
+                ContextGlossaryToken("world", "world", 7, 12, "світ"),
+            ),
+        )
+
+        assertEquals(0, contextTokenIndexAtOffset(glossary, 4))
+        assertEquals(1, contextTokenIndexAtOffset(glossary, 7))
+        assertNull(contextTokenIndexAtOffset(glossary, 5))
+        assertNull(contextTokenIndexAtOffset(glossary, 12))
+    }
+
+    @Test
+    fun everyOccurrenceOfThePracticedWordIsExcludedFromHints() {
+        val glossary = ContextGlossary(
+            sentence = "A bank differs from other banks near the bank and a banker.",
+            sourceLang = "en",
+            targetLang = "uk",
+            tokens = listOf(
+                ContextGlossaryToken("A", "a", 0, 1, "артикль"),
+                ContextGlossaryToken("bank", "bank", 2, 6, "банк", "bank"),
+                ContextGlossaryToken("differs", "differs", 7, 14, "відрізняється", "differ"),
+                ContextGlossaryToken("from", "from", 15, 19, "від", "from"),
+                ContextGlossaryToken("other", "other", 20, 25, "інших", "other"),
+                ContextGlossaryToken("banks", "banks", 26, 31, "банків", "bank"),
+                ContextGlossaryToken("near", "near", 32, 36, "біля", "near"),
+                ContextGlossaryToken("the", "the", 37, 40, "артикль", "the"),
+                ContextGlossaryToken("bank", "bank", 41, 45, "банку", "bank"),
+                ContextGlossaryToken("banker", "banker", 52, 58, "банкір", "banker"),
+            ),
+        )
+
+        assertEquals(setOf(1, 5, 8), contextTargetTokenIndexes(glossary, "bank"))
+    }
+
+    @Test
+    fun bookmarkSavesTheLemmaAndKeepsTheWholeContextSnapshot() {
+        val token = ContextGlossaryToken("bakeries", "bakeries", 4, 12, "пекарні", "bakery")
+        val glossary = ContextGlossary(
+            sentence = "New bakeries opened downtown.",
+            sourceLang = "en",
+            targetLang = "uk",
+            tokens = listOf(token),
+        )
+
+        val bookmark = practiceBookmark(glossary, token, originTopicId = "travel")
+
+        assertEquals("bakery", bookmark.source)
+        assertEquals("пекарні", bookmark.translation)
+        assertEquals(glossary, bookmark.toWordDetails().contextGlossary)
     }
 
     @Test

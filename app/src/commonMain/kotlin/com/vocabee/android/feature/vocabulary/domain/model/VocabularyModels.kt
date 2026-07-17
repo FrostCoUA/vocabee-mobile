@@ -40,6 +40,27 @@ data class WordForm(
     val tags: List<String> = emptyList(),
 )
 
+/** One server-tokenized word occurrence inside the exact saved example sentence. */
+@Serializable
+data class ContextGlossaryToken(
+    val surface: String,
+    val normalized: String,
+    /** UTF-16 offsets; Kotlin String and the gateway use the same indexing. */
+    val start: Int,
+    val endExclusive: Int,
+    val translation: String,
+    val lemma: String? = null,
+)
+
+/** Offline snapshot used by the clickable practice sentence. */
+@Serializable
+data class ContextGlossary(
+    val sentence: String,
+    val sourceLang: String,
+    val targetLang: String,
+    val tokens: List<ContextGlossaryToken>,
+)
+
 /**
  * Rich enrichment for a saved word — populated from the gateway's search response
  * at the moment the user taps "+" and persisted to Room as a single JSON blob via
@@ -71,6 +92,8 @@ data class WordDetails(
     /** Natural usage example in the learning language and its translation. */
     val usageExample: String? = null,
     val usageExampleTranslation: String? = null,
+    /** Background batch enrichment for the exact sentence used in practice. */
+    val contextGlossary: ContextGlossary? = null,
 ) {
     val isEmpty: Boolean
         get() = senses.isEmpty() && synonyms.isEmpty() && antonyms.isEmpty() &&
@@ -78,7 +101,8 @@ data class WordDetails(
             lexicalUnitKind == LexicalUnitKind.Word && registerTags.isEmpty() &&
             expansion.isNullOrBlank() && translatedExpansion.isNullOrBlank() &&
             meaning.isNullOrBlank() && literalTranslation.isNullOrBlank() &&
-            usageExample.isNullOrBlank() && usageExampleTranslation.isNullOrBlank()
+            usageExample.isNullOrBlank() && usageExampleTranslation.isNullOrBlank() &&
+            contextGlossary == null
 }
 
 data class LanguageOption(

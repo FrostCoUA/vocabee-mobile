@@ -74,6 +74,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -133,6 +134,7 @@ import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferenc
 import com.vocabee.android.feature.vocabulary.data.preferences.PreferencesManager
 import com.vocabee.android.feature.vocabulary.data.sync.toApplySyncRequest
 import com.vocabee.android.feature.vocabulary.data.sync.toVocabularySyncSnapshot
+import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
 import com.vocabee.android.feature.vocabulary.domain.model.LexicalRegisterTag
@@ -141,6 +143,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.TopicUpdatedLabel
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import com.vocabee.android.feature.vocabulary.domain.usecase.ContextGlossaryUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
 import com.vocabee.android.feature.vocabulary.presentation.navigation.AppTab
 import com.vocabee.android.feature.vocabulary.presentation.navigation.VocabeeRoute
@@ -161,7 +164,9 @@ import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechInputC
 import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechOutputController
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
@@ -354,9 +359,9 @@ internal sealed interface PrototypeSheet {
     data object SyncConflict : PrototypeSheet
 }
 
-internal enum class BeeGateReason { DictionaryCreate, TranslationSearch }
+internal enum class BeeGateReason { DictionaryCreate, TranslationSearch, BookmarkSave }
 
-internal enum class AuthGateReason { DictionaryLimit, WordLimit }
+internal enum class AuthGateReason { DictionaryLimit, WordLimit, BookmarkSave }
 
 internal enum class ProfileLanguageTarget { Speaking, Learning }
 
@@ -441,6 +446,7 @@ private fun MainApp(
 ) {
     val state = store.state
     val scope = rememberCoroutineScope()
+    val contextGlossaryUseCase = remember(api) { api?.let(::ContextGlossaryUseCase) }
     val backStack = rememberNavBackStack(
         vocabeeSavedStateConfiguration,
         VocabeeRoute.DictionaryHome,
@@ -489,6 +495,41 @@ private fun MainApp(
             } catch (cause: Exception) {
                 onError?.invoke(cause.message ?: "Не вдалося синхронізувати словники")
             }
+        }
+    }
+
+    fun enrichContextGlossaryInBackground(topic: DictionaryTopic, word: WordEntry) {
+        val useCase = contextGlossaryUseCase ?: return
+        val sentence = word.contextSentence()?.trim()?.takeIf { it.isNotBlank() } ?: return
+        val existing = word.details?.contextGlossary
+        if (existing?.sentence == sentence && existing.tokens.isNotEmpty()) return
+
+        scope.launch {
+            val glossary = try {
+                useCase(
+                    sentence = sentence,
+                    sourceLang = topic.sourceLanguage.code,
+                    targetLang = topic.targetLanguage.code,
+                )
+            } catch (_: Exception) {
+                currentCoroutineContext().ensureActive()
+                null
+            } ?: return@launch
+
+            val latestWord = store.state.topics
+                .firstOrNull { it.id == topic.id }
+                ?.words
+                ?.firstOrNull { it.id == word.id }
+                ?: return@launch
+            val latestDetails = latestWord.details ?: WordDetails()
+            if (latestDetails.contextGlossary == glossary) return@launch
+            store.updateWordEnrichment(
+                topicId = topic.id,
+                wordId = word.id,
+                ipa = latestWord.ipa,
+                details = latestDetails.copy(contextGlossary = glossary),
+            )
+            syncVocabularyNow()
         }
     }
 
@@ -807,8 +848,18 @@ private fun MainApp(
                                 },
                                 onAddWord = { source, translation, ipa, details ->
                                     if (store.canAddWordToDictionary()) {
+                                        val previousWordId = store.state.recentlyAddedWordId
                                         store.onEvent(VocabeeEvent.AddWord(topic.id, source, translation, ipa, details))
+                                        val savedWord = store.state.recentlyAddedWordId
+                                            ?.takeIf { wordId -> wordId != previousWordId }
+                                            ?.let { wordId ->
+                                                store.state.topics
+                                                    .firstOrNull { it.id == topic.id }
+                                                    ?.words
+                                                    ?.firstOrNull { it.id == wordId }
+                                            }
                                         syncVocabularyNow()
+                                        savedWord?.let { enrichContextGlossaryInBackground(topic, it) }
                                     } else {
                                         sheet = PrototypeSheet.AuthRequired(AuthGateReason.WordLimit)
                                     }
@@ -845,6 +896,44 @@ private fun MainApp(
                                     ),
                                 )
                                 syncVocabularyNow()
+                            },
+                            beeBalance = state.beeBalance,
+                            onSaveBookmarks = { bookmarks, topicId ->
+                                if (state.account !is VocabeeAccountState.Authenticated) {
+                                    sheet = PrototypeSheet.AuthRequired(AuthGateReason.BookmarkSave)
+                                    false
+                                } else {
+                                    val topic = store.state.topics.firstOrNull { it.id == topicId }
+                                    if (topic == null) {
+                                        false
+                                    } else {
+                                        val newBookmarks = bookmarks.filter { bookmark ->
+                                            topic.words.none { word ->
+                                                word.source.equals(bookmark.source, ignoreCase = true) &&
+                                                    word.translation.equals(bookmark.translation, ignoreCase = true)
+                                            }
+                                        }
+                                        if (store.state.beeBalance < newBookmarks.size * TranslationSearchBeeCost) {
+                                            sheet = PrototypeSheet.NeedBees(BeeGateReason.BookmarkSave)
+                                            false
+                                        } else {
+                                            newBookmarks.forEach { bookmark ->
+                                                if (store.spendTranslationBee()) {
+                                                    store.onEvent(
+                                                        VocabeeEvent.AddWord(
+                                                            topicId = topicId,
+                                                            source = bookmark.source,
+                                                            translation = bookmark.translation,
+                                                            details = bookmark.toWordDetails(),
+                                                        ),
+                                                    )
+                                                }
+                                            }
+                                            syncVocabularyNow()
+                                            true
+                                        }
+                                    }
+                                }
                             },
                             onRoundCompleted = { store.recordPracticeRoundCompleted() },
                         )
@@ -1252,12 +1341,15 @@ private fun BeeRewardSheet(
     val title = when (reason) {
         BeeGateReason.DictionaryCreate -> "Потрібні монетки"
         BeeGateReason.TranslationSearch -> "Отримай монетки"
+        BeeGateReason.BookmarkSave -> "Закладки зачекають"
     }
     val message = when (reason) {
         BeeGateReason.DictionaryCreate ->
             "Перші $FreeDictionaryLimit словники безкоштовні. Новий словник коштує $DictionaryCreationBeeCost монеток."
         BeeGateReason.TranslationSearch ->
             "Щоб отримувати переклади, потрібні монетки. 1 пошук слова або фрази коштує 1 монетку."
+        BeeGateReason.BookmarkSave ->
+            "Для додавання слова із закладок потрібна 1 монетка. Подивись відео — закладки залишаться тут."
     }
     PrototypeBottomSheet(
         title = title,
@@ -1332,6 +1424,8 @@ private fun AuthRequiredSheet(
             "Без акаунта можна створити $FreeDictionaryLimit словники. Далі монетки і ліміти контролює бекенд, тому потрібно увійти через Google."
         AuthGateReason.WordLimit ->
             "Без акаунта можна зібрати $AnonymousFreeWordLimit слів. Щоб продовжити додавати слова і отримувати переклади за монетки, увійди через Google."
+        AuthGateReason.BookmarkSave ->
+            "Закладки залишаться в цьому раунді. Увійди через Google, щоб додати їх у словник і за потреби отримати монетки за рекламу."
     }
     PrototypeBottomSheet(
         title = "Потрібен акаунт",
@@ -3370,6 +3464,9 @@ internal fun WordDetailsBlock(
         if (details.hasLexicalMetadata()) {
             LexicalMetadataBlock(details = details, accent = accent)
         }
+        details.contextGlossary?.let { glossary ->
+            ContextGlossaryDetailsBlock(glossary = glossary, accent = accent)
+        }
         if (details.senses.isNotEmpty()) {
             details.senses.take(3).forEachIndexed { index, sense ->
                 WordSenseBlock(index = index, sense = sense, accent = accent)
@@ -3388,6 +3485,23 @@ internal fun WordDetailsBlock(
                 accent = PrototypeColor.Muted,
             )
         }
+    }
+}
+
+@Composable
+private fun ContextGlossaryDetailsBlock(
+    glossary: ContextGlossary,
+    accent: Color,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        LexicalMetadataValue(label = "Контекстний приклад", value = glossary.sentence)
+        WordChipsRow(
+            label = "Слова з контексту",
+            values = glossary.tokens
+                .distinctBy { token -> token.normalized }
+                .map { token -> "${token.surface} — ${token.translation}" },
+            accent = accent,
+        )
     }
 }
 
@@ -3816,6 +3930,11 @@ private class PracticeCardSessionState {
     var answer by mutableStateOf<PracticeCardAnswer?>(null)
 }
 
+private sealed interface PracticeBookmarkSelection {
+    data class One(val key: String) : PracticeBookmarkSelection
+    data object All : PracticeBookmarkSelection
+}
+
 @Composable
 private fun PracticeScreen(
     topics: List<DictionaryTopic>,
@@ -3823,6 +3942,8 @@ private fun PracticeScreen(
     onBottomPanelVisibilityChanged: (Boolean) -> Unit,
     onSpeakWord: (word: String, languageTag: String) -> Unit,
     onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
+    beeBalance: Int,
+    onSaveBookmarks: (bookmarks: List<PracticeBookmark>, topicId: String) -> Boolean,
     onRoundCompleted: () -> Unit,
 ) {
     val trainableTopics = topics.filter { topic -> topic.words.isNotEmpty() }
@@ -3881,7 +4002,9 @@ private fun PracticeScreen(
         }
     }
     val availableCardKeys = availableCards.map { it.first }
-    val availableCardIdentity = availableCardKeys.toSet()
+    // Freeze membership for the active round: saving a bookmark into one of the
+    // selected dictionaries must not rebuild the deck or reset the done screen.
+    val availableCardIdentity = remember { availableCardKeys.toSet() }
     var shuffleSeed by remember(availableCardIdentity) { mutableIntStateOf(Random.nextInt()) }
     val deckKeys = remember(availableCardIdentity, shuffleSeed) {
         buildPracticeDeckKeys(
@@ -3903,6 +4026,11 @@ private fun PracticeScreen(
     var interruptionSheetVisible by remember(deckKeys) { mutableStateOf(false) }
     var cardFlipEnabled by remember(deckKeys) { mutableStateOf(false) }
     var cardTransitioning by remember(deckKeys, roundGeneration) { mutableStateOf(false) }
+    val bookmarks = remember { mutableStateListOf<PracticeBookmark>() }
+    val bookmarkedKeys = bookmarks.mapTo(mutableSetOf()) { bookmark -> bookmark.key }
+    var bookmarkSelection by remember {
+        mutableStateOf<PracticeBookmarkSelection?>(null)
+    }
     LaunchedEffect(deckKeys) {
         cardFlipEnabled = false
         delay(300)
@@ -3991,6 +4119,15 @@ private fun PracticeScreen(
         }
     }
 
+    fun toggleBookmark(card: PracticeDeckCard, bookmark: PracticeBookmark) {
+        val existing = bookmarks.indexOfFirst { it.key == bookmark.key }
+        if (existing >= 0) {
+            bookmarks.removeAt(existing)
+        } else if (bookmark.source.isNotBlank() && bookmark.translation.isNotBlank()) {
+            bookmarks += bookmark.copy(originTopicId = card.topicId)
+        }
+    }
+
     BackHandler {
         requestExit()
     }
@@ -4011,6 +4148,12 @@ private fun PracticeScreen(
                     color = PrototypeColor.Ink,
                     letterSpacing = (-0.6).sp,
                 )
+                if (bookmarks.isNotEmpty()) {
+                    PracticeBookmarkBadge(
+                        count = bookmarks.size,
+                        modifier = Modifier.padding(end = 9.dp),
+                    )
+                }
                 Surface(
                     onClick = ::requestExit,
                     modifier = Modifier.size(44.dp),
@@ -4058,6 +4201,13 @@ private fun PracticeScreen(
             done -> PracticeDoneState(
                 correctAnswers = correctAnswers,
                 total = deck.size,
+                bookmarks = bookmarks,
+                onAddBookmark = { bookmark ->
+                    bookmarkSelection = PracticeBookmarkSelection.One(bookmark.key)
+                },
+                onAddAllBookmarks = {
+                    bookmarkSelection = PracticeBookmarkSelection.All
+                },
                 onRestart = {
                     coroutineScope.launch {
                         shuffleSeed = Random.nextInt()
@@ -4092,6 +4242,13 @@ private fun PracticeScreen(
                         onFlip = { direction -> flipCard(page, direction) },
                         onSpeak = {
                             onSpeakWord(card.word.source, card.sourceLanguageTag)
+                        },
+                        bookmarkedKeys = bookmarkedKeys,
+                        onBookmark = { token, glossary ->
+                            toggleBookmark(
+                                card = card,
+                                bookmark = practiceBookmark(glossary, token, card.topicId),
+                            )
                         },
                         modifier = Modifier
                             .fillMaxSize()
@@ -4144,6 +4301,28 @@ private fun PracticeScreen(
             onInterrupt = {
                 interruptionSheetVisible = false
                 practiceStarted = false
+            },
+        )
+    }
+
+
+    val selectedBookmarks = when (val selection = bookmarkSelection) {
+        null -> emptyList()
+        PracticeBookmarkSelection.All -> bookmarks.toList()
+        is PracticeBookmarkSelection.One -> bookmarks.filter { it.key == selection.key }
+    }
+    if (bookmarkSelection != null) {
+        PracticeDictionaryPickerSheet(
+            bookmarks = selectedBookmarks,
+            topics = compatibleBookmarkTopics(selectedBookmarks, topics),
+            beeBalance = beeBalance,
+            onDismiss = { bookmarkSelection = null },
+            onPick = { topicId ->
+                val keys = selectedBookmarks.mapTo(mutableSetOf()) { it.key }
+                bookmarkSelection = null
+                if (onSaveBookmarks(selectedBookmarks, topicId)) {
+                    bookmarks.removeAll { it.key in keys }
+                }
             },
         )
     }
@@ -4498,6 +4677,8 @@ private fun PracticeFlipCard(
     flipEnabled: Boolean,
     onFlip: (PracticeFlipDirection) -> Unit,
     onSpeak: () -> Unit,
+    bookmarkedKeys: Set<String>,
+    onBookmark: (com.vocabee.android.feature.vocabulary.domain.model.ContextGlossaryToken, ContextGlossary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -4676,17 +4857,29 @@ private fun PracticeFlipCard(
                         }
                     }
                     card.word.contextSentence()?.let { sentence ->
-                        Text(
-                            text = highlightedSentence(sentence, card.word.source),
-                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
-                            color = PrototypeColor.Muted,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            textAlign = TextAlign.Center,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        val glossary = card.word.details?.contextGlossary
+                            ?.takeIf { it.sentence == sentence && it.tokens.isNotEmpty() }
+                        if (glossary != null) {
+                            ContextGlossarySentence(
+                                glossary = glossary,
+                                targetWord = card.word.source,
+                                bookmarkedKeys = bookmarkedKeys,
+                                onBookmark = { token -> onBookmark(token, glossary) },
+                                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                            )
+                        } else {
+                            Text(
+                                text = highlightedSentence(sentence, card.word.source),
+                                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                                color = PrototypeColor.Muted,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                textAlign = TextAlign.Center,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
@@ -4866,77 +5059,290 @@ private fun PracticeAnswerButtonIcon(
 private fun PracticeDoneState(
     correctAnswers: Int,
     total: Int,
+    bookmarks: List<PracticeBookmark>,
+    onAddBookmark: (PracticeBookmark) -> Unit,
+    onAddAllBookmarks: () -> Unit,
     onRestart: () -> Unit,
     onChooseTopics: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val percent = if (total == 0) 0 else (correctAnswers * 100 / total)
-    Column(
-        modifier = modifier.padding(horizontal = 36.dp),
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(start = 22.dp, top = 18.dp, end = 22.dp, bottom = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.size(150.dp)) {
-                val stroke = 12.dp.toPx()
-                drawCircle(
-                    color = PrototypeColor.ProgressRing,
-                    radius = size.minDimension / 2f - stroke / 2f,
-                    style = Stroke(width = stroke),
+        item {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(contentAlignment = Alignment.Center) {
+                    Canvas(modifier = Modifier.size(132.dp)) {
+                        val stroke = 11.dp.toPx()
+                        drawCircle(
+                            color = PrototypeColor.ProgressRing,
+                            radius = size.minDimension / 2f - stroke / 2f,
+                            style = Stroke(width = stroke),
+                        )
+                        drawArc(
+                            color = PrototypeColor.Purple,
+                            startAngle = -90f,
+                            sweepAngle = 360f * (percent / 100f),
+                            useCenter = false,
+                            style = Stroke(width = stroke, cap = StrokeCap.Round),
+                        )
+                    }
+                    Text(
+                        text = "$percent%",
+                        fontSize = 31.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = PrototypeColor.PurpleText,
+                    )
+                }
+                Text(
+                    text = "Раунд завершено",
+                    modifier = Modifier.padding(top = 16.dp),
+                    fontSize = 23.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = PrototypeColor.Ink,
                 )
-                drawArc(
-                    color = PrototypeColor.Purple,
-                    startAngle = -90f,
-                    sweepAngle = 360f * (percent / 100f),
-                    useCenter = false,
-                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                Text(
+                    text = "Правильних відповідей: $correctAnswers із $total.",
+                    modifier = Modifier.padding(top = 6.dp),
+                    color = PrototypeColor.Muted,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
                 )
             }
+        }
+        if (bookmarks.isNotEmpty()) {
+            item {
+                PracticeBookmarksResultCard(
+                    bookmarks = bookmarks,
+                    onAddBookmark = onAddBookmark,
+                    onAddAll = onAddAllBookmarks,
+                )
+            }
+        }
+        item {
+            Column(modifier = Modifier.padding(top = 6.dp)) {
+                PrimaryPillButton(label = "Ще раунд", onClick = onRestart)
+                Surface(
+                    modifier = Modifier
+                        .padding(top = 10.dp)
+                        .fillMaxWidth()
+                        .height(54.dp)
+                        .clickable(onClick = onChooseTopics),
+                    shape = RoundedCornerShape(16.dp),
+                    color = PrototypeColor.NeutralSurface,
+                    border = BorderStroke(1.4.dp, PrototypeColor.Line),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "Обрати теми",
+                            color = PrototypeColor.Ink,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 16.sp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PracticeBookmarkBadge(count: Int, modifier: Modifier = Modifier) {
+    Surface(modifier = modifier, shape = CircleShape, color = PrototypeColor.Yellow.copy(alpha = 0.28f)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            PrototypeLineIcon(
+                icon = PrototypeIcon.Bookmark,
+                modifier = Modifier.size(14.dp),
+                color = PrototypeColor.NoteYellowText,
+                strokeWidth = 2.2f,
+            )
             Text(
-                text = "$percent%",
-                fontSize = 34.sp,
+                text = count.toString(),
+                color = PrototypeColor.NoteYellowText,
                 fontWeight = FontWeight.ExtraBold,
-                color = PrototypeColor.PurpleText,
-                letterSpacing = (-0.68).sp,
+                fontSize = 13.sp,
             )
         }
-        Text(
-            text = "Раунд завершено",
-            modifier = Modifier.padding(top = 22.dp),
-            fontSize = 24.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = PrototypeColor.Ink,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            text = "Правильних відповідей: $correctAnswers із $total.",
-            modifier = Modifier.padding(top = 9.dp),
-            color = PrototypeColor.Muted,
-            fontWeight = FontWeight.Medium,
-            fontSize = 15.5.sp,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(26.dp))
-        PrimaryPillButton(label = "Ще раунд", onClick = onRestart)
-        Surface(
-            modifier = Modifier
-                .padding(top = 10.dp)
-                .fillMaxWidth()
-                .height(54.dp)
-                .clickable(onClick = onChooseTopics),
-            shape = RoundedCornerShape(16.dp),
-            color = PrototypeColor.NeutralSurface,
-            border = BorderStroke(1.4.dp, PrototypeColor.Line),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
+    }
+}
+
+@Composable
+private fun PracticeBookmarksResultCard(
+    bookmarks: List<PracticeBookmark>,
+    onAddBookmark: (PracticeBookmark) -> Unit,
+    onAddAll: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = PrototypeColor.White,
+        border = BorderStroke(1.2.dp, PrototypeColor.Line),
+        shadowElevation = 7.dp,
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Обрати теми",
-                    color = PrototypeColor.Ink,
+                    text = "НОВІ СЛОВА З РЕЧЕНЬ (${bookmarks.size})",
+                    modifier = Modifier.weight(1f),
+                    color = PrototypeColor.Muted2,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 16.sp,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.45.sp,
+                )
+                PrototypeLineIcon(
+                    icon = PrototypeIcon.Bookmark,
+                    modifier = Modifier.size(15.dp),
+                    color = PrototypeColor.NoteYellowText,
                 )
             }
+            bookmarks.forEachIndexed { index, bookmark ->
+                if (index > 0) {
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(PrototypeColor.Line))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier.size(38.dp).clip(RoundedCornerShape(11.dp))
+                            .background(PrototypeColor.Yellow.copy(alpha = 0.28f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Bookmark,
+                            modifier = Modifier.size(17.dp),
+                            color = PrototypeColor.NoteYellowText,
+                        )
+                    }
+                    Column(modifier = Modifier.padding(start = 10.dp).weight(1f)) {
+                        Text(
+                            text = bookmark.source,
+                            color = PrototypeColor.Ink,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.5.sp,
+                        )
+                        Text(
+                            text = bookmark.translation,
+                            color = PrototypeColor.Muted,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = "з речення: “${bookmark.sentence}”",
+                            color = PrototypeColor.Muted2,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 10.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Surface(
+                        onClick = { onAddBookmark(bookmark) },
+                        modifier = Modifier.size(38.dp),
+                        shape = RoundedCornerShape(11.dp),
+                        color = PrototypeColor.NoteGreen,
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            PrototypeLineIcon(
+                                icon = PrototypeIcon.Check,
+                                modifier = Modifier.size(18.dp),
+                                color = PrototypeColor.GreenText,
+                                strokeWidth = 2.4f,
+                            )
+                        }
+                    }
+                }
+            }
+            Surface(
+                onClick = onAddAll,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = PrototypeColor.Tint,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Додати всі (${bookmarks.size})",
+                        color = PrototypeColor.PurpleText,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.5.sp,
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun PracticeDictionaryPickerSheet(
+    bookmarks: List<PracticeBookmark>,
+    topics: List<DictionaryTopic>,
+    beeBalance: Int,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    PrototypeBottomSheet(title = "Обрати словник", onDismiss = onDismiss) {
+        Text(
+            text = "${bookmarks.size} ${ukrainianPlural(bookmarks.size, "слово", "слова", "слів")} · " +
+                "${bookmarks.size * TranslationSearchBeeCost} ${ukrainianPlural(bookmarks.size, "монетка", "монетки", "монеток")} · баланс $beeBalance",
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.Medium,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(bottom = 14.dp),
+        )
+        if (topics.isEmpty()) {
+            Text(
+                text = "Немає словника з такою парою мов.",
+                color = PrototypeColor.Muted,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                modifier = Modifier.padding(vertical = 18.dp),
+            )
+        } else {
+            topics.forEach { topic ->
+                val accent = prototypeTopicTheme(topic.coverIndex).color
+                Surface(
+                    onClick = { onPick(topic.id) },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 9.dp).height(58.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = PrototypeColor.NeutralSurface,
+                    border = BorderStroke(1.dp, PrototypeColor.Line),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PrototypeLineIcon(
+                            icon = prototypeTopicIcon(topic.iconIndex),
+                            modifier = Modifier.size(21.dp),
+                            color = accent,
+                        )
+                        Text(
+                            text = topic.title,
+                            modifier = Modifier.padding(start = 11.dp).weight(1f),
+                            color = PrototypeColor.Ink,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp,
+                        )
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.ChevronRight,
+                            modifier = Modifier.size(18.dp),
+                            color = PrototypeColor.Muted2,
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
     }
 }
 

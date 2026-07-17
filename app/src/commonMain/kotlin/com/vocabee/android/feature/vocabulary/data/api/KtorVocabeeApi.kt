@@ -47,6 +47,33 @@ class KtorVocabeeApi(
         return response.body()
     }
 
+    override suspend fun buildContextGlossary(
+        sentence: String,
+        sourceLang: String,
+        targetLang: String,
+    ): ContextGlossaryResponse {
+        val response = try {
+            client.post("${config.baseUrl}/v1/search/context-glossary") {
+                contentType(ContentType.Application.Json)
+                setBody(
+                    ContextGlossaryRequest(
+                        sentence = sentence,
+                        sourceLang = sourceLang,
+                        targetLang = targetLang,
+                    ),
+                )
+                tokenStore.current()?.let { token -> bearerAuth(token) }
+            }
+        } catch (cause: ClientRequestException) {
+            throw cause.toApiException()
+        } catch (cause: ServerResponseException) {
+            throw cause.toApiException()
+        } catch (cause: ResponseException) {
+            throw cause.toApiException()
+        }
+        return response.body()
+    }
+
     override suspend fun loginWithGoogle(
         idToken: String,
         speakLang: String?,

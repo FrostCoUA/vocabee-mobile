@@ -3,6 +3,8 @@ package com.vocabee.android.feature.vocabulary.presentation
 import com.vocabee.android.feature.vocabulary.data.FakeVocabularyRepository
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
 import com.vocabee.android.feature.vocabulary.domain.manager.StaticUserSessionManager
+import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
+import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossaryToken
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
@@ -117,6 +119,38 @@ class VocabeeStoreTest {
 
         val word = store.topicForTest(topic.id).words.first()
         assertTrue(word.addedAtEpochMillis > 0L)
+    }
+
+    @Test
+    fun contextGlossaryEnrichmentIsPersistedAndMarksLocalRevision() {
+        val preferences = InMemoryPreferencesManager()
+        val store = VocabeeStore(preferencesManager = preferences)
+        val topic = store.createTopicForTest()
+        store.onEvent(VocabeeEvent.AddWord(topic.id, "world", "світ"))
+        val word = store.topicForTest(topic.id).words.single()
+        val beforeRevision = preferences.localRevisionEpochMillis
+        val glossary = ContextGlossary(
+            sentence = "Hello world!",
+            sourceLang = "en",
+            targetLang = "uk",
+            tokens = listOf(
+                ContextGlossaryToken("Hello", "hello", 0, 5, "привіт"),
+                ContextGlossaryToken("world", "world", 6, 11, "світ"),
+            ),
+        )
+
+        store.updateWordEnrichment(
+            topicId = topic.id,
+            wordId = word.id,
+            ipa = null,
+            details = WordDetails(contextGlossary = glossary),
+        )
+
+        assertEquals(
+            glossary,
+            store.topicForTest(topic.id).words.single().details?.contextGlossary,
+        )
+        assertTrue(preferences.localRevisionEpochMillis > beforeRevision)
     }
 
     @Test

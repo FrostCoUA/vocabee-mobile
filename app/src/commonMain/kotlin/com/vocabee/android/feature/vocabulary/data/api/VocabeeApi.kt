@@ -15,6 +15,13 @@ interface VocabeeApi {
         learnLang: String,
     ): SearchResponse
 
+    /** One free contextual batch; no per-token search or bee charge. */
+    suspend fun buildContextGlossary(
+        sentence: String,
+        sourceLang: String,
+        targetLang: String,
+    ): ContextGlossaryResponse
+
     suspend fun loginWithGoogle(
         idToken: String,
         speakLang: String? = null,

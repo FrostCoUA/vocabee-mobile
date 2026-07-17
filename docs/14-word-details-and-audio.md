@@ -47,17 +47,20 @@ data class WordDetails(
     val literalTranslation: String? = null,
     val usageExample: String? = null,
     val usageExampleTranslation: String? = null,
+    val contextGlossary: ContextGlossary? = null,
 ) {
     val isEmpty get() = senses.isEmpty() && synonyms.isEmpty() &&
         antonyms.isEmpty() && forms.isEmpty() && partOfSpeech.isEmpty() &&
         lexicalUnitKind == Word && registerTags.isEmpty() &&
         expansion.isNullOrBlank() && translatedExpansion.isNullOrBlank() &&
         meaning.isNullOrBlank() && literalTranslation.isNullOrBlank() &&
-        usageExample.isNullOrBlank() && usageExampleTranslation.isNullOrBlank()
+        usageExample.isNullOrBlank() && usageExampleTranslation.isNullOrBlank() &&
+        contextGlossary == null
 }
 ```
 
 - **Read-only на мобільному**: сервер — єдине джерело істини для всього всередині (`VocabularyModels.kt:23-28`). Клієнт не редагує деталі.
+- **Контекстний снапшот**: `ContextGlossary(sentence, sourceLang, targetLang, tokens[])`; кожен `ContextGlossaryToken` має exact `surface`, normalized-форму, UTF-16 `start/endExclusive`, контекстний `translation` і опційний `lemma`. Він добудовується gateway після локального save, а не руками користувача, і дає офлайн-попапи в тренуванні.
 - `isEmpty` — гард: порожній `WordDetails` трактується як «деталей нема» (впливає на розгортання рядка, §3.1, і на те, чи зберігати взагалі — `RemoteLexiconSearchUseCase.kt:113` робить `.takeUnless { it.isEmpty }`).
 - **Два рівні синонімів/антонімів:** word-level (`WordDetails.synonyms/antonyms`) і sense-level (`WordSense.synonyms/antonyms`). У бекенді обидва зберігаються в `lexicon_relations` з nullable `sense_id` (`0005:49`); у UI зараз рендеряться лише word-level (§3.3).
 
@@ -184,10 +187,11 @@ details = WordDetails(
 **[ЗАРАЗ]** `App.kt:3040-3078`. Картка з градієнтом + рамкою; секції в порядку:
 
 1. **Тип + регістр** — чипи «Фраза» / «Вислів» / «Абревіатура» та «Сленг» / «Неформальне» тощо; нижче — наявні «Що означає», «Розшифровка», «Розшифровка перекладу», «Дослівно», приклад і його переклад.
-2. **Senses** — `details.senses.take(3)` → `WordSenseBlock` на кожен. **Ліміт 3 значення.**
-3. **Синоніми** — `WordChipsRow("Синоніми", synonyms.take(12), accent)`. **Ліміт 12.**
-4. **Антоніми** — `WordChipsRow("Антоніми", antonyms.take(12), accent=Orange)`. **Ліміт 12, помаранчевий акцент.**
-5. **Форми** — `WordChipsRow("Форми", forms.map{it.text}.distinct().take(10), accent=Muted)`. **Ліміт 10, дедуп по тексту.**
+2. **Контекстний приклад** — exact `contextGlossary.sentence`; нижче чипи `surface — translation` для залежних слів, дедупліковані за normalized-формою.
+3. **Senses** — `details.senses.take(3)` → `WordSenseBlock` на кожен. **Ліміт 3 значення.**
+4. **Синоніми** — `WordChipsRow("Синоніми", synonyms.take(12), accent)`. **Ліміт 12.**
+5. **Антоніми** — `WordChipsRow("Антоніми", antonyms.take(12), accent=Orange)`. **Ліміт 12, помаранчевий акцент.**
+6. **Форми** — `WordChipsRow("Форми", forms.map{it.text}.distinct().take(10), accent=Muted)`. **Ліміт 10, дедуп по тексту.**
 
 > Word-level `synonyms`/`antonyms`/`forms` рендеряться. **Sense-level** synonyms/antonyms (поля `WordSense.synonyms/antonyms`) **зараз у блоці значення не показуються** — `WordSenseBlock` рендерить лише номер, partOfSpeech, definition, examples.
 

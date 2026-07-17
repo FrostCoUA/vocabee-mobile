@@ -73,6 +73,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Розгортувані деталі слова | Тап розкриває тип/регістр, значення/розшифровку/дослівний переклад/приклад, далі senses, синоніми, антоніми й форми. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §3 |
 | Типи lexical unit | `Word / Phrase / Expression / Abbreviation`; регістр окремо (`Slang`, `Informal`, `Internet` тощо), тому `LOL` = abbreviation+slang. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §1.2 |
 | Багата модель деталей | `WordDetails`: lexical metadata + senses (definition/PoS/tags/examples/syn/ant), word-level syn/ant/forms/partOfSpeech. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §1 |
+| Фоновий словничок прикладу | Після локального save один безкоштовний batch розкладає exact речення на токени й зберігає їх контекстні переклади в `WordDetails.contextGlossary`; failure не блокує save. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §6.1, [17](17-api-and-data-reference.md) §1.5 |
 | Снапшот перекладу/IPA/деталей | Збережене слово — заморожений знімок провайдера; зміни lexicon його не оновлюють. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §5 |
 | Озвучення слова (TTS) | Кнопка `Sound` на картці → озвучує source-слово source-мовою. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §4, [08](08-languages-speech-themes.md) §4 |
 | Свайп-видалення слова | Reveal-кнопка «Видалити» (88dp) → видалення одразу (без діалогу). | [ЗАРАЗ] | [12](12-motion-and-interaction-brief.md) §D |
@@ -112,6 +113,9 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 |---|---|---|---|
 | Вибір тем (setup-екран) | Мультивибір словників із чекбоксами; єдина колода без перемикача «Класика / Слово в контексті»; «Вибрано: K тем · M слів». | [ЗАРАЗ] | [01](01-screens.md) §8, [11](11-practice-training.md) §1, §7 |
 | Колода флеш-карток | До 10 pager-карток з незалежним flip-станом; slide через «Знаю»/«Далі»; sense/usage-контекст; на звороті metadata вислову/абревіатури. | [ЗАРАЗ] | [01](01-screens.md) §8 |
+| Клікабельні слова контексту | Кожен збагачений токен речення відкриває popup із локально збереженим контекстним перекладом; без мережі та монеток у тесті. | [ЗАРАЗ] | [11](11-practice-training.md) §1 |
+| Цільове слово без підказки | Усі входження цільового слова/словозміни (lemma-aware) жовті, але не відкривають popup; підказки доступні лише для інших токенів. | [ЗАРАЗ] | [11](11-practice-training.md) §1 |
+| Закладки слів із речення | Popup додає/знімає сесійну закладку; badge у topbar; фінал дозволяє додати одне/всі слова через picker словника. 1 монетка/нове слово, недостатній баланс → rewarded ad без втрати списку. | [ЗАРАЗ] | [11](11-practice-training.md) §1 |
 | Бінарна оцінка «Знаю / Не знаю» | Ручне відкриття перекладу автоматично = «Не знаю»; далі лишається «Далі» (стрілка праворуч); «Знаю» — одразу наступна. | [ЗАРАЗ] | [11](11-practice-training.md) §1, §6 |
 | Поточний відбір (найслабші) | shuffle(seed) → sort by knowledge% → take(10). Причина «ті самі 10». | [ЗАРАЗ] | [11](11-practice-training.md) §1 |
 | Гібрид пріоритет+Leitner+анти-повтор | Новий алгоритм: пріоритет-бал + Leitner-бокси + зважений рандом + кулдаун + нові. | [НОВЕ] D10 | [11](11-practice-training.md) §2–§4 |
@@ -269,6 +273,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Users-ендпоінти | `GET/PATCH /v1/me` — профіль, мови, тогли. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3, [15](15-profile-and-settings.md) §3 |
 | Wallet-ендпоінти | `GET /v1/wallet`, `POST /v1/wallet/rewarded-ad`. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.4 |
 | Search/Lexicon-ендпоінт | `GET /v1/search` (OptionalJwt); OpenAPI показує anonymous **або** bearer. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.5 |
+| Context glossary batch | `POST /v1/search/context-glossary` на client (OptionalJwt, no wallet) і dictionary gateway (`X-API-Key`); один provider/quota call на речення. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.5 |
 | Topics-ендпоінти | `/v1/topics`, `/sync`, `/sync/apply`, `:id/words` (CRUD + sync). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.6 |
 | Languages-ендпоінт | `GET /v1/languages` (13 мов). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.7 |
 | Client admin: фільтр словників | `sourceLang?`/`targetLang?` фільтрують словники користувача на сервері; web default `en → uk`, кожен dropdown має `Усі`. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.1 |

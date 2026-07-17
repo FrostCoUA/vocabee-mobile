@@ -285,6 +285,7 @@ class VocabeeStore(
     fun updateWordEnrichment(topicId: String, wordId: String, ipa: String?, details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?) {
         updateWordEnrichmentUseCase(topicId = topicId, wordId = wordId, ipa = ipa, details = details) ?: return
         state = state.copy(topics = loadUserTopicsUseCase())
+        touchLocalRevision()
     }
 
     /** Завершений раунд тренування (класика або контекст) — рахуємо в профіль. */

@@ -160,6 +160,7 @@ private fun normalizePeekWord(raw: String): String =
 
 internal fun WordEntry.contextSentence(): String? {
     val details = details ?: return null
+    details.contextGlossary?.sentence?.takeIf { it.isNotBlank() }?.let { return it.trim() }
     // Спершу — приклад ВЛАСНОГО значення пари (бекендова атрибуція): саме він
     // робить картку чесною, коли інші переклади слова живуть в інших sense'ах.
     val ownSense = details.senseIndex?.let { details.senses.getOrNull(it) }
