@@ -54,3 +54,11 @@ fun selectedTabFor(route: VocabeeRoute?): AppTab {
         else -> AppTab.Dictionary
     }
 }
+
+internal fun shouldShowBottomBar(
+    route: VocabeeRoute?,
+    practiceSessionActive: Boolean,
+): Boolean {
+    val isRootTab = AppTab.entries.any { tab -> tab.route == route }
+    return isRootTab && !(route == VocabeeRoute.Practice && practiceSessionActive)
+}

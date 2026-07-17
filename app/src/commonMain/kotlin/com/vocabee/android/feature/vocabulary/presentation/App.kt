@@ -140,6 +140,7 @@ import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearch
 import com.vocabee.android.feature.vocabulary.presentation.navigation.AppTab
 import com.vocabee.android.feature.vocabulary.presentation.navigation.VocabeeRoute
 import com.vocabee.android.feature.vocabulary.presentation.navigation.selectedTabFor
+import com.vocabee.android.feature.vocabulary.presentation.navigation.shouldShowBottomBar
 import com.vocabee.android.feature.vocabulary.presentation.navigation.vocabeeSavedStateConfiguration
 import com.vocabee.android.feature.vocabulary.presentation.platform.NoSpeechInputController
 import com.vocabee.android.feature.vocabulary.presentation.platform.NoSpeechOutputController
@@ -441,7 +442,8 @@ private fun MainApp(
     )
     val currentRoute = backStack.lastOrNull() as? VocabeeRoute
     val selectedTab = selectedTabFor(currentRoute)
-    val showBottomBar = AppTab.entries.any { tab -> tab.route == currentRoute }
+    var practiceSessionActive by remember { mutableStateOf(false) }
+    val showBottomBar = shouldShowBottomBar(currentRoute, practiceSessionActive)
 
     var sheet by remember { mutableStateOf<PrototypeSheet?>(null) }
     var exitSheetVisible by remember { mutableStateOf(false) }
@@ -820,8 +822,14 @@ private fun MainApp(
                     entry<VocabeeRoute.Practice> {
                         PracticeScreen(
                             topics = state.topics,
+                            onSessionActiveChanged = { active ->
+                                practiceSessionActive = active
+                            },
                             onBottomPanelVisibilityChanged = { visible ->
                                 practiceBottomPanelVisible = visible
+                            },
+                            onSpeakWord = { word, languageTag ->
+                                speechOutputController.speak(word, languageTag)
                             },
                             onAnswerWord = { topicId, wordId, deltaPercent ->
                                 store.onEvent(
@@ -3613,14 +3621,21 @@ internal const val KnowledgeStepPercent = 20
 @Composable
 private fun PracticeScreen(
     topics: List<DictionaryTopic>,
+    onSessionActiveChanged: (Boolean) -> Unit,
     onBottomPanelVisibilityChanged: (Boolean) -> Unit,
+    onSpeakWord: (word: String, languageTag: String) -> Unit,
     onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
     onRoundCompleted: () -> Unit,
 ) {
     val trainableTopics = topics.filter { topic -> topic.words.isNotEmpty() }
     val trainableTopicIds = trainableTopics.map { topic -> topic.id }
-    var selectedTopicIds by remember(trainableTopicIds) { mutableStateOf(emptySet<String>()) }
-    var practiceStarted by remember(trainableTopicIds) { mutableStateOf(false) }
+    val trainableTopicIdentity = trainableTopicIds.toSet()
+    var selectedTopicIds by remember(trainableTopicIdentity) { mutableStateOf(emptySet<String>()) }
+    var practiceStarted by remember(trainableTopicIdentity) { mutableStateOf(false) }
+    DisposableEffect(practiceStarted) {
+        onSessionActiveChanged(practiceStarted)
+        onDispose { onSessionActiveChanged(false) }
+    }
     val hasSetupFooter = !practiceStarted && trainableTopics.isNotEmpty()
     DisposableEffect(hasSetupFooter) {
         onBottomPanelVisibilityChanged(hasSetupFooter)
@@ -3662,18 +3677,19 @@ private fun PracticeScreen(
                 word = word,
                 topicId = topic.id,
                 topicTitle = topic.title,
+                sourceLanguageTag = topic.sourceLanguage.speechTag,
                 accent = prototypeTopicTheme(topic.coverIndex).color,
             )
         }
     }
     val availableCardKeys = availableCards.map { it.first }
-    var shuffleSeed by remember(availableCardKeys) { mutableIntStateOf(Random.nextInt()) }
-    val deckKeys = remember(availableCardKeys, shuffleSeed) {
-        availableCards
-            .shuffled(Random(shuffleSeed))
-            .sortedBy { (_, card) -> card.word.knowledgePercent.coerceIn(0, 100) }
-            .take(10)
-            .map { (key, _) -> key }
+    val availableCardIdentity = availableCardKeys.toSet()
+    var shuffleSeed by remember(availableCardIdentity) { mutableIntStateOf(Random.nextInt()) }
+    val deckKeys = remember(availableCardIdentity, shuffleSeed) {
+        buildPracticeDeckKeys(
+            candidates = availableCards.map { (key, card) -> key to card.word.knowledgePercent },
+            seed = shuffleSeed,
+        )
     }
     val cardsByKey = availableCards.toMap()
     val deck = deckKeys.mapNotNull { key -> cardsByKey[key] }
@@ -3682,6 +3698,13 @@ private fun PracticeScreen(
     var correctAnswers by remember(deckKeys) { mutableIntStateOf(0) }
     var waitingForNextAfterMiss by remember(deckKeys) { mutableStateOf(false) }
     var done by remember(deckKeys) { mutableStateOf(false) }
+    var interruptionSheetVisible by remember(deckKeys) { mutableStateOf(false) }
+    var cardFlipEnabled by remember(deckKeys) { mutableStateOf(false) }
+    LaunchedEffect(deckKeys) {
+        cardFlipEnabled = false
+        delay(300)
+        cardFlipEnabled = true
+    }
 
     fun moveNext() {
         waitingForNextAfterMiss = false
@@ -3717,21 +3740,54 @@ private fun PracticeScreen(
         waitingForNextAfterMiss = true
     }
 
+    fun requestExit() {
+        if (done) {
+            practiceStarted = false
+        } else {
+            interruptionSheetVisible = true
+        }
+    }
+
+    BackHandler {
+        requestExit()
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().background(PrototypeColor.Background).statusBarsPadding(),
     ) {
         Column(modifier = Modifier.padding(start = 24.dp, top = 8.dp, end = 24.dp, bottom = 4.dp)) {
-            Text(
-                text = "Тренування",
-                fontSize = 30.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = PrototypeColor.Ink,
-                letterSpacing = (-0.6).sp,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Тренування",
+                    modifier = Modifier.weight(1f),
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = PrototypeColor.Ink,
+                    letterSpacing = (-0.6).sp,
+                )
+                Surface(
+                    onClick = ::requestExit,
+                    modifier = Modifier.size(44.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    color = PrototypeColor.NeutralSurface,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        PrototypeLineIcon(
+                            icon = PrototypeIcon.Close,
+                            modifier = Modifier.size(23.dp),
+                            color = PrototypeColor.Muted2,
+                            strokeWidth = 2.2f,
+                        )
+                    }
+                }
+            }
             if (deck.isNotEmpty() && !done) {
                 Text(
                     text = "${index + 1} / ${deck.size} · правильно $correctAnswers",
-                    modifier = Modifier.padding(top = 14.dp, bottom = 8.dp),
+                    modifier = Modifier.padding(top = 10.dp, bottom = 8.dp),
                     color = PrototypeColor.Muted,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.5.sp,
@@ -3773,20 +3829,20 @@ private fun PracticeScreen(
                 PracticeFlipCard(
                     card = card,
                     flipped = flipped,
-                    onFlip = {
-                        if (waitingForNextAfterMiss) {
-                            flipped = !flipped
-                        } else {
-                            answerUnknown()
-                        }
+                    flipEnabled = cardFlipEnabled,
+                    onFlip = { flipped = !flipped },
+                    onSpeak = {
+                        onSpeakWord(card.word.source, card.sourceLanguageTag)
                     },
-                    modifier = Modifier.weight(1f).padding(horizontal = 26.dp, vertical = 18.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 12.dp),
                 )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .padding(start = 24.dp, end = 24.dp, bottom = 28.dp),
+                        .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (waitingForNextAfterMiss) {
@@ -3795,6 +3851,7 @@ private fun PracticeScreen(
                             icon = PrototypeIcon.ChevronRight,
                             color = PrototypeColor.PurpleText,
                             background = PrototypeColor.Tint,
+                            iconAfterText = true,
                             modifier = Modifier.fillMaxWidth(),
                             onClick = ::moveNext,
                         )
@@ -3816,6 +3873,72 @@ private fun PracticeScreen(
                             onClick = ::answerKnown,
                         )
                     }
+                }
+            }
+        }
+    }
+
+    if (interruptionSheetVisible) {
+        TrainingInterruptionSheet(
+            onContinue = { interruptionSheetVisible = false },
+            onInterrupt = {
+                interruptionSheetVisible = false
+                practiceStarted = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun TrainingInterruptionSheet(
+    onContinue: () -> Unit,
+    onInterrupt: () -> Unit,
+) {
+    PrototypeBottomSheet(
+        title = "Перервати тренування?",
+        onDismiss = onContinue,
+    ) {
+        Text(
+            text = "Раунд ще не завершено. Уже збережені відповіді залишаться в прогресі, але поточну сесію буде завершено.",
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.Medium,
+            fontSize = 15.sp,
+            lineHeight = 21.sp,
+            modifier = Modifier.padding(bottom = 22.dp),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 22.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                onClick = onInterrupt,
+                modifier = Modifier.weight(1f).height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = PrototypeColor.NeutralSurface,
+                border = BorderStroke(1.4.dp, PrototypeColor.Line),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Перервати",
+                        color = PrototypeColor.RedText,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 16.sp,
+                    )
+                }
+            }
+            Surface(
+                onClick = onContinue,
+                modifier = Modifier.weight(1f).height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = PrototypeColor.Purple,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Продовжити",
+                        color = Color.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 16.sp,
+                    )
                 }
             }
         }
@@ -4055,8 +4178,21 @@ private data class PracticeDeckCard(
     val word: WordEntry,
     val topicId: String,
     val topicTitle: String,
+    val sourceLanguageTag: String,
     val accent: Color,
 )
+
+internal fun buildPracticeDeckKeys(
+    candidates: List<Pair<String, Int>>,
+    seed: Int,
+): List<String> {
+    return candidates
+        .sortedBy { (key, _) -> key }
+        .shuffled(Random(seed))
+        .sortedBy { (_, knowledgePercent) -> knowledgePercent.coerceIn(0, 100) }
+        .take(10)
+        .map { (key, _) -> key }
+}
 
 @Composable
 private fun PracticeEmptyState(modifier: Modifier = Modifier) {
@@ -4099,7 +4235,9 @@ private fun PracticeEmptyState(modifier: Modifier = Modifier) {
 private fun PracticeFlipCard(
     card: PracticeDeckCard,
     flipped: Boolean,
+    flipEnabled: Boolean,
     onFlip: () -> Unit,
+    onSpeak: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -4111,13 +4249,14 @@ private fun PracticeFlipCard(
     val showBack = flipped && rotation > 90f
 
     Surface(
+        onClick = onFlip,
+        enabled = flipEnabled,
         modifier = modifier
             .fillMaxWidth()
             .graphicsLayer {
                 rotationY = rotation
                 cameraDistance = 14f * density.density
-            }
-            .clickable(onClick = onFlip),
+            },
         shape = RoundedCornerShape(28.dp),
         color = if (showBack) card.accent else PrototypeColor.White,
         border = if (showBack) null else BorderStroke(2.dp, card.accent),
@@ -4198,6 +4337,7 @@ private fun PracticeFlipCard(
                             modifier = Modifier.padding(top = 18.dp),
                         )
                         Surface(
+                            onClick = onSpeak,
                             modifier = Modifier.padding(top = 18.dp).size(48.dp),
                             shape = RoundedCornerShape(15.dp),
                             color = PrototypeColor.NeutralSurface,
@@ -4211,14 +4351,19 @@ private fun PracticeFlipCard(
                             }
                         }
                     }
-                    Text(
-                        text = "Торкнись, щоб побачити переклад",
-                        modifier = Modifier.align(Alignment.BottomCenter),
-                        color = PrototypeColor.Muted2,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.5.sp,
-                        textAlign = TextAlign.Center,
-                    )
+                    card.word.contextSentence()?.let { sentence ->
+                        Text(
+                            text = sentence,
+                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                            color = PrototypeColor.Muted,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            textAlign = TextAlign.Center,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -4297,11 +4442,13 @@ internal fun PracticeAnswerButton(
     icon: PrototypeIcon,
     color: Color,
     background: Color,
+    iconAfterText: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Surface(
-        modifier = modifier.height(62.dp).clickable(onClick = onClick),
+        onClick = onClick,
+        modifier = modifier.height(62.dp),
         shape = RoundedCornerShape(19.dp),
         color = PrototypeColor.White,
         border = BorderStroke(2.dp, PrototypeColor.Line),
@@ -4311,22 +4458,37 @@ internal fun PracticeAnswerButton(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(modifier = Modifier.size(30.dp), shape = CircleShape, color = background) {
-                Box(contentAlignment = Alignment.Center) {
-                    PrototypeLineIcon(
-                        icon = icon,
-                        modifier = Modifier.size(20.dp),
-                        color = color,
-                        strokeWidth = 2.4f,
-                    )
-                }
+            if (!iconAfterText) {
+                PracticeAnswerButtonIcon(icon = icon, color = color, background = background)
+                Spacer(modifier = Modifier.width(9.dp))
             }
-            Spacer(modifier = Modifier.width(9.dp))
             Text(
                 text = text,
                 color = color,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 16.5.sp,
+            )
+            if (iconAfterText) {
+                Spacer(modifier = Modifier.width(9.dp))
+                PracticeAnswerButtonIcon(icon = icon, color = color, background = background)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PracticeAnswerButtonIcon(
+    icon: PrototypeIcon,
+    color: Color,
+    background: Color,
+) {
+    Surface(modifier = Modifier.size(30.dp), shape = CircleShape, color = background) {
+        Box(contentAlignment = Alignment.Center) {
+            PrototypeLineIcon(
+                icon = icon,
+                modifier = Modifier.size(20.dp),
+                color = color,
+                strokeWidth = 2.4f,
             )
         }
     }
