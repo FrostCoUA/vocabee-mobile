@@ -897,6 +897,13 @@ private fun MainApp(
                                 )
                                 syncVocabularyNow()
                             },
+                            onRequestContextGlossary = { topicId, wordId ->
+                                val topic = store.state.topics.firstOrNull { it.id == topicId }
+                                val word = topic?.words?.firstOrNull { it.id == wordId }
+                                if (topic != null && word != null) {
+                                    enrichContextGlossaryInBackground(topic, word)
+                                }
+                            },
                             beeBalance = state.beeBalance,
                             onSaveBookmarks = { bookmarks, topicId ->
                                 if (state.account !is VocabeeAccountState.Authenticated) {
@@ -3919,6 +3926,15 @@ internal fun shouldRecordUnknownOnManualReveal(
     waitingForNextAfterMiss: Boolean,
 ): Boolean = !isFlipped && !waitingForNextAfterMiss
 
+internal fun shouldFlipPracticeCardOnTap(downWasConsumedByChild: Boolean): Boolean =
+    !downWasConsumedByChild
+
+internal fun needsContextGlossaryEnrichment(word: WordEntry): Boolean {
+    val sentence = word.contextSentence()?.trim()?.takeIf(String::isNotBlank) ?: return false
+    val glossary = word.details?.contextGlossary
+    return glossary?.sentence != sentence || glossary.tokens.isEmpty()
+}
+
 private enum class PracticeCardAnswer {
     Known,
     Unknown,
@@ -3942,6 +3958,7 @@ private fun PracticeScreen(
     onBottomPanelVisibilityChanged: (Boolean) -> Unit,
     onSpeakWord: (word: String, languageTag: String) -> Unit,
     onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
+    onRequestContextGlossary: (topicId: String, wordId: String) -> Unit,
     beeBalance: Int,
     onSaveBookmarks: (bookmarks: List<PracticeBookmark>, topicId: String) -> Boolean,
     onRoundCompleted: () -> Unit,
@@ -4030,6 +4047,17 @@ private fun PracticeScreen(
     val bookmarkedKeys = bookmarks.mapTo(mutableSetOf()) { bookmark -> bookmark.key }
     var bookmarkSelection by remember {
         mutableStateOf<PracticeBookmarkSelection?>(null)
+    }
+    val currentCardForEnrichment = deck.getOrNull(index)
+    LaunchedEffect(
+        currentCardForEnrichment?.topicId,
+        currentCardForEnrichment?.word?.id,
+        currentCardForEnrichment?.word?.details?.contextGlossary,
+    ) {
+        val card = currentCardForEnrichment ?: return@LaunchedEffect
+        if (needsContextGlossaryEnrichment(card.word)) {
+            onRequestContextGlossary(card.topicId, card.word.id)
+        }
     }
     LaunchedEffect(deckKeys) {
         cardFlipEnabled = false
@@ -4692,14 +4720,13 @@ private fun PracticeFlipCard(
     val showBack = shouldShowPracticeCardBack(rotation)
 
     Surface(
-        onClick = { currentOnFlip(PracticeFlipDirection.Tap) },
-        enabled = flipEnabled,
         modifier = modifier
             .fillMaxWidth()
             .pointerInput(flipEnabled, minimumFlingDistancePx) {
                 if (!flipEnabled) return@pointerInput
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    val downWasConsumedByChild = down.isConsumed
                     val velocityTracker = VelocityTracker().apply {
                         addPosition(down.uptimeMillis, down.position)
                     }
@@ -4721,6 +4748,8 @@ private fun PracticeFlipCard(
                             minimumVelocity = 600f,
                             minimumDistance = minimumFlingDistancePx,
                         )?.let(currentOnFlip)
+                    } else if (shouldFlipPracticeCardOnTap(downWasConsumedByChild)) {
+                        currentOnFlip(PracticeFlipDirection.Tap)
                     }
                 }
             }
@@ -4870,7 +4899,14 @@ private fun PracticeFlipCard(
                         } else {
                             Text(
                                 text = highlightedSentence(sentence, card.word.source),
-                                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .pointerInput(sentence) {
+                                        // Legacy entries are enriched lazily. The context area
+                                        // must never reveal the answer while that request runs.
+                                        detectTapGestures(onTap = {})
+                                    },
                                 color = PrototypeColor.Muted,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 14.sp,

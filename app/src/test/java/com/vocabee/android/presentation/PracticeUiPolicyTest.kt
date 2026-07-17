@@ -113,6 +113,39 @@ class PracticeUiPolicyTest {
     }
 
     @Test
+    fun aTapConsumedByTheContextSentenceNeverFlipsTheCard() {
+        assertFalse(shouldFlipPracticeCardOnTap(downWasConsumedByChild = true))
+        assertTrue(shouldFlipPracticeCardOnTap(downWasConsumedByChild = false))
+    }
+
+    @Test
+    fun legacyContextSentenceRequestsGlossaryEnrichment() {
+        val legacy = WordEntry(
+            id = "stone",
+            source = "stone",
+            translation = "камінь",
+            details = WordDetails(
+                usageExample = "He threw a stone into the river.",
+            ),
+        )
+        val enriched = legacy.copy(
+            details = legacy.details?.copy(
+                contextGlossary = ContextGlossary(
+                    sentence = "He threw a stone into the river.",
+                    sourceLang = "en",
+                    targetLang = "uk",
+                    tokens = listOf(
+                        ContextGlossaryToken("stone", "stone", 11, 16, "камінь", "stone"),
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(needsContextGlossaryEnrichment(legacy))
+        assertFalse(needsContextGlossaryEnrichment(enriched))
+    }
+
+    @Test
     fun everyOccurrenceOfThePracticedWordIsExcludedFromHints() {
         val glossary = ContextGlossary(
             sentence = "A bank differs from other banks near the bank and a banker.",
