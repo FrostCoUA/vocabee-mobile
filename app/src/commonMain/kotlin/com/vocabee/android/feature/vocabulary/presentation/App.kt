@@ -75,6 +75,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -3618,6 +3619,28 @@ private val AppTab.prototypeIcon: PrototypeIcon
 
 internal const val KnowledgeStepPercent = 20
 
+internal enum class PracticeFlipDirection(val rotationDeltaDegrees: Float) {
+    Tap(180f),
+    Left(-180f),
+    Right(180f),
+}
+
+internal fun practiceFlipDirectionForGesture(
+    velocityX: Float,
+    distanceX: Float,
+    minimumVelocity: Float,
+    minimumDistance: Float,
+): PracticeFlipDirection? = when {
+    velocityX <= -minimumVelocity || distanceX <= -minimumDistance -> PracticeFlipDirection.Left
+    velocityX >= minimumVelocity || distanceX >= minimumDistance -> PracticeFlipDirection.Right
+    else -> null
+}
+
+internal fun shouldShowPracticeCardBack(rotationDegrees: Float): Boolean {
+    val normalizedRotation = ((rotationDegrees % 360f) + 360f) % 360f
+    return normalizedRotation > 90f && normalizedRotation < 270f
+}
+
 @Composable
 private fun PracticeScreen(
     topics: List<DictionaryTopic>,
@@ -3695,6 +3718,7 @@ private fun PracticeScreen(
     val deck = deckKeys.mapNotNull { key -> cardsByKey[key] }
     var index by remember(deckKeys) { mutableIntStateOf(0) }
     var flipped by remember(deckKeys) { mutableStateOf(false) }
+    var cardRotationTargetDegrees by remember(deckKeys) { mutableFloatStateOf(0f) }
     var correctAnswers by remember(deckKeys) { mutableIntStateOf(0) }
     var waitingForNextAfterMiss by remember(deckKeys) { mutableStateOf(false) }
     var done by remember(deckKeys) { mutableStateOf(false) }
@@ -3708,6 +3732,7 @@ private fun PracticeScreen(
 
     fun moveNext() {
         waitingForNextAfterMiss = false
+        cardRotationTargetDegrees = 0f
         if (index + 1 >= deck.size) {
             done = true
             onRoundCompleted()
@@ -3736,8 +3761,16 @@ private fun PracticeScreen(
             card.word.id,
             -KnowledgeStepPercent,
         )
-        flipped = true
+        if (!flipped) {
+            cardRotationTargetDegrees += PracticeFlipDirection.Tap.rotationDeltaDegrees
+            flipped = true
+        }
         waitingForNextAfterMiss = true
+    }
+
+    fun flipCard(direction: PracticeFlipDirection) {
+        cardRotationTargetDegrees += direction.rotationDeltaDegrees
+        flipped = !flipped
     }
 
     fun requestExit() {
@@ -3817,7 +3850,12 @@ private fun PracticeScreen(
                 total = deck.size,
                 onRestart = {
                     shuffleSeed = Random.nextInt()
-                    index = 0; flipped = false; correctAnswers = 0; waitingForNextAfterMiss = false; done = false
+                    index = 0
+                    flipped = false
+                    cardRotationTargetDegrees = 0f
+                    correctAnswers = 0
+                    waitingForNextAfterMiss = false
+                    done = false
                 },
                 onChooseTopics = {
                     practiceStarted = false
@@ -3828,9 +3866,9 @@ private fun PracticeScreen(
                 val card = deck[index]
                 PracticeFlipCard(
                     card = card,
-                    flipped = flipped,
+                    rotationTargetDegrees = cardRotationTargetDegrees,
                     flipEnabled = cardFlipEnabled,
-                    onFlip = { flipped = !flipped },
+                    onFlip = ::flipCard,
                     onSpeak = {
                         onSpeakWord(card.word.source, card.sourceLanguageTag)
                     },
@@ -4234,25 +4272,55 @@ private fun PracticeEmptyState(modifier: Modifier = Modifier) {
 @Composable
 private fun PracticeFlipCard(
     card: PracticeDeckCard,
-    flipped: Boolean,
+    rotationTargetDegrees: Float,
     flipEnabled: Boolean,
-    onFlip: () -> Unit,
+    onFlip: (PracticeFlipDirection) -> Unit,
     onSpeak: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
+    val currentOnFlip by rememberUpdatedState(onFlip)
+    val minimumFlingDistancePx = with(density) { 52.dp.toPx() }
     val rotation by animateFloatAsState(
-        targetValue = if (flipped) 180f else 0f,
+        targetValue = rotationTargetDegrees,
         animationSpec = tween(durationMillis = 460),
         label = "practice-card-flip",
     )
-    val showBack = flipped && rotation > 90f
+    val showBack = shouldShowPracticeCardBack(rotation)
 
     Surface(
-        onClick = onFlip,
+        onClick = { currentOnFlip(PracticeFlipDirection.Tap) },
         enabled = flipEnabled,
         modifier = modifier
             .fillMaxWidth()
+            .pointerInput(flipEnabled, minimumFlingDistancePx) {
+                if (!flipEnabled) return@pointerInput
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val velocityTracker = VelocityTracker().apply {
+                        addPosition(down.uptimeMillis, down.position)
+                    }
+                    var distanceX = 0f
+                    val dragStart = awaitHorizontalTouchSlopOrCancellation(down.id) { change, overSlop ->
+                        distanceX += overSlop
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
+                        change.consume()
+                    }
+                    if (dragStart != null) {
+                        horizontalDrag(dragStart.id) { change ->
+                            distanceX += change.positionChange().x
+                            velocityTracker.addPosition(change.uptimeMillis, change.position)
+                            change.consume()
+                        }
+                        practiceFlipDirectionForGesture(
+                            velocityX = velocityTracker.calculateVelocity().x,
+                            distanceX = distanceX,
+                            minimumVelocity = 600f,
+                            minimumDistance = minimumFlingDistancePx,
+                        )?.let(currentOnFlip)
+                    }
+                }
+            }
             .graphicsLayer {
                 rotationY = rotation
                 cameraDistance = 14f * density.density
@@ -4353,7 +4421,7 @@ private fun PracticeFlipCard(
                     }
                     card.word.contextSentence()?.let { sentence ->
                         Text(
-                            text = sentence,
+                            text = highlightedSentence(sentence, card.word.source),
                             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
                             color = PrototypeColor.Muted,
                             fontWeight = FontWeight.SemiBold,

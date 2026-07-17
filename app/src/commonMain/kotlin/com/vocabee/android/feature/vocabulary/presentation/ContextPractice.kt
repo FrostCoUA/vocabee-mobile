@@ -350,7 +350,7 @@ private fun ContextCard.sourceKey(): String = when (this) {
 
 /* ---------- sentence highlight ---------- */
 
-private fun highlightedSentence(
+internal fun highlightedSentence(
     sentence: String,
     target: String,
     blank: Boolean = false,
