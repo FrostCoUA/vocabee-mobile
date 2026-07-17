@@ -1,8 +1,28 @@
 package com.vocabee.android.feature.vocabulary.domain.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 
 const val DEFAULT_LOCAL_USER_KEY = "local-user"
+
+@Serializable
+enum class LexicalUnitKind {
+    @SerialName("word") Word,
+    @SerialName("phrase") Phrase,
+    @SerialName("expression") Expression,
+    @SerialName("abbreviation") Abbreviation,
+}
+
+@Serializable
+enum class LexicalRegisterTag {
+    @SerialName("slang") Slang,
+    @SerialName("informal") Informal,
+    @SerialName("formal") Formal,
+    @SerialName("technical") Technical,
+    @SerialName("offensive") Offensive,
+    @SerialName("humorous") Humorous,
+    @SerialName("internet") Internet,
+}
 
 @Serializable
 data class WordSense(
@@ -39,10 +59,26 @@ data class WordDetails(
     val antonyms: List<String> = emptyList(),
     val forms: List<WordForm> = emptyList(),
     val partOfSpeech: List<String> = emptyList(),
+    /** Structure and register are independent: e.g. LOL = Abbreviation + Slang. */
+    val lexicalUnitKind: LexicalUnitKind = LexicalUnitKind.Word,
+    val registerTags: List<LexicalRegisterTag> = emptyList(),
+    /** Abbreviation expansion in learning and known languages. */
+    val expansion: String? = null,
+    val translatedExpansion: String? = null,
+    /** Explanation and literal rendering in the user's known language. */
+    val meaning: String? = null,
+    val literalTranslation: String? = null,
+    /** Natural usage example in the learning language and its translation. */
+    val usageExample: String? = null,
+    val usageExampleTranslation: String? = null,
 ) {
     val isEmpty: Boolean
         get() = senses.isEmpty() && synonyms.isEmpty() && antonyms.isEmpty() &&
-            forms.isEmpty() && partOfSpeech.isEmpty()
+            forms.isEmpty() && partOfSpeech.isEmpty() &&
+            lexicalUnitKind == LexicalUnitKind.Word && registerTags.isEmpty() &&
+            expansion.isNullOrBlank() && translatedExpansion.isNullOrBlank() &&
+            meaning.isNullOrBlank() && literalTranslation.isNullOrBlank() &&
+            usageExample.isNullOrBlank() && usageExampleTranslation.isNullOrBlank()
 }
 
 data class LanguageOption(

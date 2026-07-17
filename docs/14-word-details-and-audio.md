@@ -1,4 +1,4 @@
-# 14 — Деталі слова та озвучення
+# 14 — Деталі слова/фрази та озвучення
 
 Документ описує **багату модель деталей слова** (senses, синоніми/антоніми, форми, частини мови, приклади, IPA), як ці деталі відображаються в розгортуваному рядку словника, **звідки вони беруться** (серверне збагачення `lexicon` + `lexicon_examples`), як працює **озвучення (TTS)** і чому **снапшот перекладу/IPA у `topic_words`** лишається сталим, навіть якщо `lexicon` пізніше змінять.
 
@@ -39,9 +39,21 @@ data class WordDetails(
     val antonyms: List<String> = emptyList(),   // word-level
     val forms: List<WordForm> = emptyList(),
     val partOfSpeech: List<String> = emptyList(),
+    val lexicalUnitKind: LexicalUnitKind = Word,
+    val registerTags: List<LexicalRegisterTag> = emptyList(),
+    val expansion: String? = null,
+    val translatedExpansion: String? = null,
+    val meaning: String? = null,
+    val literalTranslation: String? = null,
+    val usageExample: String? = null,
+    val usageExampleTranslation: String? = null,
 ) {
     val isEmpty get() = senses.isEmpty() && synonyms.isEmpty() &&
-        antonyms.isEmpty() && forms.isEmpty() && partOfSpeech.isEmpty()
+        antonyms.isEmpty() && forms.isEmpty() && partOfSpeech.isEmpty() &&
+        lexicalUnitKind == Word && registerTags.isEmpty() &&
+        expansion.isNullOrBlank() && translatedExpansion.isNullOrBlank() &&
+        meaning.isNullOrBlank() && literalTranslation.isNullOrBlank() &&
+        usageExample.isNullOrBlank() && usageExampleTranslation.isNullOrBlank()
 }
 ```
 
@@ -49,7 +61,17 @@ data class WordDetails(
 - `isEmpty` — гард: порожній `WordDetails` трактується як «деталей нема» (впливає на розгортання рядка, §3.1, і на те, чи зберігати взагалі — `RemoteLexiconSearchUseCase.kt:113` робить `.takeUnless { it.isEmpty }`).
 - **Два рівні синонімів/антонімів:** word-level (`WordDetails.synonyms/antonyms`) і sense-level (`WordSense.synonyms/antonyms`). У бекенді обидва зберігаються в `lexicon_relations` з nullable `sense_id` (`0005:49`); у UI зараз рендеряться лише word-level (§3.3).
 
-### 1.2 `WordSense` — одне значення
+### 1.2 Структурний тип і регістр — різні виміри
+
+**[ЗАРАЗ]** `LexicalUnitKind` має `Word / Phrase / Expression / Abbreviation`:
+
+- `Phrase` — композиційна фраза, сенс якої читається зі складників;
+- `Expression` — сталий вислів/ідіома з окремим значенням і, за можливості, дослівним перекладом;
+- `Abbreviation` — абревіатура або акронім із `expansion` мовою вивчення та `translatedExpansion` відомою мовою.
+
+`LexicalRegisterTag` незалежно додає `Slang / Informal / Formal / Technical / Offensive / Humorous / Internet`. Тому `LOL` коректно моделюється як **Abbreviation + Slang + Internet**, а не як взаємовиключний «тип сленг». Для нетипових одиниць AI також повертає `meaning`, `literalTranslation` і пару `usageExample`/`usageExampleTranslation`. Старі JSON-снапшоти без цих полів десеріалізуються з дефолтом `Word` + порожні метадані; список і тренування локально позначають багатослівні значення як `Фраза`, а короткі uppercase-значення як `Абревіатура`, не запускаючи повторний платний пошук.
+
+### 1.3 `WordSense` — одне значення
 
 **[ЗАРАЗ]** `VocabularyModels.kt:8-15`:
 
@@ -62,7 +84,7 @@ data class WordDetails(
 | `synonyms` | `List<String>` | Синоніми значення | `lexicon_relations kind='synonym'` зі `sense_id` |
 | `antonyms` | `List<String>` | Антоніми значення | `lexicon_relations kind='antonym'` зі `sense_id` |
 
-### 1.3 `WordForm` — словоформа (1/2/3 форми дієслів)
+### 1.4 `WordForm` — словоформа (1/2/3 форми дієслів)
 
 **[ЗАРАЗ]** `VocabularyModels.kt:18-21`:
 
@@ -74,7 +96,7 @@ data class WordForm(val text: String, val tags: List<String> = emptyList())
 - `tags` — граматика форми (`["past","participle"]`). Семантично `tags` тут означають **інше**, ніж у synonyms/antonyms, тому в бекенді словоформи лежать в окремій таблиці `lexicon_word_forms`, а не в `lexicon_relations` (`0005:17-18`, `lexicon.ts:181-185`).
 - «1/2/3 форми дієслів» (інфінітив / past simple / past participle) виражаються набором `WordForm` з відповідними `tags`. Окремого enum форм нема — це просто список із грам-мітками.
 
-### 1.4 `partOfSpeech: List<String>` — частини мови всього слова
+### 1.5 `partOfSpeech: List<String>` — частини мови всього слова
 
 **[ЗАРАЗ]** Word-level список усіх частин мови (слово може бути і дієсловом, і іменником). Серверне джерело — `lexicon_words.part_of_speech` (text-array, `lexicon.ts:47`). Відрізняється від `WordSense.partOfSpeech` (per-sense, один рядок).
 
@@ -112,6 +134,14 @@ details = WordDetails(
     antonyms = antonyms,
     forms = forms.map { WordForm(it.text, it.tags) },
     partOfSpeech = partOfSpeech,
+    lexicalUnitKind = lexicalUnitKind,
+    registerTags = registerTags,
+    expansion = expansion,
+    translatedExpansion = translatedExpansion,
+    meaning = meaning,
+    literalTranslation = literalTranslation,
+    usageExample = usageExample,
+    usageExampleTranslation = usageExampleTranslation,
 ).takeUnless { it.isEmpty }   // порожнє → null
 ```
 
@@ -153,10 +183,11 @@ details = WordDetails(
 
 **[ЗАРАЗ]** `App.kt:3040-3078`. Картка з градієнтом + рамкою; секції в порядку:
 
-1. **Senses** — `details.senses.take(3)` → `WordSenseBlock` на кожен (`App.kt:3059-3063`). **Ліміт 3 значення.**
-2. **Синоніми** — `WordChipsRow("Синоніми", synonyms.take(12), accent)` (`App.kt:3064-3066`). **Ліміт 12.**
-3. **Антоніми** — `WordChipsRow("Антоніми", antonyms.take(12), accent=Orange)` (`App.kt:3067-3069`). **Ліміт 12, помаранчевий акцент.**
-4. **Форми** — `WordChipsRow("Форми", forms.map{it.text}.distinct().take(10), accent=Muted)` (`App.kt:3070-3076`). **Ліміт 10, дедуп по тексту.**
+1. **Тип + регістр** — чипи «Фраза» / «Вислів» / «Абревіатура» та «Сленг» / «Неформальне» тощо; нижче — наявні «Що означає», «Розшифровка», «Розшифровка перекладу», «Дослівно», приклад і його переклад.
+2. **Senses** — `details.senses.take(3)` → `WordSenseBlock` на кожен. **Ліміт 3 значення.**
+3. **Синоніми** — `WordChipsRow("Синоніми", synonyms.take(12), accent)`. **Ліміт 12.**
+4. **Антоніми** — `WordChipsRow("Антоніми", antonyms.take(12), accent=Orange)`. **Ліміт 12, помаранчевий акцент.**
+5. **Форми** — `WordChipsRow("Форми", forms.map{it.text}.distinct().take(10), accent=Muted)`. **Ліміт 10, дедуп по тексту.**
 
 > Word-level `synonyms`/`antonyms`/`forms` рендеряться. **Sense-level** synonyms/antonyms (поля `WordSense.synonyms/antonyms`) **зараз у блоці значення не показуються** — `WordSenseBlock` рендерить лише номер, partOfSpeech, definition, examples.
 

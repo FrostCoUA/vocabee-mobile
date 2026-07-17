@@ -4,6 +4,7 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeColor
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
+import com.vocabee.android.feature.vocabulary.domain.model.LexicalUnitKind
 import com.vocabee.android.feature.vocabulary.presentation.navigation.VocabeeRoute
 import com.vocabee.android.feature.vocabulary.presentation.navigation.shouldShowBottomBar
 import org.junit.Assert.assertEquals
@@ -51,6 +52,35 @@ class PracticeUiPolicyTest {
         )
 
         assertEquals("They sat on the river bank.", word.contextSentence())
+    }
+
+    @Test
+    fun abbreviationUsesItsOwnUsageExampleWhenItHasNoDictionarySense() {
+        val word = WordEntry(
+            id = "lol",
+            source = "LOL",
+            translation = "лол",
+            details = WordDetails(
+                lexicalUnitKind = LexicalUnitKind.Abbreviation,
+                usageExample = "LOL, that was hilarious!",
+            ),
+        )
+
+        assertEquals("LOL, that was hilarious!", word.contextSentence())
+    }
+
+    @Test
+    fun legacySavedUnitsGetConservativeLabelsWithoutRemoteResearch() {
+        assertEquals(listOf("Фраза"), lexicalLabelsFor("by the way", details = null))
+        assertEquals(listOf("Абревіатура"), lexicalLabelsFor("NATO", details = null))
+        assertEquals(emptyList<String>(), lexicalLabelsFor("apple", details = null))
+        assertEquals(
+            listOf("Вислів"),
+            lexicalLabelsFor(
+                source = "break a leg",
+                details = WordDetails(lexicalUnitKind = LexicalUnitKind.Expression),
+            ),
+        )
     }
 
     @Test

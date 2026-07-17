@@ -5,6 +5,8 @@ import com.vocabee.android.feature.vocabulary.data.api.VocabeeApi
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApiException
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOptionNote
+import com.vocabee.android.feature.vocabulary.domain.model.LexicalRegisterTag
+import com.vocabee.android.feature.vocabulary.domain.model.LexicalUnitKind
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordForm
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
@@ -79,7 +81,7 @@ class RemoteLexiconSearchUseCase(
     }
 }
 
-private fun SearchVariant.toOption(existingTranslations: Set<String>): TranslationOption {
+internal fun SearchVariant.toOption(existingTranslations: Set<String>): TranslationOption {
     val translation = knownWord
     val note = when {
         existingTranslations.contains(translation) ->
@@ -111,6 +113,32 @@ private fun SearchVariant.toOption(existingTranslations: Set<String>): Translati
             antonyms = antonyms,
             forms = forms.map { WordForm(text = it.text, tags = it.tags) },
             partOfSpeech = partOfSpeech,
+            lexicalUnitKind = lexicalUnitKind.toLexicalUnitKind(),
+            registerTags = registerTags.mapNotNull(String::toLexicalRegisterTag).distinct(),
+            expansion = expansion,
+            translatedExpansion = translatedExpansion,
+            meaning = meaning,
+            literalTranslation = literalTranslation,
+            usageExample = usageExample,
+            usageExampleTranslation = usageExampleTranslation,
         ).takeUnless { it.isEmpty },
     )
+}
+
+private fun String.toLexicalUnitKind(): LexicalUnitKind = when (lowercase()) {
+    "phrase" -> LexicalUnitKind.Phrase
+    "expression" -> LexicalUnitKind.Expression
+    "abbreviation" -> LexicalUnitKind.Abbreviation
+    else -> LexicalUnitKind.Word
+}
+
+private fun String.toLexicalRegisterTag(): LexicalRegisterTag? = when (lowercase()) {
+    "slang" -> LexicalRegisterTag.Slang
+    "informal" -> LexicalRegisterTag.Informal
+    "formal" -> LexicalRegisterTag.Formal
+    "technical" -> LexicalRegisterTag.Technical
+    "offensive" -> LexicalRegisterTag.Offensive
+    "humorous" -> LexicalRegisterTag.Humorous
+    "internet" -> LexicalRegisterTag.Internet
+    else -> null
 }

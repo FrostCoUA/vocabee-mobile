@@ -70,8 +70,9 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Список результатів із `+`/`✓` | Кожен рядок: канонічне слово, IPA, переклад, Sparkle (AI), toggle add/remove. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §5 |
 | Виявлення дубліката | `alreadyAdded` (сервер) ∨ локальний `Set` перекладів → миттєвий toggle `+`↔`✓`. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §6 |
 | Групування слів | Однакові source-слова схлопуються в одну картку `WordGroupRow`. | [ЗАРАЗ] | [01](01-screens.md) §6 |
-| Розгортувані деталі слова | Тап по рядку розкриває `WordDetailsBlock`: senses (≤3), синоніми (≤12), антоніми (≤12), форми (≤10). | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §3 |
-| Багата модель деталей | `WordDetails`: senses (definition/PoS/tags/examples/syn/ant), word-level syn/ant/forms/partOfSpeech. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §1 |
+| Розгортувані деталі слова | Тап розкриває тип/регістр, значення/розшифровку/дослівний переклад/приклад, далі senses, синоніми, антоніми й форми. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §3 |
+| Типи lexical unit | `Word / Phrase / Expression / Abbreviation`; регістр окремо (`Slang`, `Informal`, `Internet` тощо), тому `LOL` = abbreviation+slang. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §1.2 |
+| Багата модель деталей | `WordDetails`: lexical metadata + senses (definition/PoS/tags/examples/syn/ant), word-level syn/ant/forms/partOfSpeech. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §1 |
 | Снапшот перекладу/IPA/деталей | Збережене слово — заморожений знімок провайдера; зміни lexicon його не оновлюють. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §5 |
 | Озвучення слова (TTS) | Кнопка `Sound` на картці → озвучує source-слово source-мовою. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §4, [08](08-languages-speech-themes.md) §4 |
 | Свайп-видалення слова | Reveal-кнопка «Видалити» (88dp) → видалення одразу (без діалогу). | [ЗАРАЗ] | [12](12-motion-and-interaction-brief.md) §D |
@@ -92,7 +93,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Детект мови вводу | `LanguageDetector.detectBetween`: скрипт-евристика → franc-min → fallback `learnLang`. | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §5, [13](13-add-word-and-ai-search.md) §10 |
 | Префікс-кеш lexicon | `LIKE 'q%'` живі підказки (exact-first → primary → коротші). | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
 | Word-validator (квота-гейт) | Hunspell перевіряє плаузибельність перед провайдером (бережемо квоту). | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §12 |
-| Провайдер перекладу | OpenAI structured output (`gpt-5.6-sol` за замовчуванням); генерує лише запитаний напрямок. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10–11 |
+| Провайдер перекладу | OpenAI structured output: переклади + тип/регістр/розшифровка/значення/дослівний переклад/приклад; лише запитаний напрямок. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10–11 |
 | Echo-гард | Якщо провайдер віддав ввід дослівно → «нема перекладу», не персистимо. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
 | Збагачення (dictionary-ланцюг) | `OpenAI → FreeDictionary`: IPA, audio, senses+приклади, синоніми/антоніми, форми. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §11, [14](14-word-details-and-audio.md) §2 |
 | Напрямний кеш без mirror | Upsert source/target lexicon + translation cache лише для `detectedLang → otherLang`; зворотний напрямок генерується окремим запитом. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
@@ -110,7 +111,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Функція | Короткий опис | Стан | Док |
 |---|---|---|---|
 | Вибір тем (setup-екран) | Мультивибір словників із чекбоксами; єдина колода без перемикача «Класика / Слово в контексті»; «Вибрано: K тем · M слів». | [ЗАРАЗ] | [01](01-screens.md) §8, [11](11-practice-training.md) §1, §7 |
-| Колода флеш-карток | До 10 карток; active/done fullscreen; двосторонній flip із напрямком свайпа; sense-контекст із підсвіченим словом; окремий TTS; вихід через confirmation sheet. | [ЗАРАЗ] | [01](01-screens.md) §8 |
+| Колода флеш-карток | До 10 pager-карток з незалежним flip-станом; slide через «Знаю»/«Далі»; sense/usage-контекст; на звороті metadata вислову/абревіатури. | [ЗАРАЗ] | [01](01-screens.md) §8 |
 | Бінарна оцінка «Знаю / Не знаю» | Ручне відкриття перекладу автоматично = «Не знаю»; далі лишається «Далі» (стрілка праворуч); «Знаю» — одразу наступна. | [ЗАРАЗ] | [11](11-practice-training.md) §1, §6 |
 | Поточний відбір (найслабші) | shuffle(seed) → sort by knowledge% → take(10). Причина «ті самі 10». | [ЗАРАЗ] | [11](11-practice-training.md) §1 |
 | Гібрид пріоритет+Leitner+анти-повтор | Новий алгоритм: пріоритет-бал + Leitner-бокси + зважений рандом + кулдаун + нові. | [НОВЕ] D10 | [11](11-practice-training.md) §2–§4 |

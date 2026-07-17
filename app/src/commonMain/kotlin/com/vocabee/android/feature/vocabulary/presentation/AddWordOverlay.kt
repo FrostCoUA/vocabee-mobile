@@ -915,6 +915,18 @@ private fun AddWordResultRow(
                         if (!expanded) translationTextOverflows = result.hasVisualOverflow
                     },
                 )
+                val lexicalLabels = details?.lexicalLabels().orEmpty()
+                if (lexicalLabels.isNotEmpty()) {
+                    Text(
+                        text = lexicalLabels.joinToString(" · "),
+                        modifier = Modifier.padding(top = 5.dp),
+                        color = accent,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             Box(
                 modifier = Modifier

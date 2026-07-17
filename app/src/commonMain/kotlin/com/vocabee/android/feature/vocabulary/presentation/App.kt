@@ -135,6 +135,8 @@ import com.vocabee.android.feature.vocabulary.data.sync.toApplySyncRequest
 import com.vocabee.android.feature.vocabulary.data.sync.toVocabularySyncSnapshot
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
+import com.vocabee.android.feature.vocabulary.domain.model.LexicalRegisterTag
+import com.vocabee.android.feature.vocabulary.domain.model.LexicalUnitKind
 import com.vocabee.android.feature.vocabulary.domain.model.TopicUpdatedLabel
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
@@ -3067,6 +3069,7 @@ private fun WordGroupRow(
 ) {
     val details = group.details
     val hasDetails = details != null && !details.isEmpty
+    val lexicalLabels = lexicalLabelsFor(group.sourceWord, details)
     var sourceTextOverflows by remember(group.anyId, group.sourceWord) { mutableStateOf(false) }
     var translationTextOverflows by remember(group.anyId, group.translations) { mutableStateOf(false) }
     val canExpand = hasDetails || sourceTextOverflows || translationTextOverflows
@@ -3145,6 +3148,15 @@ private fun WordGroupRow(
                                 if (!expanded) translationTextOverflows = result.hasVisualOverflow
                             },
                         )
+                        if (lexicalLabels.isNotEmpty()) {
+                            Text(
+                                text = lexicalLabels.joinToString(" · "),
+                                modifier = Modifier.padding(top = 5.dp),
+                                color = accent,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 11.5.sp,
+                            )
+                        }
                     }
 
                     Surface(
@@ -3196,6 +3208,7 @@ private fun WordRow(
     onRemove: () -> Unit = {},
 ) {
     val hasDetails = word.details != null && !word.details.isEmpty
+    val lexicalLabels = lexicalLabelsFor(word.source, word.details)
     var sourceTextOverflows by remember(word.id, word.source) { mutableStateOf(false) }
     var translationTextOverflows by remember(word.id, word.translation) { mutableStateOf(false) }
     val canExpand = hasDetails || sourceTextOverflows || translationTextOverflows
@@ -3268,6 +3281,15 @@ private fun WordRow(
                                 if (!expanded) translationTextOverflows = result.hasVisualOverflow
                             },
                         )
+                        if (lexicalLabels.isNotEmpty()) {
+                            Text(
+                                text = lexicalLabels.joinToString(" · "),
+                                modifier = Modifier.padding(top = 5.dp),
+                                color = accent,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 11.5.sp,
+                            )
+                        }
                     }
 
                     Surface(
@@ -3345,6 +3367,9 @@ internal fun WordDetailsBlock(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        if (details.hasLexicalMetadata()) {
+            LexicalMetadataBlock(details = details, accent = accent)
+        }
         if (details.senses.isNotEmpty()) {
             details.senses.take(3).forEachIndexed { index, sense ->
                 WordSenseBlock(index = index, sense = sense, accent = accent)
@@ -3363,6 +3388,138 @@ internal fun WordDetailsBlock(
                 accent = PrototypeColor.Muted,
             )
         }
+    }
+}
+
+internal fun LexicalUnitKind.ukrainianLabel(): String = when (this) {
+    LexicalUnitKind.Word -> "Слово"
+    LexicalUnitKind.Phrase -> "Фраза"
+    LexicalUnitKind.Expression -> "Вислів"
+    LexicalUnitKind.Abbreviation -> "Абревіатура"
+}
+
+internal fun LexicalRegisterTag.ukrainianLabel(): String = when (this) {
+    LexicalRegisterTag.Slang -> "Сленг"
+    LexicalRegisterTag.Informal -> "Неформальне"
+    LexicalRegisterTag.Formal -> "Формальне"
+    LexicalRegisterTag.Technical -> "Технічне"
+    LexicalRegisterTag.Offensive -> "Образливе"
+    LexicalRegisterTag.Humorous -> "Жартівливе"
+    LexicalRegisterTag.Internet -> "Інтернет"
+}
+
+internal fun WordDetails.lexicalLabels(): List<String> = buildList {
+    if (lexicalUnitKind != LexicalUnitKind.Word || registerTags.isNotEmpty()) {
+        add(lexicalUnitKind.ukrainianLabel())
+    }
+    addAll(registerTags.map { it.ukrainianLabel() })
+}
+
+/**
+ * Old saved snapshots predate lexical metadata. Keep them useful without a paid
+ * re-search: multi-word values are phrases, while compact all-caps values are
+ * overwhelmingly acronyms. Explicit server metadata always wins.
+ */
+internal fun lexicalLabelsFor(source: String, details: WordDetails?): List<String> {
+    val explicitLabels = details?.lexicalLabels().orEmpty()
+    if (explicitLabels.isNotEmpty()) return explicitLabels
+
+    val inferredKind = inferLegacyLexicalUnitKind(source)
+    return if (inferredKind == LexicalUnitKind.Word) {
+        emptyList()
+    } else {
+        listOf(inferredKind.ukrainianLabel())
+    }
+}
+
+internal fun inferLegacyLexicalUnitKind(source: String): LexicalUnitKind {
+    val normalized = source.trim()
+    if (normalized.any(Char::isWhitespace)) return LexicalUnitKind.Phrase
+
+    val letters = normalized.filter(Char::isLetter)
+    val isCompactUppercaseAcronym = letters.length in 2..6 &&
+        letters.all(Char::isUpperCase) &&
+        normalized.all { it.isLetter() || it == '.' || it == '-' }
+    return if (isCompactUppercaseAcronym) {
+        LexicalUnitKind.Abbreviation
+    } else {
+        LexicalUnitKind.Word
+    }
+}
+
+internal fun WordDetails.hasLexicalMetadata(): Boolean =
+    lexicalUnitKind != LexicalUnitKind.Word || registerTags.isNotEmpty() ||
+        !expansion.isNullOrBlank() || !translatedExpansion.isNullOrBlank() ||
+        !meaning.isNullOrBlank() || !literalTranslation.isNullOrBlank() ||
+        !usageExample.isNullOrBlank() || !usageExampleTranslation.isNullOrBlank()
+
+@Composable
+private fun LexicalMetadataBlock(
+    details: WordDetails,
+    accent: Color,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            LexicalMetadataChip(details.lexicalUnitKind.ukrainianLabel(), accent)
+            details.registerTags.forEach { tag ->
+                LexicalMetadataChip(tag.ukrainianLabel(), PrototypeColor.OrangeText)
+            }
+        }
+        LexicalMetadataValue(label = "Що означає", value = details.meaning)
+        LexicalMetadataValue(label = "Розшифровка", value = details.expansion)
+        LexicalMetadataValue(
+            label = "Розшифровка перекладу",
+            value = details.translatedExpansion,
+        )
+        LexicalMetadataValue(label = "Дослівно", value = details.literalTranslation)
+        LexicalMetadataValue(label = "Приклад", value = details.usageExample)
+        LexicalMetadataValue(label = "Переклад прикладу", value = details.usageExampleTranslation)
+    }
+}
+
+@Composable
+private fun LexicalMetadataChip(
+    text: String,
+    accent: Color,
+) {
+    Surface(
+        shape = RoundedCornerShape(9.dp),
+        color = accent.copy(alpha = 0.11f),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            color = accent,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 11.5.sp,
+        )
+    }
+}
+
+@Composable
+private fun LexicalMetadataValue(
+    label: String,
+    value: String?,
+) {
+    if (value.isNullOrBlank()) return
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(
+            text = label,
+            color = PrototypeColor.Muted2,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 11.sp,
+            letterSpacing = 0.45.sp,
+        )
+        Text(
+            text = value,
+            color = PrototypeColor.Ink,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.5.sp,
+            lineHeight = 18.sp,
+        )
     }
 }
 
@@ -4420,7 +4577,29 @@ private fun PracticeFlipCard(
                             color = Color.White,
                             baseFontSize = 32,
                         )
+                        PracticeCardBackMetadata(
+                            details = card.word.details,
+                            modifier = Modifier.padding(top = 24.dp),
+                        )
                     }
+                    card.word.details?.usageExampleTranslation
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { translatedExample ->
+                            Text(
+                                text = translatedExample,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .graphicsLayer { rotationY = 180f },
+                                color = Color.White.copy(alpha = 0.82f),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                textAlign = TextAlign.Center,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                 } else {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -4446,6 +4625,18 @@ private fun PracticeFlipCard(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                            }
+                        }
+                        val lexicalLabels = lexicalLabelsFor(card.word.source, card.word.details)
+                        if (lexicalLabels.isNotEmpty()) {
+                            androidx.compose.foundation.layout.FlowRow(
+                                modifier = Modifier.padding(top = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                lexicalLabels.forEach { label ->
+                                    LexicalMetadataChip(label, card.accent)
+                                }
                             }
                         }
                         PracticeCardMainText(
@@ -4498,6 +4689,50 @@ private fun PracticeFlipCard(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PracticeCardBackMetadata(
+    details: WordDetails?,
+    modifier: Modifier = Modifier,
+) {
+    if (details == null) return
+    val values = listOfNotNull(
+        details.meaning?.takeIf { it.isNotBlank() }?.let { "Що означає" to it },
+        details.expansion?.takeIf { it.isNotBlank() }?.let { "Розшифровка" to it },
+        details.translatedExpansion?.takeIf { it.isNotBlank() }
+            ?.let { "Переклад розшифровки" to it },
+        details.literalTranslation?.takeIf { it.isNotBlank() }?.let { "Дослівно" to it },
+    )
+    if (values.isEmpty()) return
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        values.take(4).forEach { (label, value) ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = label,
+                    color = Color.White.copy(alpha = 0.72f),
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 10.5.sp,
+                    letterSpacing = 0.4.sp,
+                )
+                Text(
+                    text = value,
+                    modifier = Modifier.padding(top = 2.dp),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.5.sp,
+                    lineHeight = 17.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }

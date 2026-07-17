@@ -165,6 +165,7 @@ internal fun WordEntry.contextSentence(): String? {
     val ownSense = details.senseIndex?.let { details.senses.getOrNull(it) }
     val ownExample = ownSense?.examples?.firstOrNull { it.isNotBlank() }
     if (ownExample != null) return ownExample.trim()
+    details.usageExample?.takeIf { it.isNotBlank() }?.let { return it.trim() }
     return details.senses
         .firstNotNullOfOrNull { sense -> sense.examples.firstOrNull { it.isNotBlank() } }
         ?.trim()

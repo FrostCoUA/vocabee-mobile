@@ -95,6 +95,7 @@ Recording-слот хвилі має фіксовану висоту (80 dp + 30
 | **Вихідне слово** (learning-side, канонічне) | `option.learningWord` — **не сире введення** (тож «circumstanc» → «circumstance») | `AddWordOverlay.kt:835-848`, коментар `:836-837` |
 | **IPA** | `option.ipa` (праворуч від слова, якщо є) | `AddWordOverlay.kt:849-858` |
 | **Переклад** (known-side) | `option.value` (== `knownWord`) | `AddWordOverlay.kt:866-877` |
+| **Тип/регістр** | Під перекладом компактно: «Фраза», «Вислів», «Абревіатура» + незалежні «Сленг», «Інтернет» тощо; повні поля видно після розгортання | `SearchVariant → WordDetails`, `AddWordResultRow` |
 | **AI-атрибуція (per-row)** | фіолетова іконка `Sparkle` біля кожного слова | `AddWordOverlay.kt:859-864` |
 | **AI-атрибуція (footer)** | «Переклади та приклади згенеровано AI» (per-tier капи знято — див. §8) | `AddWordOverlay.kt:765-787`, `:791-796` |
 | **Розгортання деталей** | клік по рядку (`canExpand = hasDetails ∨ overflow джерела/перекладу`) розкриває `WordDetailsBlock` (senses/синоніми/антоніми/форми/приклади) | `AddWordOverlay.kt:807-822`, `:914-919` |
@@ -231,10 +232,10 @@ DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak
 | 1 | **Детект мови (speak/learn)** | `LanguageDetector.detectBetween`: (a) скрипт-евристика Кирилиця vs Латиниця, (b) `franc-min` якщо ≥4 символи, (c) fallback → `learnLang`. `otherLang` = протилежна detected | `lang-detect.ts:30-55`, `lexicon.service.ts:140-147` |
 | 2 | **Префікс-кеш lexicon** | `findPrefixMatches(detectedLang, normalized, otherLang, maxResults)` — `LIKE 'q%'`, exact-first, тоді primary, тоді коротші слова. Дає живі підказки «cir → circle/circus/circumstance» | `lexicon.repository.ts:308-358`, `lexicon.service.ts:151-161` |
 | 3 | **Freshness / top-up** | Якщо є exact-cached і провайдер `isAvailable`: перевірити, чи є рядок із поточного tier (`acceptedTierNames`). Нема → `needsTopUp` (авто-рефетч при DeepL Free→Pro, зміні AI-моделі) | `lexicon.service.ts:171-191` |
-| 4 | **Word-validator (квота-гейт)** | `isPlausibleProviderInput`: для слова — `isPlausibleWord`, для фрази — `isPlausiblePhrase`. Не пройшло → `providerReason='not_a_word'`, провайдер НЕ викликається (бережемо квоту) | `lexicon.service.ts:199-202`, `:286-294`, word-validator §12 |
-| 5 | **Провайдер перекладу** | Якщо немає достатнього exact-cache або є pending repair і слово плаузибельне → `translator.translate({text, detectedLang→otherLang, desiredVariants, excludedTranslations})`. Виклик генерує лише запитаний напрямок і лише потрібну кількість нових варіантів | `lexicon.service.ts` |
+| 4 | **Word-validator (квота-гейт)** | Для слова — Hunspell, для фрази — phrase-validator; додатково пропускаються короткі/uppercase/dotted кандидати на абревіатуру (`btw`, `LOL`, `NATO`, `U.S.`), а остаточну валідність вирішує structured AI | `lexicon.service.ts`, word-validator §12 |
+| 5 | **Провайдер перекладу + lexical metadata** | OpenAI класифікує обидві мовні сторони як `word/phrase/expression/abbreviation`, окремо дає register tags, розшифровки, значення, дослівний переклад і приклади; напрямок орієнтується так, щоб mobile завжди отримав metadata learning-side одиниці | `openai-translation.provider.ts`, `translation.provider.ts` |
 | 6 | **Echo-гард** | Кандидати = провайдер-результати, де `normalize(text) != normalizedQuery`. Усі збіглися з вводом → `echo` (НЕ персистимо). `null` → `no_provider_data` | `lexicon.service.ts:209-242` |
-| 7 | **Upsert lexicon + directional cache** | `persistAllVariants`: upsert source і target words, зв'язати `target_word_id`, зберегти тільки `detectedLang → otherLang`. Reverse mirror не створюється. Видалені тексти не оживають автоматично; repair виключає і активні, і tombstoned варіанти | `lexicon.service.ts`, `lexicon.repository.ts` |
+| 7 | **Upsert lexicon + directional cache** | `persistAllVariants`: upsert source і target words, зв'язати `target_word_id`, зберегти тільки `detectedLang → otherLang`. Lexical metadata лежить у `translations.metadata`, тому exact-cache повертає ті самі тип/розшифровку/значення без нового AI-виклику. Старий exact-cache без `sourceUnit/targetUnit` один раз ліниво оновлюється наступним пошуком; уже його відповідь містить metadata, далі знову працює кеш | `lexicon.service.ts`, `lexicon.repository.ts` |
 | 8 | **Збагачення (IPA/audio/examples/senses)** | `enrichLearningEntry` (тільки не-фраза): dictionary-ланцюг (OpenAI → FreeDictionary) дає IPA, audio, senses+приклади, синоніми/антоніми, форми; усе ідемпотентно персиститься; heal-on-read для старого IPA | `lexicon.service.ts`, `lexicon-core.module.ts` |
 | 9 | **Композиція відповіді** | Провайдер-хіти спершу, тоді не-дубль префікс-підказки, до `maxResults`; дедуп по `normalize(knownWord)` | `lexicon.service.ts:245-264` |
 
@@ -250,7 +251,7 @@ DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak
 
 ### Відповідь `SearchResponseDto` → клієнт
 
-`SearchResponse` (моб, `SearchResponse.kt`) дзеркалить `SearchResponseDto`. Ключове: `results: SearchVariant[]` (`knownWord`, `learningWord`, `ipa`, `audioUrl`, `partOfSpeech`, `examples`, `senses`, `synonyms`, `antonyms`, `forms`, `source`, `origin`, `isPrimary`, `cached`, `match`), `tier`, `maxResults`, `meta.beeBalance`. `RemoteLexiconSearchUseCase.toOption` мапить це в `TranslationOption` (`RemoteLexiconSearchUseCase.kt:82-115`).
+`SearchResponse` (моб, `SearchResponse.kt`) дзеркалить `SearchResponseDto`. Крім звичайних dictionary-полів, кожен `SearchVariant` має `lexicalUnitKind`, `registerTags`, `expansion`, `translatedExpansion`, `meaning`, `literalTranslation`, `usageExample`, `usageExampleTranslation`. `RemoteLexiconSearchUseCase.toOption` мапить їх у JSON-снапшот `WordDetails`.
 
 ---
 
