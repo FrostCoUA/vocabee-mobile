@@ -52,6 +52,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -3646,6 +3648,17 @@ internal fun shouldRecordUnknownOnManualReveal(
     waitingForNextAfterMiss: Boolean,
 ): Boolean = !isFlipped && !waitingForNextAfterMiss
 
+private enum class PracticeCardAnswer {
+    Known,
+    Unknown,
+}
+
+private class PracticeCardSessionState {
+    var isFlipped by mutableStateOf(false)
+    var rotationTargetDegrees by mutableFloatStateOf(0f)
+    var answer by mutableStateOf<PracticeCardAnswer?>(null)
+}
+
 @Composable
 private fun PracticeScreen(
     topics: List<DictionaryTopic>,
@@ -3721,14 +3734,18 @@ private fun PracticeScreen(
     }
     val cardsByKey = availableCards.toMap()
     val deck = deckKeys.mapNotNull { key -> cardsByKey[key] }
+    val pagerState = rememberPagerState(pageCount = { deck.size })
+    val coroutineScope = rememberCoroutineScope()
     var index by remember(deckKeys) { mutableIntStateOf(0) }
-    var flipped by remember(deckKeys) { mutableStateOf(false) }
-    var cardRotationTargetDegrees by remember(deckKeys) { mutableFloatStateOf(0f) }
+    var roundGeneration by remember(availableCardIdentity) { mutableIntStateOf(0) }
+    val cardStates = remember(deckKeys, roundGeneration) {
+        List(deck.size) { PracticeCardSessionState() }
+    }
     var correctAnswers by remember(deckKeys) { mutableIntStateOf(0) }
-    var waitingForNextAfterMiss by remember(deckKeys) { mutableStateOf(false) }
     var done by remember(deckKeys) { mutableStateOf(false) }
     var interruptionSheetVisible by remember(deckKeys) { mutableStateOf(false) }
     var cardFlipEnabled by remember(deckKeys) { mutableStateOf(false) }
+    var cardTransitioning by remember(deckKeys, roundGeneration) { mutableStateOf(false) }
     LaunchedEffect(deckKeys) {
         cardFlipEnabled = false
         delay(300)
@@ -3736,57 +3753,76 @@ private fun PracticeScreen(
     }
 
     fun moveNext() {
-        waitingForNextAfterMiss = false
-        cardRotationTargetDegrees = 0f
-        if (index + 1 >= deck.size) {
+        if (cardTransitioning) return
+        val nextPage = index + 1
+        if (nextPage >= deck.size) {
             done = true
             onRoundCompleted()
         } else {
-            flipped = false
-            index += 1
+            cardTransitioning = true
+            coroutineScope.launch {
+                try {
+                    pagerState.animateScrollToPage(
+                        page = nextPage,
+                        animationSpec = tween(durationMillis = 420),
+                    )
+                    index = nextPage
+                } finally {
+                    cardTransitioning = false
+                }
+            }
         }
     }
 
     fun answerKnown() {
+        if (cardTransitioning) return
         val card = deck.getOrNull(index) ?: return
+        val cardState = cardStates.getOrNull(index) ?: return
+        if (cardState.answer != null) return
         onAnswerWord(
             card.topicId,
             card.word.id,
             KnowledgeStepPercent,
         )
+        cardState.answer = PracticeCardAnswer.Known
         correctAnswers += 1
         moveNext()
     }
 
-    fun recordUnknownAnswer() {
-        if (waitingForNextAfterMiss) return
-        val card = deck.getOrNull(index) ?: return
+    fun recordUnknownAnswer(page: Int) {
+        val card = deck.getOrNull(page) ?: return
+        val cardState = cardStates.getOrNull(page) ?: return
+        if (cardState.answer != null) return
         onAnswerWord(
             card.topicId,
             card.word.id,
             -KnowledgeStepPercent,
         )
-        waitingForNextAfterMiss = true
+        cardState.answer = PracticeCardAnswer.Unknown
     }
 
     fun answerUnknown() {
-        if (waitingForNextAfterMiss) return
-        if (!flipped) {
-            cardRotationTargetDegrees += PracticeFlipDirection.Tap.rotationDeltaDegrees
-            flipped = true
+        if (cardTransitioning) return
+        val cardState = cardStates.getOrNull(index) ?: return
+        if (cardState.answer != null) return
+        if (!cardState.isFlipped) {
+            cardState.rotationTargetDegrees += PracticeFlipDirection.Tap.rotationDeltaDegrees
+            cardState.isFlipped = true
         }
-        recordUnknownAnswer()
+        recordUnknownAnswer(index)
     }
 
-    fun flipCard(direction: PracticeFlipDirection) {
+    fun flipCard(page: Int, direction: PracticeFlipDirection) {
+        if (page != index || cardTransitioning) return
+        val cardState = cardStates.getOrNull(page) ?: return
         val recordsUnknown = shouldRecordUnknownOnManualReveal(
-            isFlipped = flipped,
-            waitingForNextAfterMiss = waitingForNextAfterMiss,
+            isFlipped = cardState.isFlipped,
+            waitingForNextAfterMiss = cardState.answer == PracticeCardAnswer.Unknown,
         )
-        cardRotationTargetDegrees += direction.rotationDeltaDegrees
-        flipped = !flipped
+        cardState.rotationTargetDegrees += direction.rotationDeltaDegrees
+        cardState.isFlipped = !cardState.isFlipped
         if (recordsUnknown) {
-            recordUnknownAnswer()
+            recordUnknownAnswer(page)
         }
     }
 
@@ -3866,13 +3902,14 @@ private fun PracticeScreen(
                 correctAnswers = correctAnswers,
                 total = deck.size,
                 onRestart = {
-                    shuffleSeed = Random.nextInt()
-                    index = 0
-                    flipped = false
-                    cardRotationTargetDegrees = 0f
-                    correctAnswers = 0
-                    waitingForNextAfterMiss = false
-                    done = false
+                    coroutineScope.launch {
+                        shuffleSeed = Random.nextInt()
+                        roundGeneration += 1
+                        pagerState.scrollToPage(0)
+                        index = 0
+                        correctAnswers = 0
+                        done = false
+                    }
                 },
                 onChooseTopics = {
                     practiceStarted = false
@@ -3880,19 +3917,30 @@ private fun PracticeScreen(
                 modifier = Modifier.weight(1f),
             )
             else -> {
-                val card = deck[index]
-                PracticeFlipCard(
-                    card = card,
-                    rotationTargetDegrees = cardRotationTargetDegrees,
-                    flipEnabled = cardFlipEnabled,
-                    onFlip = ::flipCard,
-                    onSpeak = {
-                        onSpeakWord(card.word.source, card.sourceLanguageTag)
-                    },
+                HorizontalPager(
+                    state = pagerState,
                     modifier = Modifier
                         .weight(1f)
-                        .padding(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 12.dp),
-                )
+                        .fillMaxWidth(),
+                    userScrollEnabled = false,
+                    beyondViewportPageCount = 1,
+                    key = { page -> deckKeys[page] },
+                ) { page ->
+                    val card = deck[page]
+                    val cardState = cardStates[page]
+                    PracticeFlipCard(
+                        card = card,
+                        rotationTargetDegrees = cardState.rotationTargetDegrees,
+                        flipEnabled = cardFlipEnabled && page == index && !cardTransitioning,
+                        onFlip = { direction -> flipCard(page, direction) },
+                        onSpeak = {
+                            onSpeakWord(card.word.source, card.sourceLanguageTag)
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 12.dp),
+                    )
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3900,7 +3948,7 @@ private fun PracticeScreen(
                         .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    if (waitingForNextAfterMiss) {
+                    if (cardStates[index].answer == PracticeCardAnswer.Unknown) {
                         PracticeAnswerButton(
                             text = "Далі",
                             icon = PrototypeIcon.ChevronRight,
