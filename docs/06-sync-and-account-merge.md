@@ -104,6 +104,17 @@ gateway (NestJS + Postgres), а також як планується мерж л
 > (`topics.service.ts:338,391,406,453`). Тобто LWW-арбітр — таймстемп, який присилає
 > недовірений клієнт (див. розділ 2).
 
+### 1.7 Приватний контекстний glossary
+
+`WordDetails.contextGlossary` як і раніше синкається всередині `topic_words.metadata`,
+щоб конкретне слово мало offline-снапшот на кожному пристрої. Додатково `applySync`
+валідує ці снапшоти й ідемпотентно проєктує токени у серверні
+`user_context_glossary_entries/examples`, прив'язані до `user_id`. Ключ entry:
+`user + напрямок мов + normalized word/lemma + normalized concrete translation`;
+речення й offset — окремий приклад. Завдяки цьому локальний anonymous glossary потрапляє
+до акаунта при першому push, а повторний sync не дублює пару чи те саме входження.
+Видалення topic/word не каскадить у glossary: він зберігає накопичену історію контекстів.
+
 ---
 
 ## 2. [ЗАРАЗ] Обхід лімітів та діри в `applySync` — детально
