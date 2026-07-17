@@ -19,5 +19,6 @@ local.properties
 /vocabee.jks
 /app/release/
 /iosApp/build/
+/.worktrees/
 # Stray empty clone
 /vocabee/
