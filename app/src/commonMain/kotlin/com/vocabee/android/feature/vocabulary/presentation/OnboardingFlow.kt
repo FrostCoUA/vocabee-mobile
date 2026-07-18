@@ -22,12 +22,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,12 +45,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -67,7 +60,6 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeLanguage
 import com.vocabee.android.core.presentation.designsystem.PrototypeLanguages
 import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLogo
-import com.vocabee.android.core.presentation.designsystem.prototypeLanguage
 import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
 import kotlinx.coroutines.delay
 
@@ -117,7 +109,7 @@ internal fun SplashScreen(onDone: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             PrototypeLogo(
-                modifier = Modifier.size(96.dp),
+                modifier = Modifier.size(84.dp),
                 color = Color.White,
                 accent = PrototypeColor.Yellow,
             )
@@ -127,31 +119,19 @@ internal fun SplashScreen(onDone: () -> Unit) {
                     withStyle(SpanStyle(color = Color.White)) { append("voca") }
                     withStyle(SpanStyle(color = PrototypeColor.Yellow)) { append("bee") }
                 },
-                fontSize = 46.sp,
+                fontSize = 44.sp,
                 fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-1.6).sp,
+                letterSpacing = (-1.5).sp,
             )
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = "Збирай слова. Будуй словники.",
                 color = Color.White.copy(alpha = 0.78f),
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 textAlign = TextAlign.Center,
             )
         }
-
-        Text(
-            text = "MADE WITH CARE",
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 54.dp),
-            color = Color.White.copy(alpha = 0.5f),
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 2.2.sp,
-        )
     }
 }
 
@@ -167,7 +147,7 @@ private val onboardingSlides = listOf(
     OnboardingSlide(
         art = OnboardingArt.Read,
         title = "Зберігай слова під час читання",
-        subtitle = "Натрапив на незнайоме слово в книзі? Збережи його одним дотиком — переклад підкаже AI.",
+        subtitle = "Натрапив на незнайоме слово? Збережи його одним дотиком — переклад підкаже AI.",
     ),
     OnboardingSlide(
         art = OnboardingArt.Organize,
@@ -406,10 +386,6 @@ private fun OnboardingArtwork(art: OnboardingArt) {
 
 @Composable
 internal fun AuthScreen(onDone: () -> Unit) {
-    var isSignup by remember { mutableStateOf(true) }
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -437,157 +413,96 @@ internal fun AuthScreen(onDone: () -> Unit) {
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 30.dp, vertical = 6.dp),
+                .padding(start = 30.dp, end = 30.dp, top = 34.dp, bottom = 24.dp),
         ) {
-            PrototypeLogo(modifier = Modifier.size(46.dp))
-            Spacer(modifier = Modifier.height(22.dp))
+            PrototypeLogo(modifier = Modifier.size(52.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = if (isSignup) "Створи акаунт" else "З поверненням",
+                text = "Ласкаво просимо\nдо Vocabee",
                 style = titleStyle(),
-                letterSpacing = (-0.6).sp,
+                lineHeight = 34.5.sp,
             )
             Text(
-                text = if (isSignup) "Кілька секунд — і починаємо збирати слова."
-                else "Раді бачити тебе знову.",
-                modifier = Modifier.padding(top = 7.dp, bottom = 26.dp),
+                text = "Збирай слова з книг і розмов, тренуйся та синхронізуй словники між пристроями.",
+                modifier = Modifier.padding(top = 12.dp),
                 color = PrototypeColor.Muted,
                 fontWeight = FontWeight.Medium,
                 fontSize = 15.5.sp,
+                lineHeight = 24.sp,
             )
+        }
 
-            VocabeeFieldLabel("Електронна пошта")
-            VocabeeInputField(
-                value = email,
-                onValueChange = { email = it },
-                placeholder = "you@email.com",
-                keyboardType = KeyboardType.Email,
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-            VocabeeFieldLabel("Пароль")
-            VocabeeInputField(
-                value = password,
-                onValueChange = { password = it },
-                placeholder = "••••••••",
-                keyboardType = KeyboardType.Password,
-                hidden = true,
-            )
-
-            Spacer(modifier = Modifier.height(18.dp))
-            PrimaryPillButton(
-                label = if (isSignup) "Зареєструватися" else "Увійти",
-                onClick = onDone,
-            )
-
-            DividerWithLabel(label = "або")
-
-            SocialAuthButton(onClick = onDone) {
-                GoogleGlyph(modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(9.dp))
+        // Дії притиснуті до низу екрана — як у макеті (flex-spacer над кнопками).
+        Column(
+            modifier = Modifier
+                .navigationBarsPadding()
+                .padding(start = 30.dp, end = 30.dp, bottom = 40.dp),
+        ) {
+            SocialAuthButton(onClick = onDone, height = 56.dp) {
+                GoogleGlyph(modifier = Modifier.size(21.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     "Продовжити з Google",
                     color = PrototypeColor.Ink,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
                 )
             }
-            Spacer(modifier = Modifier.height(11.dp))
-            SocialAuthButton(onClick = onDone) {
-                FacebookGlyph(modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(9.dp))
-                Text(
-                    "Продовжити з Facebook",
-                    color = PrototypeColor.Ink,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                )
-            }
-        }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(BorderStroke(1.dp, PrototypeColor.DividerLight), RoundedCornerShape(0.dp))
-                .navigationBarsPadding()
-                .padding(start = 30.dp, end = 30.dp, top = 18.dp, bottom = 30.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = if (isSignup) "Вже маєш акаунт?" else "Ще немає акаунта?",
-                color = PrototypeColor.Muted,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.5.sp,
-            )
-            Text(
-                text = if (isSignup) "Увійти" else "Зареєструватися",
+            Box(
                 modifier = Modifier
-                    .clickable { isSignup = !isSignup }
-                    .padding(start = 6.dp),
-                color = PrototypeColor.PurpleText,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 14.5.sp,
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .padding(top = 10.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(onClick = onDone),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "Продовжити без акаунта",
+                    color = PrototypeColor.Muted,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(PrototypeColor.NeutralSurface)
+                    .padding(horizontal = 14.dp, vertical = 13.dp),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                PrototypeLineIcon(
+                    icon = PrototypeIcon.Help,
+                    modifier = Modifier.size(16.dp),
+                    color = PrototypeColor.Muted2,
+                    strokeWidth = 1.9f,
+                )
+                Text(
+                    text = "Гостьовий режим: до 2 словників і 50 слів. " +
+                        "Дані зберігаються лише на цьому пристрої.",
+                    color = PrototypeColor.Muted,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp,
+                )
+            }
+
+            Text(
+                text = "Продовжуючи, ти погоджуєшся з Умовами користування",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp),
+                color = PrototypeColor.Muted2,
+                fontWeight = FontWeight.Medium,
+                fontSize = 11.5.sp,
+                textAlign = TextAlign.Center,
             )
         }
     }
-}
-
-@Composable
-private fun VocabeeFieldLabel(text: String) {
-    Text(
-        text = text,
-        modifier = Modifier.padding(start = 2.dp, bottom = 8.dp),
-        color = PrototypeColor.Muted,
-        fontWeight = FontWeight.Bold,
-        fontSize = 13.5.sp,
-    )
-}
-
-@Composable
-private fun VocabeeInputField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    hidden: Boolean = false,
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(54.dp),
-        placeholder = {
-            Text(
-                placeholder,
-                color = PrototypeColor.Muted2,
-                fontWeight = FontWeight.Medium,
-                fontSize = 16.sp,
-            )
-        },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(
-            keyboardType = keyboardType,
-            imeAction = ImeAction.Next,
-        ),
-        visualTransformation = if (hidden) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-        textStyle = TextStyle(
-                fontFamily = manropeFamily(),
-            color = PrototypeColor.Ink,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 16.sp,
-        ),
-        shape = RoundedCornerShape(15.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            unfocusedBorderColor = PrototypeColor.Line,
-            focusedBorderColor = PrototypeColor.Purple,
-            unfocusedContainerColor = PrototypeColor.FieldBg,
-            focusedContainerColor = PrototypeColor.White,
-            focusedTextColor = PrototypeColor.Ink,
-            unfocusedTextColor = PrototypeColor.Ink,
-            cursorColor = PrototypeColor.Purple,
-        ),
-    )
 }
 
 @Composable
@@ -620,44 +535,20 @@ internal fun PrimaryPillButton(
 }
 
 @Composable
-private fun DividerWithLabel(label: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 22.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(modifier = Modifier
-            .weight(1f)
-            .height(1.dp)
-            .background(PrototypeColor.Line))
-        Text(
-            text = label,
-            modifier = Modifier.padding(horizontal = 14.dp),
-            color = PrototypeColor.Muted2,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-        )
-        Box(modifier = Modifier
-            .weight(1f)
-            .height(1.dp)
-            .background(PrototypeColor.Line))
-    }
-}
-
-@Composable
 private fun SocialAuthButton(
     onClick: () -> Unit,
+    height: androidx.compose.ui.unit.Dp = 52.dp,
     content: @Composable () -> Unit,
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(height)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         color = PrototypeColor.White,
         border = BorderStroke(1.5.dp, PrototypeColor.Line),
+        shadowElevation = 1.dp,
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
@@ -716,28 +607,6 @@ private fun GoogleGlyph(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun FacebookGlyph(modifier: Modifier = Modifier) {
-    Canvas(modifier) {
-        val unit = size.minDimension / 24f
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        drawCircle(PrototypeColor.FacebookBlue, radius = 10f * unit, center = Offset(cx, cy))
-        val path = Path().apply {
-            moveTo(cx + 1.5f * unit, cy - 5f * unit)
-            lineTo(cx + 1.5f * unit, cy + 5f * unit)
-            lineTo(cx - 1f * unit, cy + 5f * unit)
-            lineTo(cx - 1f * unit, cy + 1f * unit)
-            lineTo(cx - 3f * unit, cy + 1f * unit)
-            lineTo(cx - 3f * unit, cy - 1f * unit)
-            lineTo(cx - 1f * unit, cy - 1f * unit)
-            lineTo(cx - 1f * unit, cy - 2.5f * unit)
-            close()
-        }
-        drawPath(path = path, color = Color.White)
-    }
-}
-
-@Composable
 internal fun LanguageSelectScreen(
     supportedLanguages: List<LanguageOption>,
     initialSpeak: String = "uk",
@@ -778,31 +647,13 @@ internal fun LanguageSelectScreen(
                 letterSpacing = (-0.56).sp,
             )
             Text(
-                text = "Це встановиться за замовчуванням для всіх нових словників. Змінити можна будь-коли в профілі.",
+                text = "Це стане типовою парою для всіх нових словників. Змінити можна в профілі.",
                 modifier = Modifier.padding(top = 8.dp),
                 color = PrototypeColor.Muted,
                 fontWeight = FontWeight.Medium,
                 fontSize = 15.sp,
                 lineHeight = 22.sp,
             )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 22.dp, bottom = 6.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                LanguagePill(code = speak, active = false)
-                Spacer(modifier = Modifier.width(12.dp))
-                PrototypeLineIcon(
-                    icon = PrototypeIcon.ArrowRight,
-                    modifier = Modifier.size(20.dp),
-                    color = PrototypeColor.Muted2,
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                LanguagePill(code = learn, active = true)
-            }
 
             SectionEyebrow(text = "Я РОЗМОВЛЯЮ")
             LanguageGrid(
@@ -849,33 +700,6 @@ private fun SectionEyebrow(text: String) {
         fontSize = 13.sp,
         letterSpacing = 0.65.sp,
     )
-}
-
-@Composable
-private fun LanguagePill(code: String, active: Boolean) {
-    val lang = prototypeLanguage(code)
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = if (active) PrototypeColor.Tint else PrototypeColor.NeutralSurface,
-        border = BorderStroke(
-            1.5.dp,
-            if (active) Color(0xFFC7D2FE) else PrototypeColor.Line,
-        ),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 15.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(lang.flag, fontSize = 20.sp)
-            Text(
-                lang.name,
-                color = if (active) PrototypeColor.Purple else PrototypeColor.Ink,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-            )
-        }
-    }
 }
 
 @Composable

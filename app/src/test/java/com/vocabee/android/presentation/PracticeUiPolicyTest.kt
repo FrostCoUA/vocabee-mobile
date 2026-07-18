@@ -1,5 +1,9 @@
 package com.vocabee.android.feature.vocabulary.presentation
 
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import com.vocabee.android.core.presentation.designsystem.PrototypeColor
 import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
 import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossaryToken
@@ -14,6 +18,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.vocabee.android.feature.vocabulary.presentation.ContextTokenHighlightRadius
+import com.vocabee.android.feature.vocabulary.presentation.ContextTokenHighlightPadding
+import com.vocabee.android.feature.vocabulary.presentation.contextTokenHighlightColor
+import androidx.compose.ui.graphics.isUnspecified
+import com.vocabee.android.feature.vocabulary.presentation.contextSentenceAnnotated
+import androidx.compose.ui.unit.TextUnit
 
 class PracticeUiPolicyTest {
     @Test
@@ -110,6 +120,351 @@ class PracticeUiPolicyTest {
         assertEquals(1, contextTokenIndexAtOffset(glossary, 7))
         assertNull(contextTokenIndexAtOffset(glossary, 5))
         assertNull(contextTokenIndexAtOffset(glossary, 12))
+    }
+
+    /**
+     * Регресія: `Modifier.weight(1f)` у Row попапа роздував його на всю ширину
+     * вікна (Popup вимірює вміст по межах екрана), `maximumX` схлопувався до
+     * відступу — і попап назавжди прилипав до лівого краю.
+     */
+    @Test
+    fun theContextPopupIsCenteredOverTheTappedWord() {
+        val position = AboveTokenPopupPositionProvider(
+            tokenBounds = IntRect(left = 500, top = 44, right = 600, bottom = 90),
+            horizontalMarginPx = 22,
+            gapPx = 25,
+        ).calculatePosition(
+            anchorBounds = IntRect(left = 60, top = 1850, right = 1020, bottom = 1960),
+            windowSize = IntSize(width = 1080, height = 2400),
+            layoutDirection = LayoutDirection.Ltr,
+            popupContentSize = IntSize(width = 320, height = 150),
+        )
+
+        // Центр токена у вікні = 60 + 500 + 50 = 610 → лівий край = 610 − 160.
+        assertEquals(450, position.x)
+        // Над токеном: 1850 + 44 − 150 − 25.
+        assertEquals(1719, position.y)
+    }
+
+    @Test
+    fun aFullWidthPopupWouldNoLongerPinItselfToTheLeftEdge() {
+        // Та сама геометрія, але попап ширший за екран: тоді центрування
+        // неможливе й x схлопується у відступ. Тест фіксує, що це стається
+        // ЛИШЕ при завеликому вмісті — саме тому вміст обмежений widthIn.
+        val provider = { popupWidth: Int ->
+            AboveTokenPopupPositionProvider(
+                tokenBounds = IntRect(left = 500, top = 44, right = 600, bottom = 90),
+                horizontalMarginPx = 22,
+                gapPx = 25,
+            ).calculatePosition(
+                anchorBounds = IntRect(left = 60, top = 1850, right = 1020, bottom = 1960),
+                windowSize = IntSize(width = 1080, height = 2400),
+                layoutDirection = LayoutDirection.Ltr,
+                popupContentSize = IntSize(width = popupWidth, height = 150),
+            ).x
+        }
+
+        assertEquals(22, provider(1080))
+        assertTrue(provider(320) > 22)
+    }
+
+    @Test
+    fun theContextPopupStaysInsideBothScreenEdges() {
+        fun xFor(tokenLeft: Int): Int = AboveTokenPopupPositionProvider(
+            tokenBounds = IntRect(left = tokenLeft, top = 44, right = tokenLeft + 60, bottom = 90),
+            horizontalMarginPx = 22,
+            gapPx = 25,
+        ).calculatePosition(
+            anchorBounds = IntRect(left = 0, top = 1850, right = 1080, bottom = 1960),
+            windowSize = IntSize(width = 1080, height = 2400),
+            layoutDirection = LayoutDirection.Ltr,
+            popupContentSize = IntSize(width = 320, height = 150),
+        ).x
+
+        assertEquals(22, xFor(tokenLeft = 0))
+        assertEquals(1080 - 320 - 22, xFor(tokenLeft = 1020))
+        assertEquals(370, xFor(tokenLeft = 500))
+    }
+
+    @Test
+    fun aPopupWithNoRoomAboveTheTokenFlipsBelowIt() {
+        val position = AboveTokenPopupPositionProvider(
+            tokenBounds = IntRect(left = 500, top = 10, right = 600, bottom = 56),
+            horizontalMarginPx = 22,
+            gapPx = 25,
+        ).calculatePosition(
+            anchorBounds = IntRect(left = 0, top = 40, right = 1080, bottom = 150),
+            windowSize = IntSize(width = 1080, height = 2400),
+            layoutDirection = LayoutDirection.Ltr,
+            popupContentSize = IntSize(width = 320, height = 150),
+        )
+
+        // 40 + 10 − 150 − 25 < 22 → падаємо під токен: 40 + 56 + 25.
+        assertEquals(121, position.y)
+    }
+
+    /**
+     * Сам `weight(1f)` ловиться лише UI-тестом (у модулі немає ні Robolectric,
+     * ні ui-test-junit4), тому фіксуємо намір: бюджет ширини попапа мусить
+     * лишати запас навіть на вузькому 320dp-екрані — інакше центрування над
+     * словом неможливе в принципі.
+     */
+    @Test
+    fun theContextPopupBudgetFitsEvenTheNarrowestPhone() {
+        val narrowestPhoneWidth = 320.dp
+
+        assertTrue(
+            "Попап $ContextPopupMaxWidth не влазить у $narrowestPhoneWidth з відступами",
+            ContextPopupMaxWidth <= narrowestPhoneWidth - 32.dp,
+        )
+    }
+
+    @Test
+    fun aRelayoutNeverLosesTheOpenPopupAnchor() {
+        val anchor = IntRect(left = 500, top = 44, right = 600, bottom = 90)
+        val shifted = IntRect(left = 512, top = 44, right = 618, bottom = 90)
+
+        // Жирний токен після виділення ширший — нові bounds приймаються.
+        assertEquals(shifted, contextPopupBoundsAfterRelayout(anchor, shifted))
+        // А порожній/нульовий результат не має гасити відкритий попап.
+        assertEquals(anchor, contextPopupBoundsAfterRelayout(anchor, null))
+        assertEquals(anchor, contextPopupBoundsAfterRelayout(anchor, IntRect(0, 0, 0, 0)))
+        assertEquals(anchor, contextPopupBoundsAfterRelayout(anchor, IntRect(500, 44, 500, 90)))
+    }
+
+    @Test
+    fun theHighlightedTargetWordIsNotInteractive() {
+        val glossary = ContextGlossary(
+            sentence = "He runs a small bakery downtown.",
+            sourceLang = "en",
+            targetLang = "uk",
+            tokens = listOf(
+                ContextGlossaryToken("runs", "runs", 3, 7, "керує", "run"),
+                ContextGlossaryToken("bakery", "bakery", 16, 22, "пекарня", "bakery"),
+                ContextGlossaryToken("downtown", "downtown", 23, 31, "центр міста", "downtown"),
+            ),
+        )
+        val targets = contextTargetTokenIndexes(glossary, "run")
+
+        // Тап по жовтому цільовому слову не відкриває попап…
+        assertNull(contextSelectableTokenIndexAtOffset(glossary, offset = 4, targetTokenIndexes = targets))
+        // …решта слів лишаються тапабельними.
+        assertEquals(1, contextSelectableTokenIndexAtOffset(glossary, offset = 17, targetTokenIndexes = targets))
+        assertEquals(2, contextSelectableTokenIndexAtOffset(glossary, offset = 24, targetTokenIndexes = targets))
+    }
+
+    @Test
+    fun contextTokensNeverCarryUnderlinesAndReadTheirStateFromFillsOnly() {
+        val styles = ContextTokenVisual.entries.associateWith(::contextTokenSpanStyle)
+        val fills = ContextTokenVisual.entries.associateWith(::contextTokenHighlightColor)
+
+        assertTrue(styles.values.filterNotNull().all { style -> style.textDecoration == null })
+        assertNull(styles.getValue(ContextTokenVisual.Plain))
+        assertNull(fills.getValue(ContextTokenVisual.Plain))
+
+        // Заливка НЕ живе у SpanStyle: той малює прямокутник впритул до глифів,
+        // а борд вимагає відступ + скруглення, тож підсвітку малює drawBehind.
+        assertTrue(styles.values.filterNotNull().all { style -> style.background.isUnspecified })
+
+        // Заливку має ЛИШЕ цільове слово раунду; натиснуте й збережене
+        // відрізняються самим кольором тексту, щоб у реченні не світилося
+        // кілька плашок одночасно.
+        assertEquals(PrototypeColor.Yellow, fills.getValue(ContextTokenVisual.Target))
+        assertEquals(PrototypeColor.YellowText, styles.getValue(ContextTokenVisual.Target)?.color)
+        assertNull(fills.getValue(ContextTokenVisual.Saved))
+        assertEquals(PrototypeColor.NoteYellowText, styles.getValue(ContextTokenVisual.Saved)?.color)
+        assertNull(fills.getValue(ContextTokenVisual.Selected))
+        assertEquals(PrototypeColor.PurpleText, styles.getValue(ContextTokenVisual.Selected)?.color)
+    }
+
+    @Test
+    fun theHighlightedWordPushesItsNeighboursAway() {
+        // Плашка малюється ширшою за глифи, тож сусідні пробіли мають бути
+        // розширені — інакше підсвітка торкається «This» і «sells».
+        val sentence = "This bakery sells bread."
+        val tokens = listOf(
+            ContextGlossaryToken("bakery", "bakery", 5, 11, "пекарня"),
+            ContextGlossaryToken("bread", "bread", 18, 23, "хліб"),
+        )
+
+        val annotated = contextSentenceAnnotated(
+            sentence = sentence,
+            tokens = tokens,
+            targetTokenIndexes = setOf(0),
+            savedTokenIndexes = setOf(1),
+            selectedIndex = 1,
+        )
+        val gaps = annotated.spanStyles.filter { it.item.letterSpacing != TextUnit.Unspecified }
+
+        // Пробіли обабіч цільового слова (індекси 4 і 11) розширені…
+        assertEquals(setOf(4 to 5, 11 to 12), gaps.map { it.start to it.end }.toSet())
+        // …а слово без заливки (збережене+вибране) сусідів не розсуває.
+        assertTrue(gaps.none { it.start == 17 })
+    }
+
+    @Test
+    fun thePopupCaretPointsAtTheTappedWord() {
+        var caretCenter = -1
+        var popupLeft = -1
+        var above = false
+        AboveTokenPopupPositionProvider(
+            tokenBounds = IntRect(left = 500, top = 44, right = 600, bottom = 90),
+            horizontalMarginPx = 22,
+            gapPx = 25,
+            onPlaced = { x, tokenCenterX, isAbove ->
+                popupLeft = x
+                caretCenter = tokenCenterX - x
+                above = isAbove
+            },
+        ).calculatePosition(
+            anchorBounds = IntRect(left = 60, top = 1850, right = 1020, bottom = 1960),
+            windowSize = IntSize(width = 1080, height = 2400),
+            layoutDirection = LayoutDirection.Ltr,
+            popupContentSize = IntSize(width = 320, height = 150),
+        )
+
+        assertEquals(450, popupLeft)
+        // Носик стоїть під центром токена: 610 − 450 = середина бульбашки.
+        assertEquals(160, caretCenter)
+        assertTrue(above)
+    }
+
+    @Test
+    fun thePopupCaretFollowsTheWordWhenTheBubbleIsClampedToTheEdge() {
+        var caretCenter = -1
+        AboveTokenPopupPositionProvider(
+            tokenBounds = IntRect(left = 0, top = 44, right = 60, bottom = 90),
+            horizontalMarginPx = 22,
+            gapPx = 25,
+            onPlaced = { x, tokenCenterX, _ -> caretCenter = tokenCenterX - x },
+        ).calculatePosition(
+            anchorBounds = IntRect(left = 0, top = 1850, right = 1080, bottom = 1960),
+            windowSize = IntSize(width = 1080, height = 2400),
+            layoutDirection = LayoutDirection.Ltr,
+            popupContentSize = IntSize(width = 320, height = 150),
+        )
+
+        // Бульбашку притиснуло до лівого краю (x=22), але носик лишається
+        // над словом (центр токена 30) — тобто зліва від центру бульбашки.
+        assertEquals(8, caretCenter)
+    }
+
+    @Test
+    fun theTokenHighlightLeavesBreathingRoomAroundTheWord() {
+        // Борд 13: `padding: 0 4px; border-radius: 4–5px` — підсвітка не впритул.
+        assertTrue(ContextTokenHighlightPadding > 0.dp)
+        assertTrue(ContextTokenHighlightRadius > 0.dp)
+    }
+
+    @Test
+    fun aBookmarkedTokenKeepsItsYellowFillWhileItsPopupIsOpen() {
+        val targets = setOf(0)
+        val saved = setOf(2)
+
+        assertEquals(
+            ContextTokenVisual.Target,
+            contextTokenVisual(0, targets, saved, selectedIndex = 0),
+        )
+        assertEquals(
+            ContextTokenVisual.Selected,
+            contextTokenVisual(1, targets, saved, selectedIndex = 1),
+        )
+        assertEquals(
+            ContextTokenVisual.Saved,
+            contextTokenVisual(2, targets, saved, selectedIndex = 2),
+        )
+        assertEquals(
+            ContextTokenVisual.Plain,
+            contextTokenVisual(3, targets, saved, selectedIndex = 1),
+        )
+    }
+
+    @Test
+    fun aSecondTapInThePopupRemovesTheBookmarkInsteadOfDuplicatingIt() {
+        val token = ContextGlossaryToken("downtown", "downtown", 23, 31, "центр міста", "downtown")
+        val glossary = ContextGlossary(
+            sentence = "He runs a small bakery downtown.",
+            sourceLang = "en",
+            targetLang = "uk",
+            tokens = listOf(token),
+        )
+        val bookmark = practiceBookmark(glossary, token, originTopicId = "travel")
+
+        val added = toggledPracticeBookmarks(emptyList(), bookmark)
+        assertEquals(listOf(bookmark), added)
+        assertEquals(emptyList<PracticeBookmark>(), toggledPracticeBookmarks(added, bookmark))
+    }
+
+    @Test
+    fun aTokenWithoutATranslationNeverBecomesABookmark() {
+        val token = ContextGlossaryToken("the", "the", 0, 3, "   ", "the")
+        val glossary = ContextGlossary(
+            sentence = "the bakery",
+            sourceLang = "en",
+            targetLang = "uk",
+            tokens = listOf(token),
+        )
+
+        assertEquals(
+            emptyList<PracticeBookmark>(),
+            toggledPracticeBookmarks(emptyList(), practiceBookmark(glossary, token, "travel")),
+        )
+    }
+
+    @Test
+    fun tappingAnAlreadySavedWordAgainNeverChargesASecondCoin() {
+        // У словнику збережене слово віддає ✓ і більше не клікається,
+        // у тренуванні той самий тап знімає закладку.
+        assertFalse(
+            contextPopupActionEnabled(ContextGlossaryTokenAction.AddToDictionary, isSaved = true),
+        )
+        assertTrue(
+            contextPopupActionEnabled(ContextGlossaryTokenAction.AddToDictionary, isSaved = false),
+        )
+        assertTrue(contextPopupActionEnabled(ContextGlossaryTokenAction.Bookmark, isSaved = true))
+    }
+
+    @Test
+    fun savedBookmarksKeepTheirRowButLeaveTheBadge() {
+        val glossary = ContextGlossary(
+            sentence = "He runs a small bakery downtown.",
+            sourceLang = "en",
+            targetLang = "uk",
+            tokens = emptyList(),
+        )
+        val bakery = practiceBookmark(
+            glossary,
+            ContextGlossaryToken("bakery", "bakery", 16, 22, "пекарня", "bakery"),
+            originTopicId = "travel",
+        )
+        val downtown = practiceBookmark(
+            glossary,
+            ContextGlossaryToken("downtown", "downtown", 23, 31, "центр міста", "downtown"),
+            originTopicId = "travel",
+        )
+        val bookmarks = listOf(bakery, downtown)
+
+        assertEquals(bookmarks, pendingPracticeBookmarks(bookmarks, savedKeys = emptySet()))
+        assertEquals(
+            listOf(downtown),
+            pendingPracticeBookmarks(bookmarks, savedKeys = setOf(bakery.key)),
+        )
+    }
+
+    @Test
+    fun theSaveToastNamesTheWordTheDictionaryAndTheCharge() {
+        assertEquals(
+            "bakery додано в «Подорожі» · −1 монетка",
+            bookmarkSavedMessage(listOf("bakery"), topicTitle = "Подорожі", chargedBees = 1),
+        )
+        assertEquals(
+            "2 слова додано в «Подорожі» · −2 монетки",
+            bookmarkSavedMessage(listOf("bakery", "downtown"), topicTitle = "Подорожі", chargedBees = 2),
+        )
+        assertEquals(
+            "Ці слова вже є в словнику «Подорожі»",
+            bookmarkSavedMessage(emptyList(), topicTitle = "Подорожі", chargedBees = 0),
+        )
     }
 
     @Test

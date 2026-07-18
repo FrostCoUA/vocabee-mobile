@@ -60,6 +60,31 @@ class FakeVocabularyRepository : VocabularyRepository {
         return topic
     }
 
+    override fun updateTopicAppearance(
+        userKey: String,
+        topicId: String,
+        title: String,
+        coverIndex: Int,
+        iconIndex: Int,
+    ): Boolean {
+        val topics = topicsByUser[userKey] ?: return false
+        val index = topics.indexOfFirst { topic -> topic.id == topicId }
+        if (index < 0) return false
+        val topic = topics[index]
+        topics[index] = topic.copy(
+            title = title,
+            coverIndex = coverIndex,
+            iconIndex = iconIndex,
+            updatedAtEpochMillis = nextTimestamp(),
+            syncStatus = if (topic.syncStatus == SyncStatus.PendingCreate) {
+                SyncStatus.PendingCreate
+            } else {
+                SyncStatus.PendingUpdate
+            },
+        )
+        return true
+    }
+
     override fun removeTopic(
         userKey: String,
         topicId: String,
@@ -133,6 +158,28 @@ class FakeVocabularyRepository : VocabularyRepository {
             },
         )
         return true
+    }
+
+    override fun clearTopicWords(
+        userKey: String,
+        topicId: String,
+    ): Int {
+        val topics = topicsByUser[userKey] ?: return 0
+        val topicIndex = topics.indexOfFirst { it.id == topicId }
+        if (topicIndex == -1) return 0
+        val topic = topics[topicIndex]
+        val clearedCount = topic.words.size
+        if (clearedCount == 0) return 0
+        topics[topicIndex] = topic.copy(
+            words = emptyList(),
+            updatedAtEpochMillis = nextTimestamp(),
+            syncStatus = if (topic.syncStatus == SyncStatus.PendingCreate) {
+                SyncStatus.PendingCreate
+            } else {
+                SyncStatus.PendingUpdate
+            },
+        )
+        return clearedCount
     }
 
     override fun updateWordEnrichment(

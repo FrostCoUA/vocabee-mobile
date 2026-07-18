@@ -177,6 +177,38 @@ interface VocabularyDao {
         syncStatus: SyncStatus,
     ): Int
 
+    /**
+     * Редагування вигляду словника з шита «Змінити»: назва/колір/іконка. Пара
+     * мов навмисно не в SET — вона фіксується при створенні (D6). Щойно створені
+     * (PendingCreate) словники лишаються PendingCreate, щоб sync не втратив факт
+     * створення.
+     */
+    @Query(
+        """
+        UPDATE vocabulary_topics
+        SET title = :title,
+            cover_index = :coverIndex,
+            icon_index = :iconIndex,
+            updated_at_epoch_millis = :updatedAtEpochMillis,
+            sync_status = CASE
+                WHEN sync_status = 'PendingCreate' THEN sync_status
+                ELSE :syncStatus
+            END
+        WHERE user_key = :userKey
+            AND id = :topicId
+            AND sync_status != 'PendingDelete'
+        """,
+    )
+    suspend fun updateTopicAppearance(
+        userKey: String,
+        topicId: String,
+        title: String,
+        coverIndex: Int,
+        iconIndex: Int,
+        updatedAtEpochMillis: Long,
+        syncStatus: SyncStatus,
+    ): Int
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertWord(word: WordEntity)
 
@@ -234,6 +266,44 @@ interface VocabularyDao {
         userKey: String,
         topicId: String,
         translation: String,
+        updatedAtEpochMillis: Long,
+        syncStatus: SyncStatus,
+    ): Int
+
+    /**
+     * Очищення словника для аноніма — hard-delete всіх його слів (анонім ніколи
+     * не синхронізується, тож PendingDelete-рядків у нього не буває).
+     */
+    @Query(
+        """
+        DELETE FROM vocabulary_words
+        WHERE user_key = :userKey
+            AND topic_id = :topicId
+        """,
+    )
+    suspend fun deleteWordsInTopic(
+        userKey: String,
+        topicId: String,
+    ): Int
+
+    /**
+     * Очищення словника для авторизованого — soft-delete всіх його слів, щоб
+     * `applySync` доніс видалення на бекенд. Уже позначені PendingDelete не
+     * чіпаємо, тому повернений лічильник = скільки слів реально прибрано.
+     */
+    @Query(
+        """
+        UPDATE vocabulary_words
+        SET sync_status = :syncStatus,
+            updated_at_epoch_millis = :updatedAtEpochMillis
+        WHERE user_key = :userKey
+            AND topic_id = :topicId
+            AND sync_status != 'PendingDelete'
+        """,
+    )
+    suspend fun markWordsInTopicDeleted(
+        userKey: String,
+        topicId: String,
         updatedAtEpochMillis: Long,
         syncStatus: SyncStatus,
     ): Int

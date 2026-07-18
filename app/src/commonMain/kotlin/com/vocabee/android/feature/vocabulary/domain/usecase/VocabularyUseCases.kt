@@ -38,6 +38,26 @@ class CreateTopicUseCase(
     }
 }
 
+class UpdateTopicAppearanceUseCase(
+    private val repository: VocabularyRepository,
+    private val userSessionManager: UserSessionManager,
+) {
+    operator fun invoke(
+        topicId: String,
+        title: String,
+        coverIndex: Int,
+        iconIndex: Int,
+    ): Boolean {
+        return repository.updateTopicAppearance(
+            userKey = userSessionManager.currentUserKey,
+            topicId = topicId,
+            title = title,
+            coverIndex = coverIndex,
+            iconIndex = iconIndex,
+        )
+    }
+}
+
 class RemoveTopicUseCase(
     private val repository: VocabularyRepository,
     private val userSessionManager: UserSessionManager,
@@ -81,6 +101,22 @@ class RemoveWordUseCase(
             userKey = userSessionManager.currentUserKey,
             topicId = topicId,
             translation = translation,
+        )
+    }
+}
+
+/**
+ * Очищення словника: прибирає всі слова, сам словник лишається. Повертає
+ * кількість прибраних слів.
+ */
+class ClearTopicWordsUseCase(
+    private val repository: VocabularyRepository,
+    private val userSessionManager: UserSessionManager,
+) {
+    operator fun invoke(topicId: String): Int {
+        return repository.clearTopicWords(
+            userKey = userSessionManager.currentUserKey,
+            topicId = topicId,
         )
     }
 }

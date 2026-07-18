@@ -38,6 +38,28 @@ internal fun practiceBookmark(
     )
 }
 
+/**
+ * Тап у попапі перемикає закладку: перший — додає, повторний — знімає
+ * (борд 13, «повторний тап у поповері знімає закладку»).
+ */
+internal fun toggledPracticeBookmarks(
+    current: List<PracticeBookmark>,
+    bookmark: PracticeBookmark,
+): List<PracticeBookmark> = when {
+    current.any { it.key == bookmark.key } -> current.filterNot { it.key == bookmark.key }
+    bookmark.source.isBlank() || bookmark.translation.isBlank() -> current
+    else -> current + bookmark
+}
+
+/**
+ * Збережені закладки лишаються в картці результату з ✓, але зникають із
+ * бейджа й з лічильника «Додати всі (N)» (борд 13, фрейм 10).
+ */
+internal fun pendingPracticeBookmarks(
+    bookmarks: List<PracticeBookmark>,
+    savedKeys: Set<String>,
+): List<PracticeBookmark> = bookmarks.filterNot { bookmark -> bookmark.key in savedKeys }
+
 internal fun compatibleBookmarkTopics(
     bookmarks: List<PracticeBookmark>,
     topics: List<com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic>,

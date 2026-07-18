@@ -17,7 +17,9 @@
 | `speechTag` | `String` | BCP-47-тег для STT/TTS (`uk-UA`, `en-US`, ...). |
 | `coverIndex` | `Int` | Індекс теми-кольору словника. |
 
-Підтримувані мови (джерело істини — бекенд `supported-languages.ts:18`): `uk`, `en`, `de`, `es`, `fr`, `pl`, `it`, `pt`, `tr`, `he`, `ar`, `lt`, `cs` (13 мов; у кожної є `speechTag` і `flag`). Клієнтський локальний список також містить legacy `ru`, але gateway не приймає `ru` як офіційну мову.
+Підтримувані мови (джерело істини — бекенд `supported-languages.ts:18`): `uk`, `en`, `de`, `es`, `fr`, `pl`, `it`, `pt`, `tr`, `he`, `ar`, `lt`, `cs` (13 мов; у кожної є `speechTag` і `flag`). Клієнтський локальний список (`RoomVocabularyRepository.supportedLanguages`) також містить legacy `ru`, але gateway не приймає `ru` як офіційну мову.
+
+**[ЗАРАЗ] Вітрина ≠ підтримка.** Пікери показують лише **8 мов** — `PrototypeLanguages` (`PrototypeDesignSystem.kt`): `uk`, `en`, `de`, `es`, `fr`, `pl`, `it`, `lt`. Решта (`pt`, `tr`, `he`, `ar`, `cs`, `ru`) лишається підтримуваною на рівні даних, але прихована з UI. `supportedLanguages` навмисно НЕ скорочено: словники, створені раніше в прихованій мові, далі резолвлять свій `LanguageOption` (локаль для STT/TTS). Код поза вітриною деградує через `prototypeLanguage(code)` до плейсхолдера (код замість назви + нейтральний прапор 🏳️) — падіння немає. Наслідок, який слід памʼятати: прихована мова не зʼявиться в шиті «Я вивчаю» навіть як поточно вибрана, тож перемкнутись на неї назад через цей шит не вийде.
 
 ---
 
@@ -229,6 +231,17 @@ var speechDirectionReversed by remember(topic.id, topic.sourceLanguage.code, top
 **Пікер іконок** додається в `CreateDictionarySheet` **поряд із кольорами**: після блоку «Колір теми» (`SwatchPalette`, `PrototypeBottomSheets.kt:199-203`) додаємо секцію «Іконка теми» з сіткою іконок (аналог `SwatchPalette`, але з `PrototypeLineIcon`). `onCreate` розширюється до передачі обраного `iconKey` поряд із `coverIndex`; `createTopic`/`createTopicUseCase` і модель словника отримують відповідне поле.
 
 > **Припущення (уточнити):** конкретні гліфи прив'язати до наявного `PrototypeIcon`-набору; для відсутніх — додати у дизайн-систему. Дефолтна іконка для старих словників без `iconKey` = `general`.
+
+### 6.3 [ЗАРАЗ] Звідки береться геометрія іконок
+Гліфи більше не малюються вручну на Canvas — усі **52 іконки** перенесені 1:1 з `PATHS` у `vocabee-design/redesign/rd-base.js` (рендерер `RD.ic`). У `PrototypeDesignSystem.kt`:
+
+- `prototypeIconShapes(icon)` — вичерпний `when`, що віддає елементи іконки (`PrototypeIconShape.SvgPath` / `SvgRect` / `SvgCircle`) у координатах вихідного viewBox 24×24;
+- `PrototypeLineIcon` парсить `d` через `PathParser` **один раз на іконку** (`remember`), а масштабує не шляхи, а сам Canvas — тож `strokeWidth` зберігає SVG-семантику (`stroke-width` масштабується разом із viewBox), а зміна розміру не спричиняє повторного парсингу;
+- заливні силуети (`fill="currentColor" stroke="none"` у джерелі) малюються `Fill`, решта — `Stroke(cap = Round, join = Round)`.
+
+Вичерпний `when` — це і є гарантія повноти: нову іконку не можна додати в enum без геометрії. Додатково юніт-тест `everyIconHasNonEmptyGeometry` (`PrototypeDesignSystemTest.kt`) не пускає порожні/биті шляхи.
+
+`RD.PATHS.phone` навмисно не переносили: у джерелі його `d` — дублікат `star`. Таб-бар використовує `bookTab` / `dumbbell` / `user` (жіночий `userF` є в наборі, але поля статі ані в `VocabeeAccountState`, ані в users-схемі бекенда поки немає).
 
 ---
 

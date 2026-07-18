@@ -313,10 +313,9 @@ internal fun AddWordOverlay(
                             onStart = ::startListening,
                             onStop = { scope.launch { stopListeningWithGrace() } },
                         )
-                        searchState.isLoading -> AddWordLoadingState(accent = accent)
+                        searchState.isLoading -> AddWordLoadingState()
                         searchState.errorMessage != null -> AddWordErrorState(
                             message = searchState.errorMessage!!,
-                            accent = accent,
                         )
                         else -> AddWordResultsList(
                             query = cleanedQuery,
@@ -670,7 +669,7 @@ internal fun VoiceWaveform(
 }
 
 @Composable
-internal fun AddWordLoadingState(accent: Color) {
+internal fun AddWordLoadingState() {
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -678,8 +677,9 @@ internal fun AddWordLoadingState(accent: Color) {
     ) {
         androidx.compose.material3.CircularProgressIndicator(
             modifier = Modifier.size(32.dp),
-            color = accent,
+            color = PrototypeColor.Purple,
             strokeWidth = 3.dp,
+            trackColor = PrototypeColor.Tint,
         )
         Text(
             text = "Шукаю переклад…",
@@ -692,7 +692,7 @@ internal fun AddWordLoadingState(accent: Color) {
 }
 
 @Composable
-internal fun AddWordErrorState(message: String, accent: Color) {
+internal fun AddWordErrorState(message: String) {
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -701,7 +701,7 @@ internal fun AddWordErrorState(message: String, accent: Color) {
         PrototypeLineIcon(
             icon = PrototypeIcon.Close,
             modifier = Modifier.size(26.dp),
-            color = accent.copy(alpha = 0.72f),
+            color = PrototypeColor.OrangeText,
             strokeWidth = 2f,
         )
         Text(

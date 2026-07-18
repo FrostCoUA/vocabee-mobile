@@ -106,6 +106,24 @@ class RoomVocabularyRepository(
         topic.toDomain(words = emptyList())
     }
 
+    override fun updateTopicAppearance(
+        userKey: String,
+        topicId: String,
+        title: String,
+        coverIndex: Int,
+        iconIndex: Int,
+    ): Boolean = runBlocking(Dispatchers.IO) {
+        vocabularyDao.updateTopicAppearance(
+            userKey = userKey,
+            topicId = topicId,
+            title = title,
+            coverIndex = coverIndex,
+            iconIndex = iconIndex,
+            updatedAtEpochMillis = currentEpochMillis(),
+            syncStatus = SyncStatus.PendingUpdate,
+        ) > 0
+    }
+
     override fun removeTopic(
         userKey: String,
         topicId: String,
@@ -225,6 +243,44 @@ class RoomVocabularyRepository(
             deleted = true
         }
         deleted
+    }
+
+    override fun clearTopicWords(
+        userKey: String,
+        topicId: String,
+    ): Int = runBlocking(Dispatchers.IO) {
+        var cleared = 0
+        inTransaction {
+            val topic = vocabularyDao.topicById(userKey, topicId) ?: return@inTransaction
+            val now = currentEpochMillis()
+            val affected = if (userKey == DEFAULT_LOCAL_USER_KEY) {
+                vocabularyDao.deleteWordsInTopic(
+                    userKey = userKey,
+                    topicId = topicId,
+                )
+            } else {
+                vocabularyDao.markWordsInTopicDeleted(
+                    userKey = userKey,
+                    topicId = topicId,
+                    updatedAtEpochMillis = now,
+                    syncStatus = SyncStatus.PendingDelete,
+                )
+            }
+            if (affected == 0) return@inTransaction
+            val nextStatus = if (topic.syncStatus == SyncStatus.PendingCreate) {
+                SyncStatus.PendingCreate
+            } else {
+                SyncStatus.PendingUpdate
+            }
+            vocabularyDao.updateTopicAfterWordInsert(
+                userKey = userKey,
+                topicId = topicId,
+                updatedAtEpochMillis = now,
+                syncStatus = nextStatus,
+            )
+            cleared = affected
+        }
+        cleared
     }
 
     override fun adjustWordKnowledgePercent(

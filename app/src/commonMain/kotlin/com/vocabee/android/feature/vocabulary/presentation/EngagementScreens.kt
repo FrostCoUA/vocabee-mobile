@@ -1,6 +1,7 @@
 package com.vocabee.android.feature.vocabulary.presentation
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,9 +37,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -56,6 +61,7 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeLogo
 import com.vocabee.android.feature.vocabulary.data.api.DefaultReferralRewardBees
 import com.vocabee.android.feature.vocabulary.data.api.SupportRequestBody
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApi
+import com.vocabee.android.feature.vocabulary.presentation.platform.InviteMessenger
 import com.vocabee.android.feature.vocabulary.presentation.platform.ShareController
 import io.github.alexzhirkevich.qrose.ImageFormat
 import io.github.alexzhirkevich.qrose.rememberQrCodePainter
@@ -146,6 +152,28 @@ internal fun InviteFriendsScreen(
         backgroundFill = SolidColor(Color.White),
         scale = 0.84f,
     )
+    // Резолв встановлених месенджерів — один раз на вхід в екран (PackageManager).
+    val shareTargets = remember(shareController) {
+        inviteShareTargets(shareController.installedMessengers())
+    }
+
+    /** [messenger] == null → системний share sheet (кнопка «Ще» і «Поділитися»). */
+    fun shareInviteWith(messenger: InviteMessenger?) {
+        runCatching {
+            val qrCodePng = shareQrCodePainter.toByteArray(
+                width = 1024,
+                height = 1024,
+                format = ImageFormat.PNG,
+            )
+            if (messenger == null) {
+                shareController.shareInvite(shareMessage, qrCodePng)
+            } else {
+                shareController.shareInviteTo(messenger, shareMessage, qrCodePng)
+            }
+        }.onFailure {
+            onShowSnackbar("Не вдалося підготувати QR-код для поширення")
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -166,16 +194,19 @@ internal fun InviteFriendsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(24.dp))
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                PrototypeColor.PurpleSoft,
-                                PrototypeColor.Purple,
-                                PrototypeColor.PurpleDeep,
+                    // Градієнт борду: світлий фіолетовий б'є з ВЕРХНЬОГО ЦЕНТРУ
+                    // (radial-gradient(... at 50% 0%)), тому центр рахуємо від розміру.
+                    .drawBehind {
+                        drawRect(
+                            Brush.radialGradient(
+                                0f to PrototypeColor.PurpleSoft,
+                                0.55f to PrototypeColor.Purple,
+                                1f to PrototypeColor.PurpleDeep,
+                                center = Offset(size.width / 2f, 0f),
+                                radius = size.height * 1.15f,
                             ),
-                            radius = 900f,
-                        ),
-                    ),
+                        )
+                    },
             ) {
                 HoneycombWatermark(
                     modifier = Modifier
@@ -231,13 +262,29 @@ internal fun InviteFriendsScreen(
                         shape = CircleShape,
                         color = Color.White.copy(alpha = 0.16f),
                     ) {
-                        Text(
-                            text = "🍯 +$rewardBees монеток тобі й другові",
+                        Row(
                             modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
-                            color = PrototypeColor.Yellow,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 13.sp,
-                        )
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            PrototypeLineIcon(
+                                icon = PrototypeIcon.Sparkle,
+                                modifier = Modifier.size(14.dp),
+                                color = PrototypeColor.Yellow,
+                                strokeWidth = 2.1f,
+                            )
+                            Text(
+                                text = "+$rewardBees ${ukrainianPlural(
+                                    rewardBees,
+                                    "монетка",
+                                    "монетки",
+                                    "монеток",
+                                )} тобі й другові",
+                                color = PrototypeColor.Yellow,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                            )
+                        }
                     }
                 }
             }
@@ -294,19 +341,21 @@ internal fun InviteFriendsScreen(
 
             PrimaryPillButton(
                 label = "Поділитися",
-                onClick = {
-                    runCatching {
-                        val qrCodePng = shareQrCodePainter.toByteArray(
-                            width = 1024,
-                            height = 1024,
-                            format = ImageFormat.PNG,
-                        )
-                        shareController.shareInvite(shareMessage, qrCodePng)
-                    }.onFailure {
-                        onShowSnackbar("Не вдалося підготувати QR-код для поширення")
-                    }
-                },
+                onClick = { shareInviteWith(null) },
             )
+
+            // Кружки месенджерів: лише встановлені + завжди «Ще» (системний share).
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+            ) {
+                shareTargets.forEach { target ->
+                    InviteShareTargetButton(
+                        target = target,
+                        onClick = { shareInviteWith(target.messenger) },
+                    )
+                }
+            }
 
             if (!isAuthenticated) {
                 Text(
@@ -319,6 +368,107 @@ internal fun InviteFriendsScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 )
             }
+            // Ряд месенджерів виріс — тримаємо його над системною навігацією.
+            Spacer(modifier = Modifier.navigationBarsPadding())
+        }
+    }
+}
+
+/** Кружок швидкого поширення; [messenger] == null — системний share sheet («Ще»). */
+internal data class InviteShareTarget(
+    val messenger: InviteMessenger?,
+    val label: String,
+)
+
+/**
+ * Ряд кружків за бордом 12: встановлені месенджери у фіксованому порядку [InviteMessenger]
+ * (незалежно від порядку, у якому їх повернула платформа) + завжди кнопка «Ще».
+ */
+internal fun inviteShareTargets(installed: List<InviteMessenger>): List<InviteShareTarget> =
+    InviteMessenger.entries
+        .filter { it in installed }
+        .map { InviteShareTarget(it, it.label) } + InviteShareTarget(null, "Ще")
+
+private val InviteMessenger.label: String
+    get() = when (this) {
+        InviteMessenger.Telegram -> "Telegram"
+        InviteMessenger.WhatsApp -> "WhatsApp"
+        InviteMessenger.Viber -> "Viber"
+    }
+
+// Брендові кольори месенджерів — літерали, однакові в обох темах.
+private val InviteMessenger.brandColor: Color
+    get() = when (this) {
+        InviteMessenger.Telegram -> Color(0xFF229ED9)
+        InviteMessenger.WhatsApp -> Color(0xFF25D366)
+        InviteMessenger.Viber -> Color(0xFF7360F2)
+    }
+
+@Composable
+private fun InviteShareTargetButton(
+    target: InviteShareTarget,
+    onClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(54.dp)
+                .clip(CircleShape)
+                .background(target.messenger?.brandColor ?: PrototypeColor.NeutralSurface)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            when (target.messenger) {
+                InviteMessenger.Telegram -> TelegramGlyph(modifier = Modifier.size(24.dp))
+                InviteMessenger.WhatsApp, InviteMessenger.Viber -> PrototypeLineIcon(
+                    icon = PrototypeIcon.Chat,
+                    modifier = Modifier.size(24.dp),
+                    color = Color.White,
+                    strokeWidth = 2f,
+                )
+                null -> MoreTargetsGlyph(modifier = Modifier.size(24.dp))
+            }
+        }
+        Text(
+            text = target.label,
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+        )
+    }
+}
+
+/** Паперовий літачок Telegram — той самий шлях, що на борді 12. */
+@Composable
+private fun TelegramGlyph(modifier: Modifier = Modifier) {
+    val plane = remember {
+        PathParser().parsePathString("M20.5 4 3.8 10.6l5 1.9L10.6 18l2.8-3.6 4.3 3.1L20.5 4Z").toPath()
+    }
+    Canvas(modifier) {
+        scale(scale = size.minDimension / 24f, pivot = Offset.Zero) {
+            drawPath(path = plane, color = Color.White)
+        }
+    }
+}
+
+private val MoreTargetsDotOffsets = floatArrayOf(-7f, 0f, 7f)
+
+/** «Ще» — три крапки. */
+@Composable
+private fun MoreTargetsGlyph(modifier: Modifier = Modifier) {
+    val color = PrototypeColor.Muted
+    Canvas(modifier) {
+        val unit = size.minDimension / 24f
+        val centerY = size.height / 2f
+        MoreTargetsDotOffsets.forEach { offsetX ->
+            drawCircle(
+                color = color,
+                radius = 2f * unit,
+                center = Offset(size.width / 2f + offsetX * unit, centerY),
+            )
         }
     }
 }

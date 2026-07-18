@@ -14,10 +14,11 @@
 
 | Шар | Файл |
 |-----|------|
-| Стор / події | `VocabeeStore.kt` (`removeTopic` :292, `removeWord` :331) |
-| Локальне сховище | `RoomVocabularyRepository.kt` (`removeTopic` :88, `removeWordByTranslation` :168) |
-| DAO | `VocabularyDao.kt` (`deleteTopic` :158, `markTopicDeleted` :173, `deleteWordByTranslation` :216, `markWordDeletedByTranslation` :233) |
+| Стор / події | `VocabeeStore.kt` (`removeTopic` :292, `removeWord` :331, `clearTopicWords`) |
+| Локальне сховище | `RoomVocabularyRepository.kt` (`removeTopic` :88, `removeWordByTranslation` :168, `clearTopicWords`) |
+| DAO | `VocabularyDao.kt` (`deleteTopic` :158, `markTopicDeleted` :173, `deleteWordByTranslation` :216, `markWordDeletedByTranslation` :233, `deleteWordsInTopic`, `markWordsInTopicDeleted`) |
 | UI (словник) | `App.kt` (`DeleteDictionaryConfirmationSheet` :999, dispatch RemoveTopic :811–818) |
+| UI (очищення) | `App.kt` (`ClearDictionaryConfirmationSheet`, `isClearDictionaryConfirmed`, меню `DetailHeaderMenuButton`) |
 | UI (слово) | `App.kt` (`onRemoveWord` :714–717) |
 | Сервер | `topics.service.ts` (`softDelete` :146, `deleteWord` :221, sync :305–314, applyClientTopic/Word :335, :397) |
 | Схема | `db/schema/topics.ts` (`deletedAt` :35, :73; FK CASCADE :21, :56) |
@@ -129,6 +130,63 @@ SOFT-видалений топік (`PendingDelete`) експортується 
 відповіді `sync` повертає його id у масиві **`deletedTopicIds`**
 (`topics.service.ts:308–310`), а слова — у `deletedWordIds` (`:311–313`). Клієнт за
 цими списками прибирає рядки локально.
+
+---
+
+### [ЗАРАЗ] ОЧИЩЕННЯ словника (слова видалити, словник лишити)
+
+Окремий шлях, доданий разом із меню хедера деталей: **«Очистити словник»**
+прибирає **всі слова** словника разом із прогресом засвоєння, але **сам словник
+залишається** (назва, колір, іконка, пара мов).
+
+**Точка входу:** меню-кебаб у `DetailHeader` → `PrototypeSheet.ClearDictionary(topicId)`
+→ `ClearDictionaryConfirmationSheet` (`App.kt`).
+
+#### Захист від випадкового натискання — контрольна фраза
+
+`Undo для очищення НЕМАЄ` (на відміну від видалення слова, де є снекбар зі
+«Скасувати»). Замість нього — **типізоване підтвердження**: кнопка «Очистити»
+залишається задизейбленою (`Red` з alpha .45), поки в поле не введено точну
+контрольну фразу:
+
+```
+ClearDictionaryConfirmationPhrase = "ОЧИСТИТИ"
+isClearDictionaryConfirmed(input) = input.trim() == ClearDictionaryConfirmationPhrase
+```
+
+**Регістр важливий** («очистити» / «Очистити» не проходять); пробіли по краях
+ігноруються (їх легко додає автопідстановка клавіатури). Фраза локалізується
+разом з UI. Тести — `VocabeeStoreTest.clearButtonUnlocksOnlyForTheExactControlPhrase`.
+
+#### Локальна поведінка — hard vs soft (та сама розвилка, що й для слова)
+
+`VocabeeEvent.ClearTopicWords(topicId)` → `VocabeeStore.clearTopicWords` →
+`ClearTopicWordsUseCase` → `VocabularyRepository.clearTopicWords(userKey, topicId): Int`
+(повертає кількість прибраних слів).
+
+| Користувач (`userKey`) | Метод DAO | Тип видалення |
+|---|---|---|
+| Анонім (`DEFAULT_LOCAL_USER_KEY`) | `deleteWordsInTopic` | **HARD-delete** — `DELETE FROM vocabulary_words WHERE topic_id = …` |
+| Авторизований | `markWordsInTopicDeleted` | **SOFT-delete** — усім словам топіка `sync_status = PendingDelete` (уже позначені не чіпає, тож лічильник = скільки реально прибрано) |
+
+Після успішного очищення топік отримує свіжий `updated_at` і статус
+`PendingUpdate` (або лишається `PendingCreate`, якщо ще не доїхав на сервер) —
+через уже наявний `updateTopicAfterWordInsert`. Порожній або неіснуючий словник —
+**no-op**: стан не перечитується, `localRevisionEpochMillis` не рухається.
+
+#### Синхронізація
+
+Для авторизованого це звичайний soft-delete слів: `PendingDelete`-рядки
+експортуються з `includeDeleted = true` і їдуть в `applySync`, де
+`applyClientWord` проставляє їм `deletedAt`. Тобто на бекенді словник теж
+лишається живим, а слова гасяться поштучно — окремого «clear topic» ендпоінта не
+потрібно. Анонімне очищення на сервер не йде взагалі (анонім не синхронізується).
+
+#### Монетки
+
+**Не повертаються** — те саме правило, що й для будь-якого видалення (D3, і
+`[ЗАРАЗ, legacy]` нижче). Очищення словника не є «скасуванням покупки»: платили
+за створення словника, а він лишився.
 
 ---
 

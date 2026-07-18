@@ -14,6 +14,7 @@ import com.vocabee.android.feature.vocabulary.presentation.platform.IosSpeechInp
 import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechInputController
 import io.ktor.client.HttpClient
 import org.koin.dsl.module
+import platform.Foundation.NSBundle
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSUserDomainMask
@@ -30,9 +31,10 @@ val vocabeeIosModule = module {
     single<GoogleAuthController> {
         IosGoogleAuthController(
             client = get(),
-            // iOS OAuth client (Google Cloud Console → Credentials). Client ids
-            // are public identifiers, not secrets.
-            clientId = "517295849460-qaupsajeta3n7r72goevecd43bh4kike.apps.googleusercontent.com",
+            // The Xcode Debug/Release configuration supplies the matching iOS OAuth
+            // client through Info.plist. Client ids are public identifiers, not secrets.
+            clientId = (NSBundle.mainBundle.objectForInfoDictionaryKey("VocabeeGoogleIosClientId") as? String)
+                .orEmpty(),
         )
     }
 

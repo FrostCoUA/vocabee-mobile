@@ -17,10 +17,12 @@ import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
 import com.vocabee.android.feature.vocabulary.domain.model.VocabularySyncSnapshot
 import com.vocabee.android.feature.vocabulary.domain.usecase.AdjustWordKnowledgeUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.AddWordUseCase
+import com.vocabee.android.feature.vocabulary.domain.usecase.ClearTopicWordsUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoveWordUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.CreateTopicUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.LoadUserTopicsUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoveTopicUseCase
+import com.vocabee.android.feature.vocabulary.domain.usecase.UpdateTopicAppearanceUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.UpdateWordEnrichmentUseCase
 import kotlin.math.roundToInt
 
@@ -48,6 +50,81 @@ data class VocabeeState(
     val practiceRounds: Int = 0,
 )
 
+/**
+ * Ключ групування словників на Головній і в сетапі тренування: пара
+ * «мова, яку вивчаю» → «мова, якою розмовляю». Робоча пара береться з профілю
+ * ([VocabeeState.learningLanguage] → [VocabeeState.userLanguage]).
+ */
+data class TopicLanguagePair(
+    val sourceCode: String,
+    val targetCode: String,
+)
+
+/**
+ * Група словників однієї мовної пари. Робоча пара ([isWorkingPair]) рендериться
+ * першою і БЕЗ заголовка — це поточні словники; решта груп ідуть нижче з
+ * розділювачем «ТЕМИ [прапор] → [прапор]».
+ */
+data class TopicPairGroup(
+    val pair: TopicLanguagePair,
+    val topics: List<DictionaryTopic>,
+    val isWorkingPair: Boolean,
+)
+
+/** Мовна пара словника — ключ його групи на Головній і в сетапі тренування. */
+internal fun DictionaryTopic.languagePair(): TopicLanguagePair =
+    TopicLanguagePair(sourceLanguage.code, targetLanguage.code)
+
+/**
+ * Розкладає словники по мовних парах для Головної та сетапу тренування.
+ *
+ * Порядок: робоча пара (learning → user) завжди перша; решта — за спаданням
+ * кількості словників, а за рівної кількості — стабільно за кодом мови-джерела,
+ * потім за кодом мови-перекладу. Порожня робоча пара групи не створює.
+ * Порядок словників УСЕРЕДИНІ групи зберігається таким, як його передав
+ * викликач (Головна віддає найновіші першими, сетап — у природному порядку).
+ */
+internal fun groupTopicsByLanguagePair(
+    topics: List<DictionaryTopic>,
+    learningLanguageCode: String,
+    userLanguageCode: String,
+): List<TopicPairGroup> {
+    if (topics.isEmpty()) return emptyList()
+    val workingPair = TopicLanguagePair(learningLanguageCode, userLanguageCode)
+    val grouped = topics.groupBy { topic ->
+        TopicLanguagePair(topic.sourceLanguage.code, topic.targetLanguage.code)
+    }
+    val workingGroup = grouped[workingPair]?.let { pairTopics ->
+        TopicPairGroup(pair = workingPair, topics = pairTopics, isWorkingPair = true)
+    }
+    val otherGroups = grouped
+        .filterKeys { pair -> pair != workingPair }
+        .map { (pair, pairTopics) ->
+            TopicPairGroup(pair = pair, topics = pairTopics, isWorkingPair = false)
+        }
+        .sortedWith(
+            compareByDescending<TopicPairGroup> { group -> group.topics.size }
+                .thenBy { group -> group.pair.sourceCode }
+                .thenBy { group -> group.pair.targetCode },
+        )
+    return listOfNotNull(workingGroup) + otherGroups
+}
+
+/**
+ * Скільки словників має кожна мова вивчення В ПАРІ з рідною — джерело для
+ * лічильника «N словники» та для розділення активних/неактивних мов у шиті
+ * «Я вивчаю». Мови без словників у мапі відсутні.
+ */
+internal fun learningLanguageTopicCounts(
+    topics: List<DictionaryTopic>,
+    userLanguageCode: String,
+): Map<String, Int> {
+    return topics
+        .filter { topic -> topic.targetLanguage.code == userLanguageCode }
+        .groupingBy { topic -> topic.sourceLanguage.code }
+        .eachCount()
+}
+
 sealed interface VocabeeAccountState {
     data object Anonymous : VocabeeAccountState
 
@@ -74,7 +151,28 @@ sealed interface VocabeeEvent {
         val details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails? = null,
     ) : VocabeeEvent
 
+    /**
+     * Редагування зовнішнього вигляду словника (назва/колір/іконка) з шита
+     * «Змінити». Пара мов НЕ редагується — вона зафіксована при створенні (D6).
+     */
+    data class UpdateTopicAppearance(
+        val topicId: String,
+        val title: String,
+        val coverIndex: Int,
+        val iconIndex: Int,
+    ) : VocabeeEvent
+
     data class RemoveTopic(
+        val topicId: String,
+    ) : VocabeeEvent
+
+    /**
+     * Очищення словника з меню хедера деталей: видаляє ВСІ слова разом із
+     * прогресом засвоєння, сам словник лишається. Незворотно (шит вимагає
+     * контрольної фрази), монетки не повертаються — як і за будь-яке
+     * видалення (D3).
+     */
+    data class ClearTopicWords(
         val topicId: String,
     ) : VocabeeEvent
 
@@ -137,7 +235,9 @@ class VocabeeStore(
 ) {
     private val loadUserTopicsUseCase = LoadUserTopicsUseCase(repository, userSessionManager)
     private val createTopicUseCase = CreateTopicUseCase(repository, userSessionManager)
+    private val updateTopicAppearanceUseCase = UpdateTopicAppearanceUseCase(repository, userSessionManager)
     private val removeTopicUseCase = RemoveTopicUseCase(repository, userSessionManager)
+    private val clearTopicWordsUseCase = ClearTopicWordsUseCase(repository, userSessionManager)
     private val addWordUseCase = AddWordUseCase(repository, userSessionManager)
     private val removeWordUseCase = RemoveWordUseCase(repository, userSessionManager)
     private val adjustWordKnowledgeUseCase = AdjustWordKnowledgeUseCase(repository, userSessionManager)
@@ -149,7 +249,10 @@ class VocabeeStore(
     fun onEvent(event: VocabeeEvent) {
         when (event) {
             is VocabeeEvent.CreateTopic -> createTopic(event.title, event.coverIndex, event.iconIndex)
+            is VocabeeEvent.UpdateTopicAppearance ->
+                updateTopicAppearance(event.topicId, event.title, event.coverIndex, event.iconIndex)
             is VocabeeEvent.RemoveTopic -> removeTopic(event.topicId)
+            is VocabeeEvent.ClearTopicWords -> clearTopicWords(event.topicId)
             is VocabeeEvent.AddWord -> addWord(event.topicId, event.source, event.translation, event.ipa, event.details)
             is VocabeeEvent.RemoveWord -> removeWord(event.topicId, event.translation)
             is VocabeeEvent.AdjustWordKnowledge -> adjustWordKnowledge(event.topicId, event.wordId, event.deltaPercent)
@@ -187,6 +290,13 @@ class VocabeeStore(
         return repository.exportSyncSnapshot(DEFAULT_LOCAL_USER_KEY, includeDeleted = false)
             .topics
             .sumOf { it.words.size }
+    }
+
+    /** Скільки локальних (анонімних) словників — друга цифра картки «На телефоні» в шиті конфлікту. */
+    fun localAnonymousTopicCount(): Int {
+        return repository.exportSyncSnapshot(DEFAULT_LOCAL_USER_KEY, includeDeleted = false)
+            .topics
+            .size
     }
 
     fun hasCurrentVocabulary(): Boolean {
@@ -343,10 +453,49 @@ class VocabeeStore(
         touchLocalRevision()
     }
 
+    /**
+     * Перейменування/перефарбування наявного словника. Безкоштовно — монетки
+     * беруться лише за СТВОРЕННЯ понад безкоштовний ліміт (D1).
+     */
+    private fun updateTopicAppearance(
+        topicId: String,
+        title: String,
+        coverIndex: Int,
+        iconIndex: Int,
+    ) {
+        val cleanedTitle = title.trim()
+        if (topicId.isBlank() || cleanedTitle.isBlank()) return
+        val updated = updateTopicAppearanceUseCase(
+            topicId = topicId,
+            title = cleanedTitle,
+            coverIndex = coverIndex,
+            iconIndex = iconIndex,
+        )
+        if (!updated) return
+        state = state.copy(topics = loadUserTopicsUseCase())
+        touchLocalRevision()
+    }
+
     private fun removeTopic(topicId: String) {
         if (topicId.isBlank()) return
         val removed = removeTopicUseCase(topicId = topicId)
         if (!removed) return
+        state = state.copy(
+            topics = loadUserTopicsUseCase(),
+            recentlyAddedWordId = null,
+        )
+        touchLocalRevision()
+    }
+
+    /**
+     * Очищення словника (шит H). Прогрес засвоєння зникає разом зі словами;
+     * монетки за них НЕ повертаються — це те саме правило, що й для видалення
+     * словника (D3). Порожній або неіснуючий словник стан не чіпає.
+     */
+    private fun clearTopicWords(topicId: String) {
+        if (topicId.isBlank()) return
+        val clearedCount = clearTopicWordsUseCase(topicId = topicId)
+        if (clearedCount <= 0) return
         state = state.copy(
             topics = loadUserTopicsUseCase(),
             recentlyAddedWordId = null,

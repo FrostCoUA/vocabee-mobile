@@ -189,6 +189,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.vocabee.ios;
 				PRODUCT_NAME = VocabeeApp;
+				VOCABEE_GOOGLE_IOS_CLIENT_ID = "972570308361-u9q5qmrpu98eafpajso5i5kv5asuk2hd.apps.googleusercontent.com";
+				VOCABEE_GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.972570308361-u9q5qmrpu98eafpajso5i5kv5asuk2hd";
 				VOCABEE_API_BASE_URL = "https://dev-api.vocabee.online";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -228,6 +230,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.vocabee.ios;
 				PRODUCT_NAME = VocabeeApp;
+				VOCABEE_GOOGLE_IOS_CLIENT_ID = "647911504984-j6o0vj8muc92m1vgd7ca1amvvohcj2kd.apps.googleusercontent.com";
+				VOCABEE_GOOGLE_IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.647911504984-j6o0vj8muc92m1vgd7ca1amvvohcj2kd";
 				VOCABEE_API_BASE_URL = "https://api.vocabee.online";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

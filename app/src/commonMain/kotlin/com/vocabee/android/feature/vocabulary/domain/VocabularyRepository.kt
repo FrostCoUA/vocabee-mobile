@@ -20,6 +20,19 @@ interface VocabularyRepository {
         iconIndex: Int,
     ): DictionaryTopic
 
+    /**
+     * Оновлює назву/колір/іконку наявного словника (шит «Змінити»). Пара мов
+     * незмінна — вона фіксується при створенні. Повертає `true`, якщо словник
+     * знайдено й оновлено.
+     */
+    fun updateTopicAppearance(
+        userKey: String,
+        topicId: String,
+        title: String,
+        coverIndex: Int,
+        iconIndex: Int,
+    ): Boolean
+
     fun removeTopic(
         userKey: String,
         topicId: String,
@@ -44,6 +57,16 @@ interface VocabularyRepository {
         topicId: String,
         translation: String,
     ): Boolean
+
+    /**
+     * Очищення словника (шит «Очистити словник?»): прибирає ВСІ слова разом із
+     * прогресом засвоєння, сам словник лишається. Повертає кількість прибраних
+     * слів — 0, якщо словника нема або він і так порожній.
+     */
+    fun clearTopicWords(
+        userKey: String,
+        topicId: String,
+    ): Int
 
     fun adjustWordKnowledgePercent(
         userKey: String,

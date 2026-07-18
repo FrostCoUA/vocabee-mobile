@@ -35,15 +35,18 @@ var flow by remember { mutableStateOf(AppFlow.Splash) }
 |------|-------|------------|--------------|-----------------|
 | 1 | `Splash` | `OnboardingFlow.kt:100` (`SplashScreen`) | `Onboarding` (або `Main`, якщо `skipFirstLaunchFlow`) | `delay(1900)` або тап по екрану → `onDone` (`App.kt:304–306`) |
 | 2 | `Onboarding` | `OnboardingFlow.kt:182` (`OnboardingScreen`) | `Auth` | 3 слайди (Read/Organize/Practice); «Далі»/«Почати» або «Пропустити» → `onDone` (`App.kt:308`) |
-| 3 | `Auth` | `OnboardingFlow.kt:403` (`AuthScreen`) | `LanguageSelect` | **бутафорський** — усі кнопки кличуть `onDone` (`App.kt:309`) |
-| 4 | `LanguageSelect` | `OnboardingFlow.kt:732` (`LanguageSelectScreen`) | `Main` | «Готово» → зберігає мови в `store` + ставить `hasCompletedOnboarding = true` (`App.kt:310–326`) |
+| 3 | `Auth` | `OnboardingFlow.kt` (`AuthScreen`) | `LanguageSelect` | **бутафорський** — Google і гостьовий режим кличуть `onDone` (`App.kt:309`) |
+| 4 | `LanguageSelect` | `OnboardingFlow.kt` (`LanguageSelectScreen`) | `Main` | «Готово» → зберігає мови в `store` + ставить `hasCompletedOnboarding = true` (`App.kt:310–326`) |
 | 5 | `Main` | `App.kt:327` (`MainApp`) | — | основний застосунок |
 
-### 1.3 [ЗАРАЗ] Auth-екран — бутафорський
+### 1.3 [ЗАРАЗ] Auth-екран — спрощений і поки бутафорський
 
-`AuthScreen` (`OnboardingFlow.kt:403–528`) має поля email/пароль, кнопку «Зареєструватися»/«Увійти»,
-а також «Продовжити з Google» і «Продовжити з Facebook». **Жодна кнопка нічого не автентифікує** —
-усі викликають один і той самий `onClick = onDone` (рядки 475, 479, 490) і просто перемикають
+`AuthScreen` (`OnboardingFlow.kt`) за редизайном спрощено до двох дій: «Продовжити з Google»
+і «Продовжити без акаунта» (+ «Пропустити» вгорі). Поля email/пароль, кнопку Facebook і перемикач
+«вхід ↔ реєстрація» **прибрано**. Під кнопками — картка про ліміти гостя («до 2 словників і 50 слів,
+дані лише на цьому пристрої») і футер про Умови користування; дії притиснуті до низу екрана.
+
+**Жодна кнопка поки нічого не автентифікує** — усі викликають той самий `onDone` і просто перемикають
 `flow` на `LanguageSelect`. Це чистий UI без виклику `GoogleAuthController` чи `VocabeeApi`.
 
 Справжній Google-вхід наразі живе **тільки** всередині `Main` — на екрані профілю

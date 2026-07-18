@@ -46,11 +46,13 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Перегляд списку словників | Головний екран `DictionariesHome`: сітка 2-в-колонку карток у реверсному порядку (найновіший зверху); метрики «N словників · M слів». | [ЗАРАЗ] | [01](01-screens.md) §5 |
 | Порожній стан Home | `EmptyHomeState` з ілюстрацією й кнопкою «Створити словник» (FAB прихований). | [ЗАРАЗ] | [01](01-screens.md) §5 |
 | Картка словника | Колір теми, заливка-фон за `knowledgePercent`, watermark стільників, чип «N слів», мітка «оновлено». | [ЗАРАЗ] | [01](01-screens.md) §5 |
-| Створення словника (назва + колір) | Шторка `CreateDictionarySheet`: поле назви (ліміт 28), палітра кольорів (`coverIndex`), авто-перехід у новий словник. | [ЗАРАЗ] | [01](01-screens.md) CreateDictionary |
-| Пікер іконок теми (14 іконок) | Набір іконок (серіал/книга/подорожі/їжа/робота/школа/спорт/музика/природа/техніка/шопінг/діти/здоров'я/загальна) поряд із кольорами. | [НОВЕ] D7 | [08](08-languages-speech-themes.md) §6.2 |
-| Оверрайд пари мов при створенні | `LanguageInfoStrip` стає інтерактивним: пару мов для цього словника можна змінити (зараз read-only). | [НОВЕ] D6 | [08](08-languages-speech-themes.md) §2 |
+| Створення словника (назва + колір + іконка) | Шторка `CreateDictionarySheet`: пара прапорів у хедері, поле назви (ліміт 28), пікер іконок, палітра з 12 кольорів (`coverIndex`), авто-перехід у новий словник. | [ЗАРАЗ] | [01](01-screens.md) CreateDictionary |
+| Пікер іконок теми (20 іконок) | Сітка 5×4 у шторці створення/редагування; показ у дисплейному порядку борду, зберігається канонічний `iconIndex` (наявні словники іконку не міняють). | [ЗАРАЗ] D7 | [01](01-screens.md) CreateDictionary, [08](08-languages-speech-themes.md) §6.2 |
+| Оверрайд пари мов при створенні | Чип пари мов у хедері шторки стає інтерактивним: пару для цього словника можна змінити (зараз read-only). | [НОВЕ] D6 | [08](08-languages-speech-themes.md) §2 |
 | Перегляд словника (TopicDetail) | Список згрупованих слів, колапсуючий хедер, інлайн-панель додавання, прогрес. | [ЗАРАЗ] | [01](01-screens.md) §6 |
 | Свайп-видалення словника | Свайп вліво відкриває «Видалити» → шторка підтвердження (каскад на слова). | [ЗАРАЗ] | [01](01-screens.md), [12](12-motion-and-interaction-brief.md) §E |
+| Меню хедера словника (кебаб) | Кнопка 40dp у хедері деталей → «Змінити» / «Очистити словник» / «Видалити». | [ЗАРАЗ] | [01](01-screens.md) §6 |
+| Очищення словника | Видаляє ВСІ слова разом із прогресом, словник лишається; **без Undo**, розблоковується контрольною фразою «ОЧИСТИТИ». | [ЗАРАЗ] | [07](07-deletion.md) §2, [01](01-screens.md) ClearDictionary |
 | Undo-снекбар видалення словника | Снекбар «Скасувати» ~6с після видалення; soft-delete на сервері, pending локально. | [НОВЕ] D3 | [07](07-deletion.md) §4 |
 | Без повернення монеток за видалення | Видалення платного словника монетки **не повертає** (анти-фарм). | [ЗАРАЗ]/[НОВЕ] D3 | [07](07-deletion.md) §3 |
 | Ліміт словників (анонім 2) | Жорсткий гейт `anonymousDictionaryLimitReached()` → `AuthRequired(DictionaryLimit)`. | [ЗАРАЗ] | [04](04-coins-economy.md) §3 |
@@ -100,6 +102,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Збагачення (dictionary-ланцюг) | `OpenAI → FreeDictionary`: IPA, audio, senses+приклади, синоніми/антоніми, форми. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §11, [14](14-word-details-and-audio.md) §2 |
 | Напрямний кеш без mirror | Upsert source/target lexicon + translation cache лише для `detectedLang → otherLang`; зворотний напрямок генерується окремим запитом. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
 | Остання відновлювана ревізія | Dictionary admin може soft-delete переклад з причиною та відновити той самий рядок; пошук не показує видалені варіанти й дозаповнює тільки відсутній слот. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10, [17](17-api-and-data-reference.md) §1.3/3.2 |
+| Quality score і AI repair | `translation/example.qualityScore` накопичує user `+1` або admin `+100`; від `100` наступний exact search просить AI новий варіант/приклад, передає comments і rejected texts, після успіху обнуляє score. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.3 |
 | `providerReason` (meta) | `exact_cached / not_a_word / echo / no_provider_data / translated`. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
 | AI-атрибуція | Футер «Переклади та приклади згенеровано AI» + Sparkle per-row. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §5 |
 | Ціна 1 монетка за пошук (auth) | Сервер списує `TRANSLATION_SEARCH_BEE_COST`, повертає `meta.beeBalance`. | [ЗАРАЗ]/[НОВЕ] D1 | [13](13-add-word-and-ai-search.md) §7 |
@@ -166,7 +169,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Верифікована/ідемпотентна реклама | SSV / разовий nonce; просування ad-лічильників у тій самій транзакції. | [НОВЕ] D1/D4 | [04](04-coins-economy.md) §5, [05](05-promo-api-and-banners.md) §7 |
 | Серверні лічильники промо | `adsTotal/adsToday/streakDays/adsThisWeek` + стан видачі (нова підсистема). | [НОВЕ] D4 | [05](05-promo-api-and-banners.md) §8 |
 | Анонім промо не бачить | `GET /promos` для аноніма → `promos: []`; натомість банер гостьового режиму. | [НОВЕ] D2/D4 | [05](05-promo-api-and-banners.md) §3 |
-| «Запросити друзів» / реферал | Персональна лінка й QR; Android Share передає текст+PNG; advertised bonus +50 з `/referral/me`. Фактична атрибуція/credit — майбутнє. | [ЗАРАЗ]/[МАЙБУТНЄ] | [15](15-profile-and-settings.md) §5 |
+| «Запросити друзів» / реферал | Персональна лінка й QR; Android Share передає текст+PNG; швидкі кнопки месенджерів (Telegram/WhatsApp/Viber — лише встановлені) + «Ще»; advertised bonus +50 з `/referral/me`. Фактична атрибуція/credit — майбутнє. | [ЗАРАЗ]/[МАЙБУТНЄ] | [15](15-profile-and-settings.md) §5 |
 
 ### 3.7 Авторизація / акаунт
 
@@ -186,8 +189,8 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Колізія email (Google на password-юзера) | Реюз існуючого рядка; deployed migration має unique `lower(email)`, але Drizzle metadata описує plain index (schema drift). | [ЗАРАЗ] / ризик | [10](10-edge-cases-and-open-items.md) #12 |
 | Клієнт кличе `/auth/logout` | Revoke refresh на сервері при виході (зараз не кличе). | [НОВЕ] / уточнити | [16](16-auth-and-account-lifecycle.md) §16.8 O4 |
 | Refresh-failed → sign-out | При стійкому 401 на refresh переводити в анонім. | [НОВЕ] / уточнити | [02](02-onboarding-and-launch.md) §5.2 |
-| Картка ідентичності (профіль) | Аватар (ініціали «НК» захардкоджено), displayName, email, Edit (мертва). | [ЗАРАЗ] | [15](15-profile-and-settings.md) §2.2 |
-| Редагування `displayName` / фото | Кнопка Edit активна; ініціали з імені; фото Google. | [МАЙБУТНЄ] | [15](15-profile-and-settings.md) §2.2 |
+| Картка ідентичності (профіль) | Аватар з **реальними ініціалами** (`profileInitials`: до 2 літер імені → перша літера email → «V»), displayName, email, Edit (мертва). | [ЗАРАЗ] | [15](15-profile-and-settings.md) §2.2 |
+| Редагування `displayName` / фото | Кнопка Edit активна; фото Google. | [МАЙБУТНЄ] | [15](15-profile-and-settings.md) §2.2 |
 | Мерж акаунтів (різні Google) | Перенесення словників між акаунтами за монетки. | [МАЙБУТНЄ] D9 | [06](06-sync-and-account-merge.md) §5 |
 | Гостьовий серверний рядок | Справжній анонімний акаунт (`is_anonymous`, `RegisteredUserGuard`). | [МАЙБУТНЄ] | [16](16-auth-and-account-lifecycle.md) §16.10 |
 

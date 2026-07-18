@@ -83,6 +83,8 @@ hash і хибного пароля.
 
 Перевірка токена (`verifyGoogleIdToken`, `auth.service.ts:223-266`): тягне `https://oauth2.googleapis.com/tokeninfo?id_token=…`, вимагає `aud` з allowlist налаштованих `auth.googleClientId` / `auth.googleIosClientId`, `iss ∈ {accounts.google.com, https://accounts.google.com}`, і якщо email присутній — `email_verified` як boolean `true` або рядок `"true"`. Якщо жодного Google client id не сконфігуровано на gateway → `503 ServiceUnavailableException`.
 
+**[НОВЕ]** На iOS client id не захардкоджений у Kotlin-коді. Xcode підставляє його в `Info.plist` через конфігураційні змінні: Debug використовує dev OAuth client, Release — production OAuth client. Туди ж підставляється reversed client id у `CFBundleURLTypes`, щоб Google міг повернути результат авторизації в застосунок. Значення client id має збігатися з відповідним `auth.googleIosClientId` на gateway для того самого середовища.
+
 Логіка прив'язки акаунта (важливо — **колізія email = реюз існуючого рядка**):
 
 1. Шукаємо `oauth_accounts` за (`provider='google'`, `providerAccountId=sub`). Якщо знайдено — перевіряємо `linkedAccount.userId` через `requireActiveById` і лише тоді видаємо токени.

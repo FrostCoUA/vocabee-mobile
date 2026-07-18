@@ -77,9 +77,13 @@ window.P = {};
   };
 
   P.dictCardSwiped = function (o) {
-    return '<div style="position:relative;height:162px;border-radius:24px;overflow:hidden;background:var(--red)">' +
-      '<div style="position:absolute;right:0;top:0;bottom:0;width:76px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:#fff">' +
-      ic('close', 22, '#fff', 2.4) + '<span style="font-size:10.5px;font-weight:800">Видалити</span></div>' +
+    // висунута зона: зверху Видалити (red), знизу Змінити (ink); колонка на 24px ширша й заходить ПІД скруглені кути картки
+    return '<div style="position:relative;height:162px;border-radius:24px;overflow:hidden">' +
+      '<div style="position:absolute;right:0;top:0;bottom:0;width:100px;display:flex;flex-direction:column">' +
+      '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding-left:20px;background:var(--red);color:#fff">' +
+      ic('close', 19, '#fff', 2.4) + '<span style="font-size:10px;font-weight:800">Видалити</span></div>' +
+      '<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding-left:20px;background:var(--ink);color:var(--surface)">' +
+      ic('edit', 18, 'var(--surface)', 2.2) + '<span style="font-size:10px;font-weight:800;color:var(--surface)">Змінити</span></div></div>' +
       '<div style="position:absolute;inset:0;right:76px;border-radius:24px;overflow:hidden">' + P.dictCard(Object.assign({}, o, { nowrap: true })) + '</div></div>';
   };
 
@@ -88,8 +92,9 @@ window.P = {};
   };
 
   /* ---------- bottom bar ---------- */
-  P.bottomBar = function (active) {
-    const tabs = [['book', 'Словники'], ['dumbbell', 'Тренування'], ['user', 'Профіль']];
+  // gender: 'f' → жіноча іконка профілю; гість/чоловік/невідомо → чоловічок
+  P.bottomBar = function (active, gender) {
+    const tabs = [['bookTab', 'Словники'], ['dumbbell', 'Тренування'], [gender === 'f' ? 'userF' : 'user', 'Профіль']];
     return '<div style="position:absolute;left:0;right:0;bottom:0;height:80px;background:var(--surface);border-top:1px solid var(--line);display:flex;padding-bottom:14px;z-index:25">' +
       tabs.map(function (t, i) {
         const on = i === active;
@@ -100,13 +105,27 @@ window.P = {};
       }).join('') + '</div>';
   };
 
+  /* чип-флажок мови вивчення — хедери Головної й Тренування */
+  P.flagChip = function (flag) {
+    return '<span style="display:inline-flex;align-items:center;gap:5px;background:var(--surface);border:1.5px solid var(--line);border-radius:13px;padding:7px 10px;box-shadow:var(--elev1)"><span style="font-size:19px;line-height:1">' + (flag || '🇬🇧') + '</span>' + ic('chevD', 13, 'var(--muted2)', 2.4) + '</span>';
+  };
+
   /* ---------- home header ---------- */
   P.homeHeader = function (o) {
+    o = o || {};
+    // флажок мови, яку вивчаю (клікабельний) — замість логотипа; тап → шит зміни мови
     return '<div style="padding:14px 22px 0">' +
-      '<div style="display:flex;align-items:flex-start;justify-content:space-between;padding:6px 0 10px">' +
-      '<span style="font-size:34px;font-weight:800;letter-spacing:-1px;color:var(--ink)">Словники</span>' + RD.logo(30) + '</div>' +
-      (o && o.metrics ? '<div style="display:flex;align-items:center;gap:11px;padding-bottom:6px;font-size:14px"><span><b style="color:var(--ink)">' + o.metrics[0] + '</b> <span style="color:var(--muted);font-weight:600">словники</span></span><span style="width:4px;height:4px;border-radius:99px;background:var(--muted2)"></span><span><b style="color:var(--ink)">' + o.metrics[1] + '</b> <span style="color:var(--muted);font-weight:600">слів зібрано</span></span></div>' : '') +
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0 10px">' +
+      '<span style="font-size:34px;font-weight:800;letter-spacing:-1px;color:var(--ink)">Словники</span>' + (o.logo ? RD.logo(30) : P.flagChip(o.flag)) + '</div>' +
+      (o.metrics ? '<div style="display:flex;align-items:center;gap:11px;padding-bottom:6px;font-size:14px"><span><b style="color:var(--ink)">' + o.metrics[0] + '</b> <span style="color:var(--muted);font-weight:600">словники</span></span><span style="width:4px;height:4px;border-radius:99px;background:var(--muted2)"></span><span><b style="color:var(--ink)">' + o.metrics[1] + '</b> <span style="color:var(--muted);font-weight:600">слів зібрано</span></span></div>' : '') +
       '</div>';
+  };
+
+  /* заголовок групи пар мов нижче робочої групи: «ТЕМИ 🇩🇪 → 🇺🇦» */
+  P.pairGroupLabel = function (learnFlag, knowFlag) {
+    return '<div style="display:flex;align-items:center;gap:8px;padding:10px 4px 2px"><span style="font-weight:800;font-size:12.5px;letter-spacing:.63px;color:var(--muted2)">ТЕМИ</span>' +
+      '<span style="display:inline-flex;align-items:center;gap:5px;font-size:15px;line-height:1">' + learnFlag + '<span style="display:inline-flex">' + ic('arrowR', 11, 'var(--muted3)', 2.4) + '</span>' + knowFlag + '</span>' +
+      '<span style="flex:1;height:1px;background:var(--line)"></span></div>';
   };
 
   /* ---------- word rows ---------- */
@@ -294,7 +313,9 @@ window.P = {};
       '<div style="display:flex;justify-content:center;padding:6px 0 12px"><span style="width:42px;height:5px;border-radius:99px;background:var(--handle)"></span></div>' +
       '<div style="padding:0 24px 34px">' +
       (o.title ? '<div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:18px"><span style="font-weight:800;font-size:22px;letter-spacing:-.44px;color:var(--ink)">' + o.title + '</span>' +
-        '<span style="width:36px;height:36px;border-radius:11px;background:var(--sheetctl);display:flex;align-items:center;justify-content:center">' + ic('close', 20, 'var(--muted2)', 2.1) + '</span></div>' : '') +
+        '<span style="display:flex;align-items:center;gap:10px">' +
+        (o.flags ? '<span style="display:inline-flex;align-items:center;gap:6px;background:var(--neutral);border-radius:11px;padding:7px 11px;font-size:15px">' + o.flags[0] + '<span style="display:inline-flex">' + ic('arrowR', 12, 'var(--muted2)', 2.2) + '</span>' + o.flags[1] + '</span>' : '') +
+        '<span style="width:36px;height:36px;border-radius:11px;background:var(--sheetctl);display:flex;align-items:center;justify-content:center">' + ic('close', 20, 'var(--muted2)', 2.1) + '</span></span></div>' : '') +
       o.body + '</div></div>';
   };
 
@@ -311,29 +332,31 @@ window.P = {};
   };
 
   P.swatches = function (sel) {
-    const keys = Object.keys(RD.ACCENTS);
+    // 12 кольорів: 2 ряди по 6
+    const keys = Object.keys(RD.ACCENTS).slice(0, 12);
     let rows = '';
     for (let r = 0; r < 2; r++) {
-      let row = '';
-      for (let c = 0; c < 4; c++) {
-        const i = r * 4 + c, col = RD.ACCENTS[keys[i]];
-        row += '<span style="width:46px;height:46px;border-radius:14px;background:' + col + ';display:flex;align-items:center;justify-content:center;' +
+      const row = keys.slice(r * 6, r * 6 + 6).map(function (k, c) {
+        const i = r * 6 + c, col = RD.ACCENTS[k];
+        return '<span style="flex:1;aspect-ratio:1;border-radius:12px;background:' + col + ';display:flex;align-items:center;justify-content:center;' +
           (i === sel ? 'outline:3px solid var(--sheet);outline-offset:-3px;box-shadow:0 0 0 2.5px ' + col + ';' : '') + '">' +
-          (i === sel ? ic('check', 18, '#fff', 2.6) : '') + '</span>';
-      }
-      rows += '<div style="display:flex;gap:11px;margin-bottom:11px">' + row + '</div>';
+          (i === sel ? ic('check', 16, '#fff', 2.6) : '') + '</span>';
+      }).join('');
+      rows += '<div style="display:flex;gap:9px;margin-bottom:9px">' + row + '</div>';
     }
     return rows;
   };
 
   P.field = function (o) {
-    return '<div style="height:54px;border-radius:15px;background:' + (o.focused ? 'var(--surface)' : 'var(--field)') + ';border:1.5px solid ' + (o.focused ? 'var(--purple)' : 'var(--line)') + ';display:flex;align-items:center;padding:0 17px;font-weight:' + (o.value ? 600 : 500) + ';font-size:16px;color:' + (o.value ? 'var(--ink)' : 'var(--muted2)') + '">' + (o.value || o.placeholder) + (o.focused && o.value ? '<span class="caret"></span>' : '') + '</div>';
+    // коли є текст — праворуч ✕-батон очищення (28dp, neutral)
+    const clear = o.value ? '<span style="flex:none;margin-left:auto;width:28px;height:28px;border-radius:99px;background:var(--neutral);display:inline-flex;align-items:center;justify-content:center">' + ic('close', 14, 'var(--muted2)', 2.4) + '</span>' : '';
+    return '<div style="height:54px;border-radius:15px;background:' + (o.focused ? 'var(--surface)' : 'var(--field)') + ';border:1.5px solid ' + (o.focused ? 'var(--purple)' : 'var(--line)') + ';display:flex;align-items:center;gap:8px;padding:0 13px 0 17px;font-weight:' + (o.value ? 600 : 500) + ';font-size:16px;color:' + (o.value ? 'var(--ink)' : 'var(--muted2)') + '"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (o.value || o.placeholder) + '</span>' + (o.focused && o.value ? '<span class="caret"></span>' : '') + clear + '</div>';
   };
 
   P.sheetLabel = function (t) { return '<div style="padding:0 2px 8px;font-weight:700;font-size:13.5px;color:var(--muted)">' + t + '</div>'; };
 
   /* ---------- topic icon picker (create sheet) ---------- */
-  P.ICON_TOPICS = ['plane', 'book', 'film', 'brief', 'grad', 'food', 'ball', 'music', 'leaf', 'laptop', 'bag', 'heart', 'child', 'chat', 'star'];
+  P.ICON_TOPICS = ['plane', 'car', 'book', 'film', 'music', 'ball', 'grad', 'brief', 'laptop', 'food', 'burger', 'drink', 'bag', 'cat', 'dog', 'leaf', 'heart', 'child', 'chat', 'star'];
   P.iconPicker = function (sel, accent) {
     return '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:9px">' + P.ICON_TOPICS.map(function (n, i) {
       const on = i === sel;

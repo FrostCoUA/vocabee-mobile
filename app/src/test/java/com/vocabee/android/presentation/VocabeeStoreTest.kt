@@ -309,6 +309,219 @@ class VocabeeStoreTest {
         assertEquals(2, topic.contextPairCount())
     }
 
+    @Test
+    fun topicsAreGroupedWithWorkingLanguagePairFirst() {
+        val store = VocabeeStore()
+        store.authenticateForTest()
+        store.createTopicInPairForTest(learnCode = "en", title = "Подорожі")
+        store.createTopicInPairForTest(learnCode = "de", title = "Німецька база")
+        store.createTopicInPairForTest(learnCode = "de", title = "Берлін · побут")
+        store.createTopicInPairForTest(learnCode = "pl", title = "Польська")
+        store.selectLearningLanguageForTest("en")
+
+        val groups = groupTopicsByLanguagePair(
+            topics = store.state.topics,
+            learningLanguageCode = "en",
+            userLanguageCode = "uk",
+        )
+
+        assertEquals(3, groups.size)
+        // Робоча пара — перша й без заголовка.
+        assertEquals(TopicLanguagePair("en", "uk"), groups[0].pair)
+        assertTrue(groups[0].isWorkingPair)
+        assertEquals(listOf("Подорожі"), groups[0].topics.map { it.title })
+        // Решта — за спаданням кількості словників.
+        assertFalse(groups[1].isWorkingPair)
+        assertEquals(TopicLanguagePair("de", "uk"), groups[1].pair)
+        assertEquals(listOf("Німецька база", "Берлін · побут"), groups[1].topics.map { it.title })
+        assertEquals(TopicLanguagePair("pl", "uk"), groups[2].pair)
+    }
+
+    @Test
+    fun changingLearningLanguageMovesItsGroupToTheTop() {
+        val store = VocabeeStore()
+        store.createTopicInPairForTest(learnCode = "en", title = "Подорожі")
+        store.createTopicInPairForTest(learnCode = "de", title = "Німецька база")
+        store.selectLearningLanguageForTest("de")
+
+        val groups = groupTopicsByLanguagePair(
+            topics = store.state.topics,
+            learningLanguageCode = store.state.learningLanguage.code,
+            userLanguageCode = store.state.userLanguage.code,
+        )
+
+        assertEquals(TopicLanguagePair("de", "uk"), groups.first().pair)
+        assertTrue(groups.first().isWorkingPair)
+        assertEquals(listOf("Німецька база"), groups.first().topics.map { it.title })
+        assertEquals(TopicLanguagePair("en", "uk"), groups[1].pair)
+    }
+
+    @Test
+    fun groupingIsStableWhenPairsHaveEqualTopicCounts() {
+        val store = VocabeeStore()
+        store.createTopicInPairForTest(learnCode = "pl", title = "Польська")
+        store.createTopicInPairForTest(learnCode = "de", title = "Німецька")
+        store.selectLearningLanguageForTest("en")
+
+        val groups = groupTopicsByLanguagePair(
+            topics = store.state.topics,
+            learningLanguageCode = "en",
+            userLanguageCode = "uk",
+        )
+
+        // Робочої пари немає жодного словника → групи лише «інші», за кодом мови.
+        assertEquals(listOf("de", "pl"), groups.map { it.pair.sourceCode })
+        assertTrue(groups.none { it.isWorkingPair })
+    }
+
+    @Test
+    fun learningLanguageCountsOnlyCountPairsWithTheNativeLanguage() {
+        val store = VocabeeStore()
+        store.authenticateForTest()
+        store.createTopicInPairForTest(learnCode = "en", title = "Подорожі")
+        store.createTopicInPairForTest(learnCode = "en", title = "Робота")
+        store.createTopicInPairForTest(learnCode = "de", title = "Німецька база")
+
+        val counts = learningLanguageTopicCounts(
+            topics = store.state.topics,
+            userLanguageCode = "uk",
+        )
+
+        assertEquals(2, counts["en"])
+        assertEquals(1, counts["de"])
+        // Мови без словників у парі з рідною — неактивні в шиті «Я вивчаю».
+        assertEquals(null, counts["pl"])
+        assertEquals(
+            emptyMap<String, Int>(),
+            learningLanguageTopicCounts(topics = store.state.topics, userLanguageCode = "pl"),
+        )
+    }
+
+    @Test
+    fun updateTopicAppearanceRenamesAndRecolorsWithoutSpendingBees() {
+        val store = VocabeeStore()
+        store.authenticateForTest()
+        val topic = store.createTopicForTest(title = "Стара назва")
+        val balanceBefore = store.state.beeBalance
+
+        store.onEvent(
+            VocabeeEvent.UpdateTopicAppearance(
+                topicId = topic.id,
+                title = "  Нова назва  ",
+                coverIndex = 5,
+                iconIndex = 3,
+            ),
+        )
+
+        val updated = store.topicForTest(topic.id)
+        assertEquals("Нова назва", updated.title)
+        assertEquals(5, updated.coverIndex)
+        assertEquals(3, updated.iconIndex)
+        assertEquals(balanceBefore, store.state.beeBalance)
+        // Пара мов редагуванням не змінюється (D6).
+        assertEquals(topic.sourceLanguage, updated.sourceLanguage)
+        assertEquals(topic.targetLanguage, updated.targetLanguage)
+    }
+
+    @Test
+    fun updateTopicAppearanceIgnoresBlankTitleAndUnknownTopic() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest(title = "Назва")
+
+        store.onEvent(
+            VocabeeEvent.UpdateTopicAppearance(topic.id, title = "   ", coverIndex = 2, iconIndex = 2),
+        )
+        store.onEvent(
+            VocabeeEvent.UpdateTopicAppearance("no-such-topic", title = "X", coverIndex = 2, iconIndex = 2),
+        )
+
+        val untouched = store.topicForTest(topic.id)
+        assertEquals("Назва", untouched.title)
+        assertEquals(0, untouched.coverIndex)
+        assertEquals(1, store.state.topics.size)
+    }
+
+    @Test
+    fun clearTopicWordsEmptiesDictionaryButKeepsItAndDoesNotRefundBees() {
+        val prefs = InMemoryPreferencesManager().apply { beeBalance = 50 }
+        val store = VocabeeStore(preferencesManager = prefs)
+        store.authenticateForTest()
+        val topic = store.createTopicForTest(title = "Подорожі")
+        val other = store.createTopicForTest(title = "Робота")
+        store.onEvent(VocabeeEvent.AddWord(topic.id, "trip", "подорож"))
+        store.onEvent(VocabeeEvent.AddWord(topic.id, "flight", "рейс"))
+        store.onEvent(VocabeeEvent.AddWord(other.id, "job", "робота"))
+        val balanceBefore = store.state.beeBalance
+        val revisionBefore = prefs.localRevisionEpochMillis
+
+        store.onEvent(VocabeeEvent.ClearTopicWords(topic.id))
+
+        val cleared = store.topicForTest(topic.id)
+        assertTrue(cleared.words.isEmpty())
+        assertEquals("Подорожі", cleared.title)
+        assertEquals(2, store.state.topics.size)
+        // Сусідні словники не зачеплені.
+        assertEquals(1, store.topicForTest(other.id).words.size)
+        // Монетки за видалення не повертаються (D3), але зміну треба синхронізувати.
+        assertEquals(balanceBefore, store.state.beeBalance)
+        assertTrue(prefs.localRevisionEpochMillis > revisionBefore)
+    }
+
+    @Test
+    fun clearTopicWordsIsANoOpForEmptyOrUnknownDictionary() {
+        val prefs = InMemoryPreferencesManager()
+        val store = VocabeeStore(preferencesManager = prefs)
+        val topic = store.createTopicForTest(title = "Порожній")
+        val revisionBefore = prefs.localRevisionEpochMillis
+
+        store.onEvent(VocabeeEvent.ClearTopicWords(topic.id))
+        store.onEvent(VocabeeEvent.ClearTopicWords("no-such-topic"))
+        store.onEvent(VocabeeEvent.ClearTopicWords(""))
+
+        assertEquals(1, store.state.topics.size)
+        assertTrue(store.topicForTest(topic.id).words.isEmpty())
+        assertEquals(revisionBefore, prefs.localRevisionEpochMillis)
+    }
+
+    @Test
+    fun clearButtonUnlocksOnlyForTheExactControlPhrase() {
+        assertTrue(isClearDictionaryConfirmed(ClearDictionaryConfirmationPhrase))
+        // Пробіли по краях прощаємо — їх додає автопідстановка клавіатури.
+        assertTrue(isClearDictionaryConfirmed("  $ClearDictionaryConfirmationPhrase  "))
+        // Регістр і часткове введення — ні.
+        assertFalse(isClearDictionaryConfirmed(""))
+        assertFalse(isClearDictionaryConfirmed("очистити"))
+        assertFalse(isClearDictionaryConfirmed("Очистити"))
+        assertFalse(isClearDictionaryConfirmed("ОЧИСТ"))
+        assertFalse(isClearDictionaryConfirmed("ОЧИСТИТИ ВСЕ"))
+    }
+
+    @Test
+    fun profileAvatarInitialsComeFromTheAccountNotFromAHardcodedLiteral() {
+        assertEquals("НК", profileInitials("Надія Кобилінська", "nadiia@vocabee.app"))
+        // Одне слово — одна літера; зайві частини імені ігноруються.
+        assertEquals("Н", profileInitials("надія", "nadiia@vocabee.app"))
+        // Більше двох слів — беремо лише перші дві літери.
+        assertEquals("НМ", profileInitials("Надія Марія Кобилінська", "n@vocabee.app"))
+        // Порожнє імʼя → перша літера пошти, порожні дані → «V».
+        assertEquals("N", profileInitials("   ", "nadiia@vocabee.app"))
+        assertEquals("V", profileInitials("", ""))
+    }
+
+    /** Створює словник у парі «learnCode → рідна», не змінюючи підсумкову мову вивчення. */
+    private fun VocabeeStore.createTopicInPairForTest(learnCode: String, title: String) {
+        selectLearningLanguageForTest(learnCode)
+        createTopicForTest(title)
+    }
+
+    private fun VocabeeStore.selectLearningLanguageForTest(code: String) {
+        onEvent(
+            VocabeeEvent.SelectLearningLanguage(
+                state.supportedLanguages.first { it.code == code },
+            ),
+        )
+    }
+
     private fun VocabeeStore.authenticateForTest() {
         onEvent(
             VocabeeEvent.ApplyAuthenticatedAccount(

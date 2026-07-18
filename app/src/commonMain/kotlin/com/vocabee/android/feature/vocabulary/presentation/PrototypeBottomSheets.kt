@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,12 +42,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vocabee.android.core.presentation.designsystem.PrototypeColor
@@ -55,9 +60,10 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeLanguage
 import com.vocabee.android.core.presentation.designsystem.PrototypeLanguages
 import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeTopicIcons
+import com.vocabee.android.core.presentation.designsystem.PrototypeTopicIconsPickerOrder
 import com.vocabee.android.core.presentation.designsystem.PrototypeTopicThemes
 import com.vocabee.android.core.presentation.designsystem.languageFlag
-import com.vocabee.android.core.presentation.designsystem.languageName
+import com.vocabee.android.core.presentation.designsystem.prototypeTopicIconStorageIndex
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,9 +71,17 @@ internal fun PrototypeBottomSheet(
     title: String?,
     onDismiss: () -> Unit,
     foot: @Composable (ColumnScope.() -> Unit)? = null,
+    /** Слот ліворуч від ✕ у хедері шита — наприклад, пара прапорів «🇬🇧 → 🇺🇦». */
+    titleAccessory: (@Composable () -> Unit)? = null,
     body: @Composable ColumnScope.() -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // Інсети читаємо ТУТ, у вікні застосунку: всередині ModalBottomSheet (окреме
+    // вікно діалога) WindowInsets.navigationBars повертає 0, і кнопка дії високого
+    // шита ховається під системною навігацією.
+    val navigationBarBottom = with(LocalDensity.current) {
+        WindowInsets.navigationBars.getBottom(this).toDp()
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -77,7 +91,7 @@ internal fun PrototypeBottomSheet(
         // Status-bar inset kicks in only when the sheet stretches to full
         // height (keyboard open) — keeps the title clear of the notch/island.
         contentWindowInsets = { WindowInsets.statusBars },
-        scrimColor = Color(0x80111827),
+        scrimColor = PrototypeColor.Scrim,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -88,7 +102,13 @@ internal fun PrototypeBottomSheet(
             )
         },
     ) {
-        Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+        // Скрол на всьому вмісті шита: високі шити (створення словника — 20 іконок
+        // і 12 кольорів) інакше виштовхують кнопку дії під системну навігацію.
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp),
+        ) {
             if (title != null) {
                 Row(
                     modifier = Modifier
@@ -104,20 +124,26 @@ internal fun PrototypeBottomSheet(
                         color = PrototypeColor.Ink,
                         letterSpacing = (-0.44).sp,
                     )
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(PrototypeColor.SheetControlSurface)
-                            .clickable(onClick = onDismiss),
-                        contentAlignment = Alignment.Center,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        PrototypeLineIcon(
-                            icon = PrototypeIcon.Close,
-                            modifier = Modifier.size(20.dp),
-                            color = PrototypeColor.Muted2,
-                            strokeWidth = 2.1f,
-                        )
+                        titleAccessory?.invoke()
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .background(PrototypeColor.SheetControlSurface)
+                                .clickable(onClick = onDismiss),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            PrototypeLineIcon(
+                                icon = PrototypeIcon.Close,
+                                modifier = Modifier.size(20.dp),
+                                color = PrototypeColor.Muted2,
+                                strokeWidth = 2.1f,
+                            )
+                        }
                     }
                 }
             }
@@ -131,11 +157,16 @@ internal fun PrototypeBottomSheet(
             } else {
                 Spacer(modifier = Modifier.height(8.dp))
             }
-            Spacer(modifier = Modifier.navigationBarsPadding())
+            Spacer(modifier = Modifier.height(34.dp + navigationBarBottom))
         }
     }
 }
 
+/**
+ * Шит створення словника; у режимі РЕДАГУВАННЯ ([editMode] = true) поля
+ * префілляться наявним словником, заголовок стає «Редагування», а CTA —
+ * «Зберегти». Пара мов у обох режимах не редагується (D6).
+ */
 @Composable
 internal fun CreateDictionarySheet(
     sourceLanguageCode: String,
@@ -143,70 +174,56 @@ internal fun CreateDictionarySheet(
     existingDictionariesCount: Int,
     onDismiss: () -> Unit,
     onCreate: (title: String, coverIndex: Int, iconIndex: Int) -> Unit,
+    editMode: Boolean = false,
+    initialTitle: String = "",
+    initialCoverIndex: Int = 0,
+    initialIconIndex: Int = 0,
 ) {
-    var name by remember { mutableStateOf("") }
-    var selectedIndex by remember { mutableStateOf(0) }
-    var selectedIcon by remember { mutableStateOf(0) }
+    var name by remember { mutableStateOf(initialTitle) }
+    var selectedIndex by remember { mutableStateOf(initialCoverIndex.coerceIn(0, PrototypeTopicThemes.lastIndex)) }
+    var selectedIcon by remember { mutableStateOf(initialIconIndex.coerceIn(0, PrototypeTopicIcons.lastIndex)) }
     val focusRequester = remember { FocusRequester() }
     val cleanedName = name.trim()
     val isValid = cleanedName.isNotEmpty()
-    val atLimit = existingDictionariesCount >= 5
+    val atLimit = !editMode && existingDictionariesCount >= 5
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
 
     PrototypeBottomSheet(
-        title = "Новий словник",
+        title = if (editMode) "Редагування" else "Новий словник",
         onDismiss = onDismiss,
+        // Пара мов живе в ХЕДЕРІ шита (борди A/A′) і не редагується в жодному
+        // з режимів — вона фіксується при створенні словника (D6).
+        titleAccessory = {
+            SheetLanguagePairChip(
+                sourceCode = sourceLanguageCode,
+                targetCode = targetLanguageCode,
+            )
+        },
         foot = {
-            PrimaryPillButton(
-                label = "Створити",
+            SheetPrimaryButton(
+                label = if (editMode) "Зберегти" else "Створити",
                 onClick = { if (isValid) onCreate(cleanedName, selectedIndex, selectedIcon) },
                 enabled = isValid,
             )
         },
     ) {
-        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-            SheetLabel(text = "Назва теми")
-            OutlinedTextField(
+        Column {
+            SheetTextField(
                 value = name,
                 onValueChange = { input ->
                     if (input.length <= 28) name = input
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp)
-                    .focusRequester(focusRequester),
-                singleLine = true,
-                placeholder = {
-                    Text(
-                        "напр. Подорожі, Робота, Книга…",
-                        color = PrototypeColor.Muted2,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 16.sp,
-                    )
-                },
-                textStyle = TextStyle(
-                fontFamily = manropeFamily(),
-                    color = PrototypeColor.Ink,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                ),
-                shape = RoundedCornerShape(15.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = PrototypeColor.Line,
-                    focusedBorderColor = PrototypeColor.Purple,
-                    unfocusedContainerColor = PrototypeColor.FieldBg,
-                    focusedContainerColor = PrototypeColor.White,
-                    cursorColor = PrototypeColor.Purple,
-                ),
+                floatingLabel = "Введіть назву нового словника",
+                modifier = Modifier.focusRequester(focusRequester),
             )
 
             Spacer(modifier = Modifier.height(18.dp))
             SheetLabel(text = "Іконка теми")
             IconPicker(
-                selectedIcon = selectedIcon,
+                selectedIconIndex = selectedIcon,
                 accent = PrototypeTopicThemes[selectedIndex].color,
                 onSelect = { selectedIcon = it },
             )
@@ -218,12 +235,6 @@ internal fun CreateDictionarySheet(
                 onSelect = { selectedIndex = it },
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
-            LanguageInfoStrip(
-                sourceCode = sourceLanguageCode,
-                targetCode = targetLanguageCode,
-            )
-
             if (atLimit) {
                 Spacer(modifier = Modifier.height(14.dp))
                 LimitNote()
@@ -233,7 +244,7 @@ internal fun CreateDictionarySheet(
 }
 
 @Composable
-private fun SheetLabel(text: String) {
+internal fun SheetLabel(text: String) {
     Text(
         text = text,
         modifier = Modifier.padding(start = 2.dp, bottom = 8.dp),
@@ -243,17 +254,115 @@ private fun SheetLabel(text: String) {
     )
 }
 
+/** Поле шита за бордом (P.field): 54dp, r15, field-фон, purple-бордер у фокусі. */
+@Composable
+internal fun SheetTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String? = null,
+    /**
+     * Плаваючий лейбл: підказка стоїть у полі, а при фокусі (або коли вже є
+     * текст) з анімацією їде у виріз бордера. Тоді окремий підпис над полем
+     * не потрібен. Якщо null — поводиться як звичайне поле з плейсхолдером.
+     */
+    floatingLabel: String? = null,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .fillMaxWidth()
+            // З плаваючим лейблом поле мусить бути вищим: інакше піднятий
+            // лейбл не влазить у виріз бордера.
+            .then(if (floatingLabel == null) Modifier.height(54.dp) else Modifier.heightIn(min = 58.dp)),
+        singleLine = true,
+        label = floatingLabel?.let { text ->
+            {
+                Text(
+                    text,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        },
+        placeholder = placeholder?.let { text ->
+            {
+                Text(
+                    text,
+                    color = PrototypeColor.Muted2,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    // Один рядок з обрізанням у кінці: довга підказка на вузькому
+                    // екрані інакше переноситься і розпирає поле.
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        },
+        textStyle = TextStyle(
+            fontFamily = manropeFamily(),
+            color = PrototypeColor.Ink,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 16.sp,
+        ),
+        shape = RoundedCornerShape(15.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            unfocusedBorderColor = PrototypeColor.Line,
+            focusedBorderColor = PrototypeColor.Purple,
+            unfocusedContainerColor = PrototypeColor.FieldBg,
+            focusedContainerColor = PrototypeColor.White,
+            cursorColor = PrototypeColor.Purple,
+            focusedLabelColor = PrototypeColor.PurpleText,
+            unfocusedLabelColor = PrototypeColor.Muted2,
+        ),
+    )
+}
+
+/** Основна кнопка шита: 56dp r16 purple — анатомія з борду секції 7. */
+@Composable
+internal fun SheetPrimaryButton(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            // Літерал: білий текст на purple-заливці читається в ОБОХ темах.
+            .background(if (enabled) PrototypeColor.Purple else PrototypeColor.Purple.copy(alpha = 0.45f))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (enabled) Color.White else Color.White.copy(alpha = 0.85f),
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 16.sp,
+        )
+    }
+}
+
+/** 12 акцентів у 2 ряди по 6 (борд «Колір теми»). */
 @Composable
 private fun SwatchPalette(selectedIndex: Int, onSelect: (Int) -> Unit) {
-    val rows = PrototypeTopicThemes.chunked(4)
-    Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-        rows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+    val rows = PrototypeTopicThemes.chunked(6)
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        rows.forEachIndexed { rowIndex, row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
                 row.forEachIndexed { columnIndex, theme ->
-                    val index = rows.indexOf(row) * 4 + columnIndex
+                    val index = rowIndex * 6 + columnIndex
                     SwatchTile(
                         color = theme.color,
                         selected = selectedIndex == index,
+                        modifier = Modifier.weight(1f),
                         onClick = { onSelect(index) },
                     )
                 }
@@ -267,21 +376,23 @@ private fun SwatchTile(
     color: Color,
     selected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = Modifier
-            .size(46.dp)
+        modifier = modifier
+            .aspectRatio(1f)
             .then(
                 if (selected) {
                     Modifier
-                        // Літерал: рамка/чек лежать на константному кольорі словника.
-                        .border(BorderStroke(3.dp, Color.White), RoundedCornerShape(14.dp))
-                        .border(BorderStroke(5.5.dp, color), RoundedCornerShape(16.dp))
+                        // Кільце вибору за бордом: проріз кольором ПОВЕРХНІ шита,
+                        // назовні — сам акцент (у dark білий проріз світився).
+                        .border(BorderStroke(3.dp, PrototypeColor.SheetSurface), RoundedCornerShape(12.dp))
+                        .border(BorderStroke(5.5.dp, color), RoundedCornerShape(14.dp))
                 } else {
                     Modifier
                 }
             )
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(color)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -297,27 +408,33 @@ private fun SwatchTile(
     }
 }
 
+/**
+ * Сітка 5×4 з 20 іконок тем. Рендер іде в ДИСПЛЕЙНОМУ порядку борду
+ * ([PrototypeTopicIconsPickerOrder]), а назовні віддається КАНОНІЧНИЙ індекс
+ * зберігання ([prototypeTopicIconStorageIndex]) — інакше зміна порядку показу
+ * мовчки перефарбувала б іконки наявних словників.
+ */
 @Composable
 private fun IconPicker(
-    selectedIcon: Int,
+    selectedIconIndex: Int,
     accent: Color,
     onSelect: (Int) -> Unit,
 ) {
-    val rows = PrototypeTopicIcons.chunked(5)
+    val rows = PrototypeTopicIconsPickerOrder.chunked(5)
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        rows.forEachIndexed { rowIndex, row ->
+        rows.forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
-                row.forEachIndexed { columnIndex, icon ->
-                    val index = rowIndex * 5 + columnIndex
+                row.forEach { icon ->
+                    val storageIndex = prototypeTopicIconStorageIndex(icon)
                     IconTile(
                         icon = icon,
-                        selected = selectedIcon == index,
+                        selected = selectedIconIndex == storageIndex,
                         accent = accent,
                         modifier = Modifier.weight(1f),
-                        onClick = { onSelect(index) },
+                        onClick = { onSelect(storageIndex) },
                     )
                 }
             }
@@ -351,32 +468,6 @@ private fun IconTile(
 }
 
 @Composable
-private fun LanguageInfoStrip(sourceCode: String, targetCode: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(PrototypeColor.Background)
-            .padding(horizontal = 14.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        PrototypeLineIcon(
-            icon = PrototypeIcon.Globe,
-            modifier = Modifier.size(16.dp),
-            color = PrototypeColor.Muted2,
-            strokeWidth = 1.8f,
-        )
-        Text(
-            text = "Мова: ${languageFlag(sourceCode)} ${languageName(sourceCode)} → ${languageFlag(targetCode)} ${languageName(targetCode)}",
-            color = PrototypeColor.Muted,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.5.sp,
-        )
-    }
-}
-
-@Composable
 private fun LimitNote() {
     Row(
         modifier = Modifier
@@ -400,6 +491,164 @@ private fun LimitNote() {
             fontSize = 13.sp,
             lineHeight = 19.sp,
         )
+    }
+}
+
+/**
+ * Шит «Я вивчаю» — перемикач робочої мовної пари з хедера Головної/Тренування.
+ *
+ * АКТИВНІ мови — ті, що вже мають словники в парі з рідною (плюс поточна
+ * вибрана, навіть якщо словників у неї ще нема): клікабельні, з лічильником
+ * «N словники». Решта підтримуваних мов показані приглушено (opacity .42) і
+ * не реагують на тап — новий словник іншої мови створюється через FAB/профіль.
+ */
+@Composable
+internal fun LearningLanguageSheet(
+    selectedCode: String,
+    userLanguageCode: String,
+    topicCountsByLanguage: Map<String, Int>,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    val options = remember(userLanguageCode, selectedCode, topicCountsByLanguage) {
+        PrototypeLanguages
+            .filter { lang -> lang.code != userLanguageCode }
+            .map { lang ->
+                val count = topicCountsByLanguage[lang.code] ?: 0
+                LearningLanguageChoice(
+                    lang = lang,
+                    topicCount = count,
+                    enabled = count > 0 || lang.code == selectedCode,
+                )
+            }
+            .sortedWith(
+                compareByDescending<LearningLanguageChoice> { choice -> choice.enabled }
+                    .thenByDescending { choice -> choice.topicCount }
+                    .thenBy { choice -> choice.lang.name },
+            )
+    }
+
+    PrototypeBottomSheet(
+        title = "Я вивчаю",
+        onDismiss = onDismiss,
+        titleAccessory = {
+            SheetLanguagePairChip(
+                sourceCode = selectedCode,
+                targetCode = userLanguageCode,
+            )
+        },
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(420.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp),
+        ) {
+            items(options, key = { choice -> choice.lang.code }) { choice ->
+                LearningLanguageSheetRow(
+                    choice = choice,
+                    selected = choice.lang.code == selectedCode,
+                    onClick = { onPick(choice.lang.code) },
+                )
+            }
+        }
+        Text(
+            text = "Неактивні — підтримувані мови без словників у парі з ${languageFlag(userLanguageCode)}. " +
+                "Новий словник іншої мови створюється через профіль або кнопку «+».",
+            modifier = Modifier.padding(top = 12.dp),
+            color = PrototypeColor.Muted2,
+            fontWeight = FontWeight.Medium,
+            fontSize = 12.5.sp,
+            lineHeight = 18.sp,
+        )
+    }
+}
+
+private data class LearningLanguageChoice(
+    val lang: PrototypeLanguage,
+    val topicCount: Int,
+    val enabled: Boolean,
+)
+
+@Composable
+private fun LearningLanguageSheetRow(
+    choice: LearningLanguageChoice,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (choice.enabled) 1f else 0.42f)
+            .clip(RoundedCornerShape(15.dp))
+            .background(if (selected) PrototypeColor.Tint else PrototypeColor.White)
+            .border(
+                BorderStroke(
+                    1.5.dp,
+                    if (selected) PrototypeColor.Purple else PrototypeColor.Line,
+                ),
+                RoundedCornerShape(15.dp),
+            )
+            .clickable(enabled = choice.enabled, onClick = onClick)
+            .padding(horizontal = 15.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
+    ) {
+        Text(choice.lang.flag, fontSize = 22.sp)
+        Text(
+            text = choice.lang.name,
+            modifier = Modifier.weight(1f),
+            color = if (selected) PrototypeColor.PurpleText else PrototypeColor.Ink,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+        )
+        if (choice.topicCount > 0) {
+            Text(
+                text = "${choice.topicCount} ${ukPlural(choice.topicCount, "словник", "словники", "словників")}",
+                color = PrototypeColor.Muted2,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.5.sp,
+            )
+        }
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(PrototypeColor.Purple),
+                contentAlignment = Alignment.Center,
+            ) {
+                PrototypeLineIcon(
+                    icon = PrototypeIcon.Check,
+                    modifier = Modifier.size(15.dp),
+                    color = Color.White,
+                    strokeWidth = 2.6f,
+                )
+            }
+        }
+    }
+}
+
+/** Пара прапорів «мова-джерело → мова-переклад» у хедері шита. */
+@Composable
+internal fun SheetLanguagePairChip(sourceCode: String, targetCode: String) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(11.dp))
+            .background(PrototypeColor.NeutralSurface)
+            .padding(horizontal = 11.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(languageFlag(sourceCode), fontSize = 15.sp)
+        PrototypeLineIcon(
+            icon = PrototypeIcon.ArrowRight,
+            modifier = Modifier.size(12.dp),
+            color = PrototypeColor.Muted2,
+            strokeWidth = 2.2f,
+        )
+        Text(languageFlag(targetCode), fontSize = 15.sp)
     }
 }
 

@@ -4,6 +4,14 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Видимість пакетів (Android 11+) для швидких кнопок месенджерів
+         на екрані «Запросити друзів»: без цього resolveActivity не бачить їх. -->
+    <queries>
+        <package android:name="org.telegram.messenger" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.viber.voip" />
+    </queries>
+
     <application
         android:name=".VocabeeApplication"
         android:allowBackup="true"

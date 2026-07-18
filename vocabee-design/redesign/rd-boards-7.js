@@ -1,130 +1,210 @@
 /* ============================================================
-   Boards 7 (v2): «підглянути й зберегти» слово з речення
-   Тап = фліп-переклад in-place · Лонг-тап = закладка
-   (синхронізовано з claude.ai/design; повний вміст — у проєкті
-   «vocabee 2», тут — файл для локального відкриття канви)
+   Boards 7: Контекст — як реалізовано (ContextGlossarySentence)
+   Кожне слово речення (крім цільового) підкреслене й тапабельне:
+   тап → Popup над словом (слово + переклад + дія).
+   У тренуванні дія = закладка, у словнику = додати у словник.
    ============================================================ */
 (function () {
   const ic = RD.ic, A = RD.ACCENTS;
-  const Y0 = 18950, Y1 = 19110, Y2 = 20110;
+  const Y0 = 15800, Y1 = 16030, Y2 = 17030, Y3 = 18040;
 
-  RD.sec({ x: 80, y: Y0, num: '14', text: 'Контекст · підглянути й зберегти слово', sub: 'Будь-яке слово речення, крім цільового жовтого: ТАП — слово фліпається в переклад прямо в реченні (3D rotateX, 250мс, на ~2с); ЛОНГ-ТАП — у закладки без перекладу, летить у бейдж біля хедера. Жодних барів і шитів — тренування не переривається. 5 безкоштовних підглядань за раунд, далі 1 монетка.' });
+  RD.sec({ x: 80, y: Y0, num: '13', text: 'Контекст · тап по слову в реченні', sub: 'Всі слова живуть у контексті: речення — прямо на картці тренування й у розкритій картці словника. Тап по будь-якому слову (крім цільового жовтого) відкриває попап з перекладом і букмаркою; збережені в закладки слова зафарбовуються світло-жовтим. У словнику дія — «+» одразу додає слово.' });
 
-  const bmIc = (s, c) => '<span style="display:inline-flex;vertical-align:-2px">' + ic('bookmark', s, c, 2.2) + '</span>';
+  /* ---------- helpers ---------- */
+  const bmBadge = (n, pulse) => '<span style="flex:none;display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb, var(--yellow) 28%, transparent);border-radius:99px;padding:9px 12px;font-weight:800;font-size:13px;color:var(--ny-t);' + (pulse ? 'box-shadow:0 0 0 4px color-mix(in srgb, var(--yellow) 18%, transparent);' : '') + '">' + ic('bookmark', 14, 'var(--ny-t)', 2.2) + n + '</span>';
   function sessHead(o) {
-    const badge = o.bm
-      ? '<span style="flex:none;display:inline-flex;align-items:center;gap:5px;background:color-mix(in srgb, var(--yellow) 25%, transparent);border-radius:99px;padding:8px 12px;font-weight:800;font-size:13px;color:var(--ny-t);' + (o.pulse ? 'box-shadow:0 0 0 4px color-mix(in srgb, var(--yellow) 18%, transparent);' : '') + '">' + ic('bookmark', 14, 'var(--ny-t)', 2.2) + o.bm + '</span>'
-      : '';
+    o = o || {};
     return RD.statusbar(false) +
       '<div style="padding:8px 24px 0">' +
       '<div style="display:flex;align-items:center;gap:9px">' +
-      '<span style="flex:1;min-width:0"><span style="display:block;font-size:22px;font-weight:800;letter-spacing:-.4px;color:var(--ink)">Слово в контексті</span>' +
-      '<span style="display:block;margin-top:3px;font-size:13.5px;font-weight:700;color:var(--muted)">3 / 10 · правильно 2</span></span>' +
-      badge +
-      '<span style="flex:none;width:40px;height:40px;border-radius:13px;background:var(--neutral);display:flex;align-items:center;justify-content:center">' + ic('close', 19, 'var(--muted)', 2.2) + '</span></div>' +
-      '<div style="margin-top:12px">' + P.progressLine(30) + '</div></div>';
+      '<span style="flex:1;font-size:30px;font-weight:800;letter-spacing:-.6px;color:var(--ink)">Тренування</span>' +
+      (o.bm ? bmBadge(o.bm, o.pulse) : '') +
+      '<span style="flex:none;width:44px;height:44px;border-radius:14px;background:var(--neutral);display:flex;align-items:center;justify-content:center">' + ic('close', 21, 'var(--muted2)', 2.2) + '</span></div>' +
+      '<div style="margin:12px 0 8px;font-size:13.5px;font-weight:700;color:var(--muted)">3 / 10 · правильно 2</div>' +
+      P.progressLine(30) + '</div>';
   }
-  const hlY = (w) => '<span style="background:var(--yellow);color:#5A4500;font-weight:800;border-radius:7px;padding:1px 7px;white-space:nowrap">' + w + '</span>';
-  function ansChip(t) {
-    return '<span style="height:48px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;background:var(--neutral);color:var(--ink);border:1.6px solid transparent">' + t + '</span>';
+  const hlY = (w) => '<span style="background:var(--yellow);color:#5A4500;font-weight:800;border-radius:4px;padding:0 4px">' + w + '</span>';
+  const tok = (w, mode) => {
+    if (mode === 'sel') return '<span style="position:relative;display:inline-block;background:var(--tint);color:var(--purple-t);font-weight:800;border-radius:5px;padding:0 4px">' + w + '</span>';
+    if (mode === 'bm') return '<span style="background:color-mix(in srgb, var(--yellow) 30%, transparent);color:var(--ny-t);font-weight:800;border-radius:5px;padding:0 4px">' + w + '</span>';
+    return w; // звичайне слово — без підкреслень, але тапабельне
+  };
+
+  /* поповер = Surface r12, бордер purple-t 22%, elev2; слово 11/600 muted2, переклад 14/800 ink, дія 34dp r10 */
+  function popover(o) {
+    const actBg = o.saved ? 'color-mix(in srgb, var(--yellow) 34%, transparent)' : 'var(--tint)';
+    const actIc = o.saved ? ic('check', 17, 'var(--ny-t)', 2.2) : ic(o.action === 'add' ? 'plus' : 'bookmark', 17, 'var(--purple-t)', 2.2);
+    return '<span style="position:absolute;left:50%;bottom:calc(100% + 9px);transform:translateX(-' + (o.shift || 50) + '%);z-index:6;white-space:nowrap;display:inline-flex;align-items:center;background:var(--surface);border:1px solid color-mix(in srgb, var(--purple-t) 22%, transparent);border-radius:12px;padding:8px 8px 8px 13px;box-shadow:var(--elev2)">' +
+      '<span style="display:flex;flex-direction:column;align-items:flex-start"><span style="font-size:11px;font-weight:600;color:var(--muted2)">' + o.w + '</span>' +
+      '<span style="font-size:14px;font-weight:800;color:var(--ink)">' + o.tr + '</span></span>' +
+      '<span style="margin-left:10px;width:34px;height:34px;border-radius:10px;background:' + actBg + ';display:flex;align-items:center;justify-content:center">' + actIc + '</span></span>';
+  }
+  const tokPop = (w, o) => '<span style="position:relative;display:inline-block;background:' + (o && o.saved ? 'color-mix(in srgb, var(--yellow) 30%, transparent)' : 'var(--tint)') + ';color:' + (o && o.saved ? 'var(--ny-t)' : 'var(--purple-t)') + ';font-weight:800;border-radius:5px;padding:0 4px">' + w + popover(Object.assign({ w: w }, o)) + '</span>';
+
+  function sentence(mode) {
+    if (mode === 'pop') return 'He ' + hlY('runs') + ' a small ' + tokPop('bakery', { tr: 'пекарня' }) + ' downtown.';
+    if (mode === 'saved') return 'He ' + hlY('runs') + ' a small ' + tokPop('bakery', { tr: 'пекарня', saved: true, shift: 60 }) + ' ' + tok('downtown', 'bm') + '.';
+    return 'He ' + hlY('runs') + ' a small bakery ' + tok('downtown', 'bm') + '.';
   }
 
-  function seg(mode) {
-    const flipBase = 'display:inline-block;background:var(--tint);color:var(--purple-t);border-bottom:2px solid var(--purple-t);border-radius:7px 7px 3px 3px;padding:1px 8px;font-weight:800;white-space:nowrap';
-    if (mode === 'flip' || mode === 'counter') return '<span style="position:relative;display:inline-block"><span style="' + flipBase + '">пекарня ' + bmIc(13, 'var(--purple-t)') + '</span>' +
-      (mode === 'counter' ? '<span style="position:absolute;left:0;top:calc(100% + 6px);white-space:nowrap;background:var(--surface);border:1px solid var(--line);border-radius:99px;padding:4px 9px;font-size:11px;font-weight:700;color:var(--muted);box-shadow:var(--elev1)">ще 1 безкоштовне</span>' : '') + '</span>';
-    if (mode === 'shimmer') return '<span style="display:inline-block;width:92px;height:26px;vertical-align:-4px;border-radius:8px;background:linear-gradient(100deg, var(--neutral) 20%, var(--line) 50%, var(--neutral) 80%)"></span>';
-    if (mode === 'savedPre') return '<span style="display:inline-block;background:color-mix(in srgb,' + A.teal + ' 14%, transparent);color:' + A.teal + ';border-bottom:2px solid ' + A.teal + ';border-radius:7px 7px 3px 3px;padding:1px 8px;font-weight:800;white-space:nowrap">пекарня · булочна</span>' +
-      ' <span style="display:inline-flex;align-items:center;gap:4px;vertical-align:2px;border:1.2px solid ' + A.teal + ';border-radius:99px;padding:3px 8px;font-size:10.5px;font-weight:800;color:' + A.teal + '">' + ic('plane', 11, A.teal, 2.4) + 'у Подорожі</span>';
-    if (mode === 'savedPost') return '<span style="display:inline-block;background:color-mix(in srgb,' + A.teal + ' 14%, transparent);border-bottom:2px solid ' + A.teal + ';border-radius:7px 7px 3px 3px;padding:1px 8px;white-space:nowrap"><span style="font-weight:800;color:' + A.teal + '">пекарня</span><span style="font-weight:700;color:color-mix(in srgb,' + A.teal + ' 45%, transparent)"> · булочна</span></span>' +
-      ' <span style="display:inline-flex;align-items:center;gap:4px;vertical-align:2px;border:1.2px solid ' + A.teal + ';border-radius:99px;padding:3px 8px;font-size:10.5px;font-weight:800;color:' + A.teal + '">' + ic('plane', 11, A.teal, 2.4) + 'у Подорожі</span>';
-    if (mode === 'gate') return '<span style="position:relative;display:inline-block"><span style="display:inline-block;background:var(--neutral);border-bottom:2px dashed var(--muted3);border-radius:7px 7px 3px 3px;padding:1px 8px;font-weight:800;color:var(--ink);white-space:nowrap">bakery</span>' +
-      '<span style="position:absolute;left:50%;bottom:calc(100% + 10px);transform:translateX(-50%);white-space:nowrap;display:inline-flex;align-items:center;gap:8px;background:var(--peach);border:1.2px solid var(--peach-b);border-radius:13px;padding:9px 13px;box-shadow:var(--elev2)">' +
-      '<span style="display:inline-flex;align-items:center;gap:4px;font-size:12.5px;font-weight:800;color:var(--orange-t)">' + RD.coin(14) + '1 монетка</span>' +
-      '<span style="width:1px;height:14px;background:var(--peach-b)"></span>' +
-      '<span style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:800;color:#fff;background:var(--orange);border-radius:9px;padding:5px 9px">' + ic('play', 13, '#fff', 2) + 'Відео за +10</span>' +
-      '<span style="position:absolute;left:50%;top:100%;transform:translateX(-50%);width:0;height:0;border:7px solid transparent;border-top-color:var(--peach)"></span></span></span>';
-    if (mode === 'fly') return '<span style="display:inline-block;background:var(--tint);color:var(--purple-t);border-radius:7px;padding:1px 8px;font-weight:800;white-space:nowrap">downtown</span>';
-    return 'bakery';
-  }
-
-  function card(o) {
+  /* лицьова сторона флип-картки з реченням внизу — 1:1 з PracticeFlipCard */
+  function flipFront(o) {
     o = o || {};
-    const bak = seg(o.mode);
-    const down = o.mode === 'fly' ? seg('fly') : 'downtown';
-    const sent = 'He ' + hlY('runs') + ' a small ' + (o.mode === 'fly' ? 'bakery' : bak) + ' ' + down + '.';
-    return '<div style="padding:16px 24px 0"><div class="card" style="border-radius:28px;padding:22px;box-shadow:var(--elev2);' + (o.mode === 'gate' ? 'overflow:visible' : '') + '">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center">' +
-      '<span style="display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:6px 12px;font-weight:800;font-size:12px;background:var(--tint);color:var(--purple-t)">EN → UK · розуміння</span>' +
-      '<span style="font-size:12px;font-weight:700;color:var(--muted2)">впізнавання</span></div>' +
-      '<div style="margin-top:' + (o.mode === 'gate' ? 44 : 18) + 'px;font-size:22px;line-height:1.62;font-weight:700;color:var(--ink)">' + sent + '</div>' +
-      '<div style="margin-top:' + (o.mode === 'counter' ? 30 : 10) + 'px;font-size:14px;font-weight:600;color:var(--muted)">Що означає тут?</div>' +
-      '<div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
-      ansChip('бігає') + ansChip('керує') + ansChip('балотується') + ansChip('тече') + '</div>' +
-      '</div></div>';
+    return '<div style="position:absolute;top:196px;left:20px;right:20px;bottom:110px;border-radius:28px;background:var(--surface);border:2px solid ' + A.blue + ';box-shadow:var(--elev2);' + (o.mode ? 'overflow:visible' : 'overflow:hidden') + '">' +
+      '<div style="position:absolute;left:0;top:0;bottom:0;width:40%;border-radius:26px 0 0 26px;background:color-mix(in srgb,' + A.blue + ' 8%, transparent)"></div>' +
+      '<div style="position:relative;display:flex;flex-direction:column;align-items:center;padding:34px 30px 0">' +
+      '<span style="display:inline-flex;align-items:center;gap:7px;background:color-mix(in srgb,' + A.blue + ' 12%, transparent);border-radius:99px;padding:7px 12px;font-weight:800;font-size:13px;color:' + A.blue + '"><span style="width:8px;height:8px;border-radius:99px;background:' + A.blue + '"></span>Подорожі</span>' +
+      '<div style="margin-top:30px;font-size:40px;font-weight:800;letter-spacing:-1.2px;color:var(--ink)">bakery</div>' +
+      '<div style="margin-top:8px;font-size:16px;font-weight:600;color:var(--muted2)">/ˈbeɪkəri/</div>' +
+      '<div style="margin-top:18px">' + P.knowledgeBars(2, A.blue) + '</div>' +
+      '<span style="margin-top:14px;width:48px;height:48px;border-radius:15px;background:var(--neutral);display:flex;align-items:center;justify-content:center">' + ic('sound', 21, 'var(--purple-t)', 1.9) + '</span></div>' +
+      '<div style="position:absolute;left:30px;right:30px;bottom:26px;text-align:center;font-size:14px;line-height:20px;font-weight:600;color:var(--muted)">' + sentence(o.mode) + '</div>' +
+      '</div>' +
+      '<div style="position:absolute;left:20px;right:20px;bottom:30px;display:flex;gap:12px">' +
+      P.answerBtn('Не знаю', 'close', 'var(--orange-t)', 'var(--peach)', true) +
+      P.answerBtn('Знаю', 'check', 'var(--green-t)', 'var(--soft-green)', true) + '</div>';
   }
 
-  RD.frame({ x: 80, y: Y1, theme: 'light', label: '1 · тап: bakery фліпається в «пекарня»', body: sessHead({ bm: 1 }) + card({ mode: 'flip' }) + '<div style="position:absolute;left:0;right:0;bottom:34px;text-align:center;font-size:12.5px;font-weight:600;color:var(--muted2)">повернеться через 2с · тап — раніше · ' + bmIc(12, 'var(--muted2)') + ' — у закладки</div>' });
-  RD.frame({ x: 550, y: Y1, theme: 'dark', label: '2 · loading · шимер ~300мс', body: sessHead({ bm: 1 }) + card({ mode: 'shimmer' }) });
-  RD.frame({ x: 1020, y: Y1, theme: 'dark', label: '3 · фліп із лічильником безкоштовних', body: sessHead({ bm: 1 }) + card({ mode: 'counter' }) });
-  RD.frame({ x: 1490, y: Y1, theme: 'light', label: '4 · збережене слово · до ранжування', body: sessHead({}) + card({ mode: 'savedPre' }) + '<div style="position:absolute;left:0;right:0;bottom:34px;text-align:center;font-size:12.5px;font-weight:600;color:var(--muted2)">збережені переклади — миттєво, безкоштовно, офлайн</div>' });
-  RD.frame({ x: 1960, y: Y1, theme: 'dark', label: '5 · збережене · найдоречніше виділено (~0.5с)', body: sessHead({}) + card({ mode: 'savedPost' }) + '<div style="position:absolute;left:0;right:0;bottom:34px;text-align:center;font-size:12.5px;font-weight:600;color:var(--muted2)">лонг-тап на збереженому → «відкрити у словнику»</div>' });
+  /* ---------- row 1: у тренуванні ---------- */
+  RD.frame({ x: 80, y: Y1, theme: 'light', label: '1 · картка з реченням · downtown уже в закладках', body: sessHead({ bm: 1 }) + flipFront() + '<div style="position:absolute;left:0;right:0;bottom:4px;text-align:center;font-size:12px;font-weight:600;color:var(--muted2)">жовте — цільове слово · зафарбоване світло-жовтим — закладка</div>' });
+  RD.frame({ x: 550, y: Y1, theme: 'light', label: '2 · тап по слову: попап переклад + букмарка', body: sessHead({ bm: 1 }) + flipFront({ mode: 'pop' }) });
+  RD.frame({ x: 1020, y: Y1, theme: 'dark', label: '3 · dark · збережене = жовтий стан ✓', body: sessHead({ bm: 2, pulse: true }) + flipFront({ mode: 'saved' }) });
 
-  RD.frame({ x: 80, y: Y2, theme: 'light', label: '6 · безкоштовні вичерпані + 0 монеток · тултип', body: sessHead({ bm: 1 }) + card({ mode: 'gate' }) });
-
-  RD.frame({
-    x: 550, y: Y2, theme: 'dark', label: '7 · лонг-тап: закладка летить у бейдж',
-    body: sessHead({ bm: 2, pulse: true }) + card({ mode: 'fly' }) +
-      '<span style="position:absolute;top:238px;right:150px;z-index:30;display:inline-flex;align-items:center;gap:5px;background:var(--surface);border:1.2px solid var(--line);border-radius:99px;padding:6px 11px;font-weight:800;font-size:12.5px;color:var(--ink);box-shadow:var(--elev2);transform:rotate(-8deg)">' + ic('bookmark', 13, 'var(--ny-t)', 2.2) + 'downtown</span>' +
-      '<span style="position:absolute;top:274px;right:118px;z-index:29;display:inline-flex;border-radius:99px;padding:6px 11px;font-weight:800;font-size:12.5px;background:var(--surface);color:var(--muted2);opacity:.35;transform:rotate(-5deg)">downtown</span>' +
-      '<span style="position:absolute;top:306px;right:96px;z-index:28;display:inline-flex;border-radius:99px;padding:6px 11px;font-weight:800;font-size:12.5px;background:var(--surface);color:var(--muted2);opacity:.15">downtown</span>' +
-      '<div style="position:absolute;left:0;right:0;bottom:34px;text-align:center;font-size:12.5px;font-weight:600;color:var(--muted2)">без перекладу і без пауз — розбір після раунду</div>',
+  RD.note({
+    x: 1490, y: Y1 + 40, w: 340, title: 'Поведінка (ContextGlossarySentence)',
+    items: [
+      'Токени речення приходять з бекенда разом із перекладами (context-glossary); легасі-записи дозбагачуються ліниво при показі картки',
+      '<b>Тап по слову</b> → Popup над словом: слово 11/600 muted2, переклад 14/800 ink, дія 34dp r10; бордер purple-t 22%, тінь elev2',
+      'Слова без підкреслень: звичайний текст тапабельний; вибране (попап відкритий) — заливка tint/purple, <b>збережене в закладки — жовта заливка</b> (як бейдж)',
+      'Автозакриття через <b>2.4с</b> або тап поза поповером',
+      'Дія у тренуванні — <b>закладка</b> (bookmark, tint): без пауз, слово летить у жовтий бейдж біля хедера; повторний тап у поповері знімає закладку',
+      'Дія у словнику — <b>«+»</b>: слово одразу додається у поточний словник; збережене = жовтий фон + ✓',
+      'Тап по контекстній зоні не перевертає картку (жест перехоплюється) — відповідь не розкривається випадково',
+    ],
   });
 
-  function newWordRow(o) {
-    if (o.done) return '<div style="display:flex;align-items:center;gap:11px;padding:12px 2px;opacity:.75">' +
-      '<span style="flex:none;width:36px;height:36px;border-radius:12px;background:var(--soft-green);display:flex;align-items:center;justify-content:center">' + ic('check', 17, 'var(--green-t)', 2.6) + '</span>' +
-      '<span style="flex:1;min-width:0"><span style="font-weight:800;font-size:15.5px;color:var(--ink)">' + o.w + '</span>' +
-      '<span style="display:block;margin-top:1px;font-size:12px;font-weight:600;color:var(--muted)">додано в Подорожі</span></span></div>';
-    return '<div style="display:flex;align-items:center;gap:11px;padding:12px 2px">' +
-      '<span style="flex:none;width:36px;height:36px;border-radius:12px;background:color-mix(in srgb, var(--yellow) 25%, transparent);display:flex;align-items:center;justify-content:center">' + ic('bookmark', 16, 'var(--ny-t)', 2.2) + '</span>' +
-      '<span style="flex:1;min-width:0"><span style="font-weight:800;font-size:15.5px;color:var(--ink)">' + o.w + ' <span style="font-weight:600;font-size:12px;color:var(--muted2)">' + (o.ipa || '') + '</span></span>' +
-      '<span style="display:block;margin-top:1px;font-size:12px;font-weight:600;color:var(--muted)">з речення: “He runs a small bakery…”</span></span>' +
-      ic('chevR', 17, 'var(--muted3)', 2.2) + '</div>';
+  /* ---------- row 2: розбір закладок ---------- */
+  function bmRow(o) {
+    const act = o.saved
+      ? '<span style="flex:none;width:38px;height:38px;border-radius:11px;background:var(--soft-green);display:flex;align-items:center;justify-content:center">' + ic('check', 18, 'var(--green-t)', 2.4) + '</span>'
+      : '<span style="flex:none;width:38px;height:38px;border-radius:11px;background:var(--tint);display:flex;align-items:center;justify-content:center">' + ic('plus', 18, 'var(--purple-t)', 2.4) + '</span>';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0">' +
+      '<span style="flex:none;width:38px;height:38px;border-radius:11px;background:color-mix(in srgb, var(--yellow) 28%, transparent);display:flex;align-items:center;justify-content:center">' + ic('bookmark', 17, 'var(--ny-t)', 2) + '</span>' +
+      '<span style="flex:1;min-width:0"><span style="font-weight:800;font-size:14.5px;color:var(--ink)">' + o.w + '</span>' +
+      '<span style="display:block;font-size:12.5px;font-weight:600;color:var(--muted)">' + o.tr + '</span>' +
+      '<span style="display:block;font-size:10.5px;font-weight:500;color:var(--muted2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">з речення: “' + o.s + '”</span></span>' + act + '</div>';
   }
   RD.frame({
-    x: 1020, y: Y2, theme: 'light', label: '8 · результат · нові слова з речень',
+    x: 80, y: Y2, theme: 'light', label: '4 · результат раунду · «+» одне слово або «Додати всі»',
     body: RD.statusbar(false) +
-      '<div style="padding:8px 24px 0"><div style="font-size:22px;font-weight:800;letter-spacing:-.4px;color:var(--ink)">Слово в контексті</div></div>' +
-      '<div style="padding:18px 24px 0;display:flex;align-items:center;gap:16px">' +
-      '<div style="position:relative;flex:none;width:96px;height:96px;display:flex;align-items:center;justify-content:center">' +
-      '<svg width="96" height="96" viewBox="0 0 96 96"><circle cx="48" cy="48" r="39" fill="none" stroke="var(--track)" stroke-width="10"/><circle cx="48" cy="48" r="39" fill="none" stroke="var(--purple)" stroke-width="10" stroke-linecap="round" stroke-dasharray="245" stroke-dashoffset="49" transform="rotate(-90 48 48)"/></svg>' +
-      '<span style="position:absolute;font-size:22px;font-weight:800;color:var(--purple-t)">80%</span></div>' +
-      '<span><span style="display:block;font-size:21px;font-weight:800;color:var(--ink)">Раунд завершено</span>' +
-      '<span style="display:block;margin-top:4px;font-size:14px;font-weight:500;color:var(--muted)">Правильних: 8 із 10</span></span></div>' +
-      '<div style="padding:18px 22px 0">' +
-      '<div class="card" style="border-radius:18px;padding:14px 16px;border:1px solid var(--peach-b)">' +
-      '<div style="font-weight:800;font-size:11.5px;letter-spacing:.6px;color:var(--orange-t)">НАЙПЛУТАНІША ПАРА</div>' +
-      '<div style="margin-top:8px;font-size:14px;font-weight:700;color:var(--ink)">run = керує <span style="color:var(--muted2)">⇄</span> run = бігає <span style="font-weight:600;font-size:12.5px;color:var(--muted)">· 2 помилки</span></div></div>' +
-      '<div class="card" style="border-radius:18px;padding:14px 16px;margin-top:12px">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:11.5px;letter-spacing:.6px;color:var(--muted2)">НОВІ СЛОВА З РЕЧЕНЬ (1)</span>' + ic('bookmark', 15, 'var(--ny-t)', 2.2) + '</div>' +
-      newWordRow({ w: 'bakery', ipa: '/ˈbeɪkəri/' }) +
-      '<div style="height:1px;background:var(--line2)"></div>' +
-      newWordRow({ w: 'downtown', done: true }) +
-      '<div style="margin-top:8px;height:48px;border-radius:14px;background:var(--tint);display:flex;align-items:center;justify-content:center;gap:8px;font-weight:800;font-size:14.5px;color:var(--purple-t)">Розібрати всі (1)</div></div></div>' +
-      '<div style="position:absolute;left:24px;right:24px;bottom:34px">' + P.btn('Ще раунд', 'primary') + '</div>',
+      '<div style="padding:8px 24px 0;display:flex;align-items:center"><span style="flex:1;font-size:30px;font-weight:800;letter-spacing:-.6px;color:var(--ink)">Тренування</span>' + bmBadge(2) + '</div>' +
+      '<div style="padding:20px 22px 0;display:flex;flex-direction:column;align-items:center">' +
+      '<div style="position:relative;width:132px;height:132px;display:flex;align-items:center;justify-content:center">' +
+      '<svg width="132" height="132" viewBox="0 0 132 132"><circle cx="66" cy="66" r="55" fill="none" stroke="var(--track)" stroke-width="11"/><circle cx="66" cy="66" r="55" fill="none" stroke="var(--purple)" stroke-width="11" stroke-linecap="round" stroke-dasharray="345.6" stroke-dashoffset="69" transform="rotate(-90 66 66)"/></svg>' +
+      '<span style="position:absolute;font-size:31px;font-weight:800;color:var(--purple-t)">80%</span></div>' +
+      '<div style="margin-top:16px;font-size:23px;font-weight:800;color:var(--ink)">Раунд завершено</div>' +
+      '<div style="margin-top:6px;font-size:15px;font-weight:500;color:var(--muted)">Правильних відповідей: 8 із 10.</div></div>' +
+      '<div style="padding:14px 22px 0">' +
+      '<div class="card" style="border-radius:20px;padding:14px;border:1.2px solid var(--line)">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:11px;letter-spacing:.45px;color:var(--muted2)">НОВІ СЛОВА З РЕЧЕНЬ (2)</span>' + ic('bookmark', 15, 'var(--ny-t)', 2) + '</div>' +
+      bmRow({ w: 'bakery', tr: 'пекарня', s: 'He runs a small bakery downtown.' }) +
+      '<div style="height:1px;background:var(--line)"></div>' +
+      bmRow({ w: 'downtown', tr: 'центр міста', s: 'He runs a small bakery downtown.' }) +
+      '<div style="margin-top:4px;height:48px;border-radius:14px;background:var(--tint);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14.5px;color:var(--purple-t)">Додати всі (2)</div></div></div>' +
+      '<div style="position:absolute;left:22px;right:22px;bottom:34px">' + P.btn('Ще раунд', 'primary') +
+      '<div style="height:10px"></div>' + P.btn('Обрати теми', 'neutral', { style: 'border:1.4px solid var(--line);' }) + '</div>',
+  });
+
+  /* шит вибору словника для закладок */
+  RD.frame({
+    x: 550, y: Y2, h: 844, theme: 'dark', label: '5 · шит · куди зберегти закладки',
+    body: P.sheetFrame({
+      title: 'Обрати словник',
+      body: '<div style="font-size:14px;font-weight:500;color:var(--muted);padding-bottom:14px">2 слова · 2 монетки · баланс 47</div>' +
+        '<div style="display:flex;flex-direction:column;gap:9px">' +
+        [['plane', 'Подорожі', A.blue], ['book', 'Книга · «1984»', A.indigo], ['heart', 'Емоції', A.violet]].map(function (t) {
+          return '<div style="height:58px;border-radius:16px;background:var(--neutral);border:1px solid var(--line);display:flex;align-items:center;padding:0 14px;gap:11px">' +
+            ic(t[0], 21, t[2], 2) + '<span style="flex:1;font-weight:800;font-size:15px;color:var(--ink)">' + t[1] + '</span>' + ic('chevR', 18, 'var(--muted2)', 2) + '</div>';
+        }).join('') + '</div>' +
+        '<div style="padding-top:12px;font-size:12.5px;line-height:18px;font-weight:500;color:var(--muted2)">Показуються лише словники з тією ж парою мов. Кожне слово коштує 1 монетку (повний AI-пошук з деталями).</div>',
+    }),
+  });
+
+  /* гейти збереження закладок (BeeRewardSheet / AuthRequiredSheet · BookmarkSave) */
+  RD.frame({
+    x: 80, y: Y3, h: 844, theme: 'light', label: '8 · шит · мало монеток (гейт BookmarkSave)',
+    body: P.sheetFrame({
+      title: 'Закладки зачекають',
+      body: P.banner('walletCritical', { bees: 1 }) +
+        '<div style="margin-top:16px;font-size:15px;line-height:21px;font-weight:500;color:var(--muted)">Для додавання слова із закладок потрібна 1 монетка. Подивись відео — закладки залишаться тут.</div>' +
+        '<div style="display:flex;gap:12px;padding-top:20px">' +
+        P.btn('Пізніше', 'neutral', { grow: true }) +
+        P.btn('Відео за +10', 'primary', { grow: true, icon: ic('play', 19, '#fff', 1.9) }) + '</div>',
+    }),
+  });
+  RD.frame({
+    x: 550, y: Y3, h: 844, theme: 'light', label: '9 · шит · гість (гейт BookmarkSave)',
+    body: P.sheetFrame({
+      title: 'Потрібен акаунт',
+      body: P.banner('guestCritical', { dicts: '2/2', words: '50/50' }) +
+        '<div style="margin-top:16px;font-size:15px;line-height:21px;font-weight:500;color:var(--muted)">Закладки залишаться в цьому раунді. Увійди через Google, щоб додати їх у словник і за потреби отримати монетки за рекламу.</div>' +
+        '<div style="padding-top:20px">' + P.btn('Увійти через Google', 'primary') + '</div>',
+    }),
+  });
+  RD.frame({
+    x: 1020, y: Y3, theme: 'dark', label: '10 · після збереження · ✓ і оновлений бейдж',
+    body: RD.statusbar(false) +
+      '<div style="padding:8px 24px 0;display:flex;align-items:center"><span style="flex:1;font-size:30px;font-weight:800;letter-spacing:-.6px;color:var(--ink)">Тренування</span>' + bmBadge(1) + '</div>' +
+      '<div style="padding:14px 22px 0">' +
+      '<div class="card" style="border-radius:20px;padding:14px;border:1.2px solid var(--line)">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:800;font-size:11px;letter-spacing:.45px;color:var(--muted2)">НОВІ СЛОВА З РЕЧЕНЬ (2)</span>' + ic('bookmark', 15, 'var(--ny-t)', 2) + '</div>' +
+      bmRow({ w: 'bakery', tr: 'пекарня', s: 'He runs a small bakery downtown.', saved: true }) +
+      '<div style="height:1px;background:var(--line)"></div>' +
+      bmRow({ w: 'downtown', tr: 'центр міста', s: 'He runs a small bakery downtown.' }) +
+      '<div style="margin-top:4px;height:48px;border-radius:14px;background:var(--tint);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14.5px;color:var(--purple-t)">Додати всі (1)</div></div></div>' +
+      '<div style="position:absolute;left:22px;right:22px;bottom:96px;height:52px;border-radius:15px;background:var(--ink);color:var(--bg);display:flex;align-items:center;padding:0 16px;gap:10px;box-shadow:var(--elev2)">' + ic('check', 17, 'var(--green-t)', 2.4) + '<span style="font-weight:700;font-size:13.5px">bakery додано в «Подорожі» · −1 монетка</span></div>' +
+      '<div style="position:absolute;left:0;right:0;bottom:8px;text-align:center;font-size:12px;font-weight:600;color:var(--muted2)">збережене → ✓ і зникає з бейджа; «Додати всі» рахує решту</div>',
+  });
+
+  /* шит переривання тренування */
+  RD.frame({
+    x: 1020, y: Y2, h: 844, theme: 'light', label: '6 · шит · перервати тренування',
+    body: P.sheetFrame({
+      title: 'Перервати тренування?',
+      body: '<div style="font-size:15px;line-height:21px;font-weight:500;color:var(--muted)">Раунд ще не завершено. Уже збережені відповіді залишаться в прогресі, але поточну сесію буде завершено.</div>' +
+        '<div style="display:flex;gap:12px;padding-top:20px">' +
+        P.btn('Перервати', 'neutral', { grow: true, style: 'border:1.4px solid var(--line);color:var(--red-t);' }) +
+        P.btn('Продовжити', 'primary', { grow: true }) + '</div>',
+    }),
+  });
+
+  /* контекст у словнику */
+  RD.frame({
+    x: 1490, y: Y2, theme: 'dark', label: '7 · словник · контекстний приклад + «+»',
+    body: '<div style="display:flex;flex-direction:column;height:100%">' +
+      P.detailHeader({ accent: A.indigo, title: 'Книга · «1984»', sub: '7 слів · сьогодні', progress: 0, flags: ['🇬🇧', '🇺🇦'] }) +
+      '<div style="padding:10px 16px;display:flex;flex-direction:column;gap:10px">' +
+      P.wordGroup({
+        word: 'bakery', ipa: '/ˈbeɪkəri/', tr: 'пекарня', expanded: true, accentT: 'var(--purple-t)',
+        details: '<div style="border-radius:13px;background:linear-gradient(var(--ctx1),var(--ctx2));border:1px solid var(--ctx-b);padding:14px;overflow:visible">' +
+          '<div style="font-weight:800;font-size:11.5px;color:var(--muted2)">КОНТЕКСТНИЙ ПРИКЛАД</div>' +
+          '<div style="position:relative;margin-top:9px;font-size:14px;line-height:20px;font-weight:600;color:var(--muted)">He ' + hlY('runs') + ' a small ' + tokPop('bakery', { tr: 'пекарня', action: 'add', shift: 46 }) + ' ' + tok('downtown') + '.</div></div>',
+      }) +
+      P.wordGroup({ word: 'reluctant', ipa: '/rɪˈlʌktənt/', tr: 'неохочий', accentT: 'var(--purple-t)' }) +
+      '</div></div>' +
+      P.dockBackdrop() + P.dock({ state: 'idle', accent: A.indigo }) +
+      '<div style="position:absolute;left:0;right:0;bottom:4px;text-align:center;font-size:12px;font-weight:600;color:var(--muted2)">той самий поповер, дія «+» — слово додається у цей словник</div>',
   });
 
   RD.note({
-    x: 1490, y: Y2 + 40, w: 340, title: 'Правила «підглянути й зберегти»',
+    x: 1960, y: Y2 + 40, w: 340, title: 'Закладки → словник',
     items: [
-      '<b>Тап</b> = фліп у переклад (rotateX 180°, 250мс, як флеш-картки), тримається ~2с або до повторного тапу; <b>лонг-тап</b> = закладка без перекладу',
-      'Цільове жовте слово не інтерактивне — воно питання картки',
-      '<b>5 безкоштовних підглядань/раунд</b> (конфіг з бекенда), далі 1 монетка; кеш на раунд — повторний тап того ж слова безкоштовний',
-      'Лічильник показується від ≤2 залишку («ще 1 безкоштовне»), після вичерпання — «1 монетка»',
-      'Збережені слова: teal, безкоштовно й офлайн; при мережі за ~0.5с найдоречніше значення стає жирним першим; лонг-тап → «відкрити у словнику»',
-      'На фліпі — міні-закладка: тап додає в закладки разом із перекладом',
-      'Розбір закладок: блок у результаті раунду → стандартний Add Word; розібрані отримують ✓ і зникають з лічильника',
+      'Закладка зберігає слово + переклад + речення-джерело; лічильник у бейджі біля хедера сесії',
+      'На результаті: «+» біля рядка → шит вибору для одного слова, «Додати всі» → для всіх разом (<code>PracticeBookmarkSelection.One/All</code>)',
+      'Вибір словника — стандартний шит; фільтр по парі мов раунду (<code>compatibleBookmarkTopics</code>); якщо жодного — текст «Немає словника з такою парою мов»',
+      'Збереження коштує <b>1 монетку за слово</b>; дублі вже збережених слів не тарифікуються',
+      'Гейти (ряд нижче): гість → «Потрібен акаунт», мало монеток → «Закладки зачекають»; закладки НЕ губляться — лишаються в списку',
+      'Після збереження рядок дістає ✓ і зникає з бейджа; незбережені живуть лише до кінця раунду',
     ],
   });
 })();

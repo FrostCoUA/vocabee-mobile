@@ -14,13 +14,12 @@
 
   /* 7.1 create — light */
   RD.frame({
-    x: 80, y: SH_Y, h: 940, theme: 'light', label: 'A · Новий словник · з іконками тем',
+    x: 80, y: SH_Y, h: 940, theme: 'light', label: 'A · Новий словник · флажки в хедері',
     body: P.sheetFrame({
-      title: 'Новий словник',
+      title: 'Новий словник', flags: ['🇬🇧', '🇺🇦'],
       body: P.sheetLabel('Назва теми') + P.field({ value: 'Серіали', focused: true }) +
         '<div style="height:18px"></div>' + P.sheetLabel('Іконка теми') + P.iconPicker(2, A.blue) +
         '<div style="height:18px"></div>' + P.sheetLabel('Колір теми') + P.swatches(1) +
-        '<div style="height:9px"></div>' + P.langInfoStrip('Мова: 🇬🇧 Англійська → 🇺🇦 Українська') +
         '<div style="height:20px"></div>' + P.btn('Створити', 'primary'),
     }),
   });
@@ -29,11 +28,10 @@
   RD.frame({
     x: 550, y: SH_Y, h: 940, theme: 'dark', label: 'A · Новий словник · dark + ліміт',
     body: P.sheetFrame({
-      title: 'Новий словник',
+      title: 'Новий словник', flags: ['🇬🇧', '🇺🇦'],
       body: P.sheetLabel('Назва теми') + P.field({ placeholder: 'напр. Подорожі, Робота, Книга…' }) +
         '<div style="height:18px"></div>' + P.sheetLabel('Іконка теми') + P.iconPicker(0, A.teal) +
         '<div style="height:18px"></div>' + P.sheetLabel('Колір теми') + P.swatches(6) +
-        '<div style="height:9px"></div>' + P.langInfoStrip('Мова: 🇬🇧 Англійська → 🇺🇦 Українська') +
         '<div style="height:14px"></div>' +
         '<div style="display:flex;gap:9px;border-radius:14px;background:var(--ny-bg);border:1px solid var(--ny-b);padding:13px 14px">' + ic('star', 16, 'var(--flame-t)', 1.9) +
         '<span style="font-size:13px;line-height:19px;font-weight:600;color:var(--ny-t)">Ти створив(ла) максимум 5 словників. Переглянь відео, щоб відкрити більше.</span></div>' +
@@ -122,6 +120,44 @@
     }),
   });
 
+  /* 7.9 clear dictionary — typed confirm · NEW */
+  RD.frame({
+    x: 2430, y: SH_Y2, h: 780, theme: 'light', label: 'H · Очистити словник · контрольна фраза',
+    body: P.sheetFrame({
+      title: 'Очистити словник?',
+      body: '<div style="font-size:15px;line-height:21px;font-weight:500;color:var(--muted)">Усі <b style="color:var(--ink)">47 слів</b> у словнику «Подорожі» буде видалено разом із прогресом засвоєння. Сам словник залишиться.</div>' +
+        '<div style="margin-top:8px;font-size:14px;font-weight:700;color:var(--red-t)">Цю дію не можна скасувати.</div>' +
+        '<div style="height:18px"></div>' + P.sheetLabel('Введи ОЧИСТИТИ, щоб підтвердити') + P.field({ placeholder: 'ОЧИСТИТИ' }) +
+        '<div style="display:flex;gap:12px;padding-top:20px">' +
+        P.btn('Скасувати', 'neutral', { grow: true }) +
+        P.btn('Очистити', 'danger', { grow: true, style: 'opacity:.45;' }) + '</div>',
+    }),
+  });
+  RD.frame({
+    x: 2900, y: SH_Y2, h: 780, theme: 'dark', label: 'H · фраза введена → кнопка активна',
+    body: P.sheetFrame({
+      title: 'Очистити словник?',
+      body: '<div style="font-size:15px;line-height:21px;font-weight:500;color:var(--muted)">Усі <b style="color:var(--ink)">47 слів</b> у словнику «Подорожі» буде видалено разом із прогресом засвоєння. Сам словник залишиться.</div>' +
+        '<div style="margin-top:8px;font-size:14px;font-weight:700;color:var(--red-t)">Цю дію не можна скасувати.</div>' +
+        '<div style="height:18px"></div>' + P.sheetLabel('Введи ОЧИСТИТИ, щоб підтвердити') + P.field({ value: 'ОЧИСТИТИ', focused: true }) +
+        '<div style="display:flex;gap:12px;padding-top:20px">' +
+        P.btn('Скасувати', 'neutral', { grow: true }) +
+        P.btn('Очистити', 'danger', { grow: true }) + '</div>',
+    }),
+  });
+
+  /* 7.1b edit mode — NEW */
+  RD.frame({
+    x: 2430, y: SH_Y, h: 940, theme: 'light', label: 'A′ · Редагування · зі свайп-кнопки «Змінити»',
+    body: P.sheetFrame({
+      title: 'Редагування', flags: ['🇬🇧', '🇺🇦'],
+      body: P.sheetLabel('Назва теми') + P.field({ value: 'Подорожі', focused: true }) +
+        '<div style="height:18px"></div>' + P.sheetLabel('Іконка теми') + P.iconPicker(0, A.blue) +
+        '<div style="height:18px"></div>' + P.sheetLabel('Колір теми') + P.swatches(1) +
+        '<div style="height:20px"></div>' + P.btn('Зберегти', 'primary'),
+    }),
+  });
+
   RD.note({
     x: 1960, y: SH_Y + 40, w: 320, title: 'Анатомія шита',
     items: [
@@ -138,7 +174,9 @@
     items: [
       '<b>Sync-conflict:</b> замість 3 однакових кнопок — картки порівняння станів + підпис наслідку під кожною дією',
       '<b>Exit:</b> «Залишитися» стала основною (purple), «Закрити» — neutral; було навпаки',
-      '<b>Create:</b> додано вибір іконки теми — 15 стандартних (подорожі, книга, кіно, робота…); обрана заливається кольором теми й з’являється на картці словника',
+      '<b>Create/Edit:</b> мовна стрічка прибрана — пара флажків 🇬🇧→🇺🇦 тепер у хедері шита зліва від ✕, незмінна',
+      '<b>Свайп картки (A′):</b> висунута зона ділиться навпіл — зверху Видалити (red), знизу Змінити (ink) → той самий шит у режимі «Редагування»: назва вже введена, іконка й колір змінюються, CTA — «Зберегти»; пара мов не редагується',
+      '<b>Очистити словник (H, нове):</b> видаляє всі слова, словник лишається; виклик — з меню хедера деталей. Кнопка неактивна, поки не введено контрольну фразу ОЧИСТИТИ (локалізується разом з UI) — захист від випадкового очищення',
       'Delete: червона заливка тільки для незворотних дій',
       'Гейти (D, E) переиспользуют банери з Головної — один компонент',
     ],
