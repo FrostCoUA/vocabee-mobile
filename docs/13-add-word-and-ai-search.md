@@ -324,7 +324,8 @@ DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak
 | 6 | **Echo-гард** | Кандидати = провайдер-результати, де `normalize(text) != normalizedQuery`. Усі збіглися з вводом → `echo` (НЕ персистимо). `null` → `no_provider_data` | `lexicon.service.ts:209-242` |
 | 7 | **Upsert lexicon + directional cache** | `persistAllVariants`: upsert source і target words, зв'язати `target_word_id`, зберегти тільки `detectedLang → otherLang`. Lexical metadata лежить у `translations.metadata`, тому exact-cache повертає ті самі тип/розшифровку/значення без нового AI-виклику. Старий exact-cache без `sourceUnit/targetUnit` один раз ліниво оновлюється наступним пошуком; уже його відповідь містить metadata, далі знову працює кеш | `lexicon.service.ts`, `lexicon.repository.ts` |
 | 8 | **Збагачення (IPA/audio/examples/senses)** | `enrichLearningEntry` (тільки не-фраза): dictionary-ланцюг (OpenAI → FreeDictionary) дає IPA, audio, senses+приклади, синоніми/антоніми, форми; усе ідемпотентно персиститься; heal-on-read для старого IPA | `lexicon.service.ts`, `lexicon-core.module.ts` |
-| 9 | **Композиція відповіді** | Провайдер-хіти спершу, тоді не-дубль префікс-підказки, до `maxResults`; дедуп по `normalize(knownWord)` | `lexicon.service.ts:245-264` |
+| 9 | **Quality repair перед композицією** | Активні translation rows із `qualityScore >= 100` форсують AI-виклик, передають comments та `excludedTranslations`; позначені examples ремонтуються окремим dictionary-викликом із `rejectedExamples`; після успішного ремонту score обнуляється, безуспішний кеш лишається. | `lexicon.service.ts`, `quality-feedback.service.ts` |
+| 10 | **Композиція відповіді** | Провайдер-хіти спершу, тоді не-дубль префікс-підказки, до `maxResults`; під час успішного quality repair старі low-quality variants фільтруються; дедуп по `normalize(knownWord)` | `lexicon.service.ts:245-264` |
 
 ### `providerReason` (meta — чому викликали/не викликали провайдер)
 

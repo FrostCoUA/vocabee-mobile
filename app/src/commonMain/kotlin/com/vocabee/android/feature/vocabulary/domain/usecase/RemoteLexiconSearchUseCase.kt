@@ -92,6 +92,7 @@ internal fun SearchVariant.toOption(existingTranslations: Set<String>): Translat
         else -> TranslationOptionNote.Alternative
     }
     return TranslationOption(
+        translationId = translationId,
         value = translation,
         note = note,
         alreadyAdded = existingTranslations.contains(translation),

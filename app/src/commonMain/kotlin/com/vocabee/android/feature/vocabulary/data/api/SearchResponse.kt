@@ -19,6 +19,7 @@ data class SearchResponse(
 
 @Serializable
 data class SearchVariant(
+    val translationId: String = "",
     val knownWord: String,
     val learningWord: String,
     val ipa: String? = null,

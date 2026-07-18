@@ -149,6 +149,7 @@ internal fun AddWordOverlay(
     searchRemote: suspend (query: String) -> AddWordSearchState,
     onAddWord: (source: String, translation: String, ipa: String?, details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?) -> Unit,
     onRemoveWord: (translation: String) -> Unit,
+    onDislikeTranslation: (TranslationOption) -> Unit = {},
     onClose: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
@@ -335,6 +336,7 @@ internal fun AddWordOverlay(
                             onRemove = { option ->
                                 onRemoveWord(option.value)
                             },
+                            onDislike = onDislikeTranslation,
                         )
                     }
                 }
@@ -733,6 +735,7 @@ internal fun AddWordResultsList(
     existingTranslations: Set<String>,
     onAdd: (TranslationOption) -> Unit,
     onRemove: (TranslationOption) -> Unit,
+    onDislike: (TranslationOption) -> Unit = {},
 ) {
     if (results.isEmpty()) {
         Column(
@@ -780,6 +783,7 @@ internal fun AddWordResultsList(
                 isAdded = isAdded,
                 onAdd = { onAdd(option) },
                 onRemove = { onRemove(option) },
+                onDislike = { onDislike(option) },
             )
         }
         item {
@@ -843,6 +847,7 @@ private fun AddWordResultRow(
     isAdded: Boolean,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
+    onDislike: () -> Unit,
 ) {
     val details = option.details
     val hasDetails = details != null && !details.isEmpty
@@ -967,6 +972,17 @@ private fun AddWordResultRow(
             WordDetailsBlock(
                 details = details,
                 accent = accent,
+            )
+        }
+        if (option.translationId.isNotBlank()) {
+            Text(
+                text = "Неякісний переклад",
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .clickable(onClick = onDislike),
+                color = PrototypeColor.Muted2,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 11.5.sp,
             )
         }
     }

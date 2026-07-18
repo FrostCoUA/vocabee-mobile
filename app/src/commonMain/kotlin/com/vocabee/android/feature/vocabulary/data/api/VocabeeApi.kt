@@ -15,6 +15,11 @@ interface VocabeeApi {
         learnLang: String,
     ): SearchResponse
 
+    /** Records one idempotent user dislike for a translation or example. */
+    suspend fun submitQualityFeedback(
+        request: QualityFeedbackRequest,
+    ): QualityFeedbackResponse
+
     /** One free contextual batch; no per-token search or bee charge. */
     suspend fun buildContextGlossary(
         sentence: String,

@@ -47,6 +47,25 @@ class KtorVocabeeApi(
         return response.body()
     }
 
+    override suspend fun submitQualityFeedback(
+        request: QualityFeedbackRequest,
+    ): QualityFeedbackResponse {
+        val response = try {
+            client.post("${config.baseUrl}/v1/translation-feedback") {
+                contentType(ContentType.Application.Json)
+                setBody(request)
+                tokenStore.current()?.let { token -> bearerAuth(token) }
+            }
+        } catch (cause: ClientRequestException) {
+            throw cause.toApiException()
+        } catch (cause: ServerResponseException) {
+            throw cause.toApiException()
+        } catch (cause: ResponseException) {
+            throw cause.toApiException()
+        }
+        return response.body()
+    }
+
     override suspend fun buildContextGlossary(
         sentence: String,
         sourceLang: String,

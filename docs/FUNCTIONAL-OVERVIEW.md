@@ -70,6 +70,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Додавання слова голосом (STT) | Утримання mic → розпізнавання → той самий дебаунс-пайплайн. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §3 |
 | Морф-оверлей «Додати слово» | `AddWordOverlay` морфиться з пігулки «+» у повний екран (tween ~420ms). | [ЗАРАЗ] | [01](01-screens.md) §7, [13](13-add-word-and-ai-search.md) §1 |
 | Список результатів із `+`/`✓` | Кожен рядок: канонічне слово, IPA, переклад, Sparkle (AI), toggle add/remove. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §5 |
+| Скарга на неякісний переклад | Авторизований юзер бачить «Неякісний переклад» у результаті; надсилається opaque `translationId`, без видалення рядка, один раз на target (`+1`). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.10 |
 | Виявлення дубліката | `alreadyAdded` (сервер) ∨ локальний `Set` перекладів → миттєвий toggle `+`↔`✓`. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §6 |
 | Групування слів | Однакові source-слова схлопуються в одну картку `WordGroupRow`. | [ЗАРАЗ] | [01](01-screens.md) §6 |
 | Розгортувані деталі слова | Тап розкриває тип/регістр, значення/розшифровку/дослівний переклад/приклад, далі senses, синоніми, антоніми й форми. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §3 |
@@ -282,6 +283,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Languages-ендпоінт | `GET /v1/languages` (13 мов). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.7 |
 | Client admin: фільтр словників | `sourceLang?`/`targetLang?` фільтрують словники користувача на сервері; web default `en → uk`, кожен dropdown має `Усі`. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.1 |
 | Dictionary admin: фільтри перекладів | Мови — dropdown-и з canonical language API; Origin/model — динамічні dropdown-и з БД у «Розширених фільтрах». | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.2 |
+| Dictionary admin: dislike | У таблиці видно `qualityScore/100`; кнопка «Дізлайк +100» відкриває підтвердження та коментар, не видаляє переклад. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.3 |
 | Promo-ендпоінти | `/v1/promos`, `/{id}/claim`, `/leaderboard/ad-watchers`. | [НОВЕ] D4 | [17](17-api-and-data-reference.md) §1.8, [05](05-promo-api-and-banners.md) §7 |
 | Guard-стратегія | `JwtAccessGuard` вимагає runtime-valid user claims + active user; `OptionalJwtAccessGuard` дає anonymous 200 лише без `Authorization`, а supplied invalid/expired/malformed/inactive → 401; `RegisteredUserGuard` мертвий. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.4 |
 | Room-схема (клієнт) | `vocabulary_topics` + `vocabulary_words`, version 4, конвертери. | [ЗАРАЗ] | [03](03-data-caching.md) §1, [17](17-api-and-data-reference.md) §3.1 |

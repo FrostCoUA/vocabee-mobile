@@ -141,6 +141,7 @@ import com.vocabee.android.feature.vocabulary.data.api.VocabeeApiException
 import com.vocabee.android.feature.vocabulary.data.api.SyncResponse
 import com.vocabee.android.feature.vocabulary.data.api.UpdateProfileRequest
 import com.vocabee.android.feature.vocabulary.data.api.UserResponse
+import com.vocabee.android.feature.vocabulary.data.api.QualityFeedbackRequest
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
 import com.vocabee.android.feature.vocabulary.data.preferences.PreferencesManager
 import com.vocabee.android.feature.vocabulary.data.sync.toApplySyncRequest
@@ -942,6 +943,24 @@ private fun MainApp(
                                 onRemoveWord = { translation ->
                                     store.onEvent(VocabeeEvent.RemoveWord(topic.id, translation))
                                     syncVocabularyNow()
+                                },
+                                onDislikeTranslation = { option ->
+                                    if (option.translationId.isNotBlank()) {
+                                        scope.launch {
+                                            runCatching {
+                                                api?.submitQualityFeedback(
+                                                    QualityFeedbackRequest(
+                                                        targetType = "translation",
+                                                        targetId = option.translationId,
+                                                    ),
+                                                )
+                                            }.onSuccess {
+                                                appSnackbarHostState.showVocabeeSnackbar("Дякуємо, переклад позначено для перевірки")
+                                            }.onFailure {
+                                                appSnackbarHostState.showVocabeeSnackbar("Не вдалося надіслати оцінку")
+                                            }
+                                        }
+                                    }
                                 },
                                 onSpeak = { text, languageTag ->
                                     speechOutputController.speak(text, languageTag)
@@ -2924,6 +2943,7 @@ private fun DictionaryDetailScreen(
     onAddWord: (source: String, translation: String, ipa: String?, details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?) -> Unit,
     onAddContextWord: (glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit,
     onRemoveWord: (translation: String) -> Unit,
+    onDislikeTranslation: (TranslationOption) -> Unit = {},
     onSpeak: (text: String, languageTag: String) -> Unit,
 ) {
     val accent = prototypeTopicTheme(topic.coverIndex).color
@@ -3194,6 +3214,7 @@ private fun DictionaryDetailScreen(
                         onRemoveWord(option.value)
                     },
                     onRetryVoice = ::startListening,
+                    onDislike = onDislikeTranslation,
                 )
             }
         }
@@ -3451,6 +3472,7 @@ private fun InlineTranslationPanel(
     onAdd: (TranslationOption) -> Unit,
     onRemove: (TranslationOption) -> Unit,
     onRetryVoice: () -> Unit = {},
+    onDislike: (TranslationOption) -> Unit = {},
 ) {
     // Помилка розпізнавання займає всю панель: сирий текст помилки лишається
     // тільки в снекбарі, а тут — локалізована підказка і повтор запису (борд 4).
@@ -3520,6 +3542,7 @@ private fun InlineTranslationPanel(
                         existingTranslations = existingTranslations,
                         onAdd = onAdd,
                         onRemove = onRemove,
+                        onDislike = onDislike,
                     )
                 }
             }

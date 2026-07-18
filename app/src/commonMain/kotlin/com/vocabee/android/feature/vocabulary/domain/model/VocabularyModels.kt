@@ -166,6 +166,8 @@ sealed interface TopicUpdatedLabel {
 }
 
 data class TranslationOption(
+    /** Opaque dictionary translation id used only for quality feedback. */
+    val translationId: String = "",
     /** Translation text — what gets stored as `WordEntry.translation` when added. */
     val value: String,
     val note: TranslationOptionNote,
