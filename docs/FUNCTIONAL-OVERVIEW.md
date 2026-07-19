@@ -189,7 +189,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Вихід (sign-out) | Чистить токени + `signOutKeepLastUserState` (дані лишаються). | [ЗАРАЗ] | [15](15-profile-and-settings.md) §6, [16](16-auth-and-account-lifecycle.md) §16.8 |
 | Колізія email (Google на password-юзера) | Реюз існуючого рядка; deployed migration має unique `lower(email)`, але Drizzle metadata описує plain index (schema drift). | [ЗАРАЗ] / ризик | [10](10-edge-cases-and-open-items.md) #12 |
 | Клієнт кличе `/auth/logout` | Revoke refresh на сервері при виході (зараз не кличе). | [НОВЕ] / уточнити | [16](16-auth-and-account-lifecycle.md) §16.8 O4 |
-| Refresh-failed → sign-out | При стійкому 401 на refresh переводити в анонім. | [НОВЕ] / уточнити | [02](02-onboarding-and-launch.md) §5.2 |
+| Refresh-failed → sign-out | При 401 на refresh чистимо токени, переводимо в анонім і просимо ввійти знову. | [ЗАРАЗ] | [16](16-auth-and-account-lifecycle.md) §16.5 |
 | Картка ідентичності (профіль) | Аватар з **реальними ініціалами** (`profileInitials`: до 2 літер імені → перша літера email → «V»), displayName, email, Edit (мертва). | [ЗАРАЗ] | [15](15-profile-and-settings.md) §2.2 |
 | Редагування `displayName` / фото | Кнопка Edit активна; фото Google. | [МАЙБУТНЄ] | [15](15-profile-and-settings.md) §2.2 |
 | Мерж акаунтів (різні Google) | Перенесення словників між акаунтами за монетки. | [МАЙБУТНЄ] D9 | [06](06-sync-and-account-merge.md) §5 |

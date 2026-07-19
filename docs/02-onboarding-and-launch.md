@@ -253,12 +253,12 @@ val serverHasVocabulary = serverSnapshot.topics.isNotEmpty() ||
 
 - [ЗАРАЗ] `runStartupSync` спершу робить `refreshSession(refreshToken)` (`App.kt:456–459`). Якщо
   **refresh успішний** — далі `currentUser` працює з новим access-токеном.
-- Якщо **refresh теж невалідний** (протух/відкликаний) — `refreshSession`/`currentUser` кидають
-  виняток, він ковтається → застосунок лишається з локальним станом, але **формально** ще вважає
-  себе автентифікованим у UI (account зі стейту/останнього синку).
-- **Припущення (уточнити) / [НОВЕ]:** при стійкому 401 на refresh варто переводити в анонімний стан
-  (`signOutKeepLastUserState`) і чистити токени (`accessToken/refreshToken = null`), щоб не показувати
-  «залогінений» UI без валідної сесії. Зараз явної гілки «refresh failed → sign-out» немає — це треба додати.
+- Якщо access протухає вже під час відкритого застосунку, bearer-виклик після першого `401`
+  непомітно робить refresh і повторює свій запит; одночасні запити не змагаються за одноразовий
+  refresh-token.
+- Якщо **refresh теж невалідний** (протух/відкликаний), `AuthTokenStore` чистить обидва токени й
+  сигналізує `SessionExpiryObservable`; `MainApp` викликає `signOutKeepLastUserState()` та показує
+  «Потрібна повторна авторизація.». Тому UI не лишається помилково автентифікованим.
 
 ### 5.3 Юзер вийшов (sign-out)
 

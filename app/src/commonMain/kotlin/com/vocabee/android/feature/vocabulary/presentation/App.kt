@@ -138,6 +138,7 @@ import com.vocabee.android.core.presentation.designsystem.prototypeTopicIcon
 import com.vocabee.android.core.presentation.designsystem.prototypeTopicTheme
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApi
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApiException
+import com.vocabee.android.feature.vocabulary.data.api.SessionExpiryObservable
 import com.vocabee.android.feature.vocabulary.data.api.SyncResponse
 import com.vocabee.android.feature.vocabulary.data.api.UpdateProfileRequest
 import com.vocabee.android.feature.vocabulary.data.api.UserResponse
@@ -180,6 +181,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
@@ -497,6 +499,15 @@ private fun MainApp(
     var pendingSyncConflict by remember { mutableStateOf<PendingSyncConflict?>(null) }
     var practiceBottomPanelVisible by remember { mutableStateOf(false) }
     val appSnackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(api) {
+        (api as? SessionExpiryObservable)?.sessionExpired?.collect { expired ->
+            if (expired && store.state.account is VocabeeAccountState.Authenticated) {
+                store.signOutKeepLastUserState()
+                appSnackbarHostState.showVocabeeSnackbar("Потрібна повторна авторизація.")
+            }
+        }
+    }
 
     fun openRoot(route: VocabeeRoute) {
         backStack.clear()

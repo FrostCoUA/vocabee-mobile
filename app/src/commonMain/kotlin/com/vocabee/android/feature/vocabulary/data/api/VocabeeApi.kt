@@ -1,5 +1,12 @@
 package com.vocabee.android.feature.vocabulary.data.api
 
+import kotlinx.coroutines.flow.StateFlow
+
+/** Emits when an expired or revoked refresh session requires a new sign-in. */
+interface SessionExpiryObservable {
+    val sessionExpired: StateFlow<Boolean>
+}
+
 interface VocabeeApi {
     /**
      * Calls `GET /v1/search?q=&speak=&learn=` on the gateway. Returns the parsed

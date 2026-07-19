@@ -14,6 +14,8 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Ktor-backed [VocabeeApi]. Constructed with the platform HTTP client (built by
@@ -23,47 +25,45 @@ class KtorVocabeeApi(
     private val client: HttpClient,
     private val config: VocabeeApiConfig,
     private val tokenStore: AuthTokenStore,
-) : VocabeeApi {
+) : VocabeeApi, SessionExpiryObservable {
+
+    override val sessionExpired = tokenStore.sessionExpired
+
+    /**
+     * A refresh token can only be used once. Serialising refreshes prevents two
+     * simultaneous 401 responses from racing and revoking each other's session.
+     */
+    private val refreshMutex = Mutex()
 
     override suspend fun search(
         query: String,
         speakLang: String,
         learnLang: String,
     ): SearchResponse {
-        val response = try {
-            client.get("${config.baseUrl}/v1/search") {
-                parameter("q", query)
-                parameter("speak", speakLang)
-                parameter("learn", learnLang)
-                tokenStore.current()?.let { token -> bearerAuth(token) }
+        return withFreshAccessToken {
+            executeRequest {
+                client.get("${config.baseUrl}/v1/search") {
+                    parameter("q", query)
+                    parameter("speak", speakLang)
+                    parameter("learn", learnLang)
+                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                }.body()
             }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
         }
-        return response.body()
     }
 
     override suspend fun submitQualityFeedback(
         request: QualityFeedbackRequest,
     ): QualityFeedbackResponse {
-        val response = try {
-            client.post("${config.baseUrl}/v1/translation-feedback") {
-                contentType(ContentType.Application.Json)
-                setBody(request)
-                tokenStore.current()?.let { token -> bearerAuth(token) }
+        return withFreshAccessToken {
+            executeRequest {
+                client.post("${config.baseUrl}/v1/translation-feedback") {
+                    contentType(ContentType.Application.Json)
+                    setBody(request)
+                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                }.body()
             }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
         }
-        return response.body()
     }
 
     override suspend fun buildContextGlossary(
@@ -71,26 +71,21 @@ class KtorVocabeeApi(
         sourceLang: String,
         targetLang: String,
     ): ContextGlossaryResponse {
-        val response = try {
-            client.post("${config.baseUrl}/v1/search/context-glossary") {
-                contentType(ContentType.Application.Json)
-                setBody(
-                    ContextGlossaryRequest(
-                        sentence = sentence,
-                        sourceLang = sourceLang,
-                        targetLang = targetLang,
-                    ),
-                )
-                tokenStore.current()?.let { token -> bearerAuth(token) }
+        return withFreshAccessToken {
+            executeRequest {
+                client.post("${config.baseUrl}/v1/search/context-glossary") {
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        ContextGlossaryRequest(
+                            sentence = sentence,
+                            sourceLang = sourceLang,
+                            targetLang = targetLang,
+                        ),
+                    )
+                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                }.body()
             }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
         }
-        return response.body()
     }
 
     override suspend fun loginWithGoogle(
@@ -98,7 +93,7 @@ class KtorVocabeeApi(
         speakLang: String?,
         learnLang: String?,
     ): AuthTokensResponse {
-        val response = try {
+        val tokens = executeRequest {
             client.post("${config.baseUrl}/v1/auth/google") {
                 contentType(ContentType.Application.Json)
                 setBody(
@@ -108,148 +103,139 @@ class KtorVocabeeApi(
                         learnLang = learnLang,
                     ),
                 )
-            }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
+            }.body<AuthTokensResponse>()
         }
-        val tokens = response.body<AuthTokensResponse>()
         tokenStore.set(tokens)
         return tokens
     }
 
     override suspend fun currentUser(): UserResponse {
-        val response = try {
-            client.get("${config.baseUrl}/v1/auth/me") {
-                tokenStore.current()?.let { token -> bearerAuth(token) }
+        return withFreshAccessToken {
+            executeRequest {
+                client.get("${config.baseUrl}/v1/auth/me") {
+                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                }.body()
             }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
         }
-        return response.body()
     }
 
     override suspend fun updateCurrentUser(request: UpdateProfileRequest): UserResponse {
-        val response = try {
-            client.patch("${config.baseUrl}/v1/me") {
-                contentType(ContentType.Application.Json)
-                setBody(request)
-                tokenStore.current()?.let { token -> bearerAuth(token) }
+        return withFreshAccessToken {
+            executeRequest {
+                client.patch("${config.baseUrl}/v1/me") {
+                    contentType(ContentType.Application.Json)
+                    setBody(request)
+                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                }.body()
             }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
         }
-        return response.body()
     }
 
     override suspend fun refreshSession(refreshToken: String): AuthTokensResponse {
-        val response = try {
+        val tokens = executeRequest {
             client.post("${config.baseUrl}/v1/auth/refresh") {
                 contentType(ContentType.Application.Json)
                 setBody(RefreshRequest(refreshToken))
-            }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
+            }.body<AuthTokensResponse>()
         }
-        val tokens = response.body<AuthTokensResponse>()
         tokenStore.set(tokens)
         return tokens
     }
 
     override suspend fun syncTopics(since: String?): SyncResponse {
-        val response = try {
-            client.post("${config.baseUrl}/v1/topics/sync") {
-                contentType(ContentType.Application.Json)
-                setBody(SyncRequest(since))
-                tokenStore.current()?.let { token -> bearerAuth(token) }
+        return withFreshAccessToken {
+            executeRequest {
+                client.post("${config.baseUrl}/v1/topics/sync") {
+                    contentType(ContentType.Application.Json)
+                    setBody(SyncRequest(since))
+                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                }.body()
             }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
         }
-        return response.body()
     }
 
     override suspend fun applySync(request: ApplySyncRequest): SyncResponse {
-        val response = try {
-            client.post("${config.baseUrl}/v1/topics/sync/apply") {
-                contentType(ContentType.Application.Json)
-                setBody(request)
-                tokenStore.current()?.let { token -> bearerAuth(token) }
+        return withFreshAccessToken {
+            executeRequest {
+                client.post("${config.baseUrl}/v1/topics/sync/apply") {
+                    contentType(ContentType.Application.Json)
+                    setBody(request)
+                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                }.body()
             }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
         }
-        return response.body()
     }
 
     override suspend fun claimRewardedAdBees(): UserResponse {
-        val response = try {
-            client.post("${config.baseUrl}/v1/wallet/rewarded-ad") {
-                tokenStore.current()?.let { token -> bearerAuth(token) }
+        return withFreshAccessToken {
+            executeRequest {
+                client.post("${config.baseUrl}/v1/wallet/rewarded-ad") {
+                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                }.body()
             }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
         }
-        return response.body()
     }
 
     override suspend fun fetchReferral(): ReferralResponse {
-        val response = try {
-            client.get("${config.baseUrl}/v1/referral/me") {
-                tokenStore.current()?.let { token -> bearerAuth(token) }
+        return withFreshAccessToken {
+            executeRequest {
+                client.get("${config.baseUrl}/v1/referral/me") {
+                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                }.body()
             }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
         }
-        return response.body()
     }
 
     override suspend fun submitSupport(request: SupportRequestBody): SupportResponse {
-        val response = try {
-            client.post("${config.baseUrl}/v1/support") {
-                contentType(ContentType.Application.Json)
-                setBody(request)
-                tokenStore.current()?.let { token -> bearerAuth(token) }
+        return withFreshAccessToken {
+            executeRequest {
+                client.post("${config.baseUrl}/v1/support") {
+                    contentType(ContentType.Application.Json)
+                    setBody(request)
+                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                }.body()
             }
-        } catch (cause: ClientRequestException) {
-            throw cause.toApiException()
-        } catch (cause: ServerResponseException) {
-            throw cause.toApiException()
-        } catch (cause: ResponseException) {
-            throw cause.toApiException()
         }
-        return response.body()
+    }
+
+    /** Replays one request after renewing an expired access token. */
+    private suspend fun <T> withFreshAccessToken(request: suspend () -> T): T {
+        val failedAccessToken = tokenStore.current() ?: return request()
+        return try {
+            request()
+        } catch (cause: VocabeeApiException) {
+            if (cause.statusCode != 401) throw cause
+            refreshAccessTokenAfter401(failedAccessToken)
+            request()
+        }
+    }
+
+    private suspend fun refreshAccessTokenAfter401(failedAccessToken: String) {
+        refreshMutex.withLock {
+            // Another concurrent request has already completed the rotation.
+            if (tokenStore.current() != failedAccessToken) return
+            val refreshToken = tokenStore.refreshToken() ?: throw VocabeeApiException(
+                statusCode = 401,
+                errorType = "unauthorized",
+                errorMessage = "Потрібна повторна авторизація.",
+            )
+            try {
+                refreshSession(refreshToken)
+            } catch (cause: VocabeeApiException) {
+                if (cause.statusCode == 401) tokenStore.clear()
+                throw cause
+            }
+        }
+    }
+
+    private suspend fun <T> executeRequest(request: suspend () -> T): T = try {
+        request()
+    } catch (cause: ClientRequestException) {
+        throw cause.toApiException()
+    } catch (cause: ServerResponseException) {
+        throw cause.toApiException()
+    } catch (cause: ResponseException) {
+        throw cause.toApiException()
     }
 
     private suspend fun ResponseException.toApiException(): VocabeeApiException {

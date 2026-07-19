@@ -178,12 +178,12 @@ OpenAPI для обох OptionalJwt маршрутів явно публікує
 - Єдине джерело правди для bearer-токена. `token: StateFlow<String?>` — реактивний потік **access**-токена (`asStateFlow`), ініціалізований з `preferencesManager.accessToken`.
 - `current()` — синхронно звіряє зі сховищем (re-read з prefs, оновлює `StateFlow` якщо розійшлося) і повертає актуальний access. Саме `current()` викликається перед кожним bearer-запитом у `KtorVocabeeApi` (`tokenStore.current()?.let { bearerAuth(it) }`).
 - `refreshToken()` — повертає **refresh** з prefs (refresh у `StateFlow` не тримається — він не потрібен реактивно).
-- `set(AuthTokensResponse)` — пише `refreshToken` у prefs і виставляє новий `accessToken`. `clear()` — гасить обидва токени і `StateFlow=null`.
+- `set(AuthTokensResponse)` — пише `refreshToken` у prefs і виставляє новий `accessToken`. `clear()` — гасить обидва токени, `StateFlow=null` і сигналізує `sessionExpired` для UI.
 - Refresh зберігається в `PreferencesManager` (`PreferencesManager.kt:34-36`: `accessToken`, `refreshToken`; також `currentUserId`, `lastAuthenticatedUserId`, `lastSyncAt`, `localRevisionEpochMillis`).
 
 ### Виклики API (KtorVocabeeApi)
 
-**[ЗАРАЗ]**: `loginWithGoogle` → `POST /v1/auth/google`, у відповідь `tokenStore.set(tokens)` (`KtorVocabeeApi.kt:50-76`). `refreshSession` → `POST /v1/auth/refresh`, теж `tokenStore.set(tokens)` (`:110-126`). `currentUser` → `GET /v1/auth/me` з bearer (`:78-91`). Захищені виклики (`/me`, `/topics/sync*`, `/wallet/*`) додають bearer через `tokenStore.current()`.
+**[ЗАРАЗ]**: `loginWithGoogle` → `POST /v1/auth/google`, у відповідь `tokenStore.set(tokens)`. `refreshSession` → `POST /v1/auth/refresh`, теж `tokenStore.set(tokens)`. Усі mobile-виклики, які передають bearer (`/auth/me`, `/me`, `/topics/sync*`, `/wallet/*`, а також optional-auth `/search` і `/support`), після `401` **один раз** непомітно оновлюють пару токенів і повторюють вихідний запит. `Mutex` серіалізує одночасні refresh-запити: refresh rotation одноразова, тому паралельні 401 не можуть відкликати сесію одне одного. Якщо refresh також повертає `401`, `AuthTokenStore.clear()` прибирає обидва локальні токени; `SessionExpiryObservable` переводить UI в anonymous-стан і показує запит на повторну авторизацію.
 
 > **Розрив: mobile не кличе `/auth/logout`.** Серед методів `VocabeeApi`/`KtorVocabeeApi` немає виклику `logout` — у клієнта немає `revoke` на дроті. Sign-out локально лише чистить prefs (16.7). Тобто **refresh-токен на сервері залишається валідним до природного протермінування** після виходу. Узгодити: чи додавати клієнтський виклик `/auth/logout` при sign-out — **[НОВЕ]/уточнити**.
 
@@ -223,7 +223,7 @@ OpenAPI для обох OptionalJwt маршрутів явно публікує
 4. Якщо є незалиті локальні зміни (`localRevisionEpochMillis > 0`) → `syncVocabularyNow()` (заливаємо локальне). Інакше — інкрементальний `syncTopics(since=lastSyncAt)`; за наявності змін застосовуємо знімок (`since==null` → повний).
 5. Будь-яка помилка ковтається (`catch (_) {}`): лишаємось офлайн/локально, явний вхід покаже помилки.
 
-> Тобто на кожному старті прострочений access відновлюється через refresh **до** першого захищеного запиту. Якщо refresh не вдався, але клієнт і далі надсилає збережений invalid/expired access, `/search` тепер поверне 401; anonymous search можливий лише без `Authorization`. Поточний startup `catch` токени автоматично не чистить — це слід врахувати в mobile session UX.
+> Тобто на кожному старті прострочений access відновлюється через refresh **до** першого захищеного запиту. Навіть якщо access протухне під час відкритого застосунку, bearer-виклик непомітно зробить один refresh і повторить запит (§16.5). Якщо refresh не вдався з `401`, клієнт чистить обидва токени; anonymous search після цього можливий лише без `Authorization`.
 
 ---
 

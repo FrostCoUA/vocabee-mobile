@@ -15,6 +15,8 @@ class AuthTokenStore(
 ) {
     private val tokenState = MutableStateFlow(preferencesManager?.accessToken)
     val token: StateFlow<String?> = tokenState.asStateFlow()
+    private val sessionExpiredState = MutableStateFlow(false)
+    val sessionExpired: StateFlow<Boolean> = sessionExpiredState.asStateFlow()
 
     fun current(): String? {
         if (preferencesManager != null) {
@@ -35,6 +37,7 @@ class AuthTokenStore(
     fun set(tokens: AuthTokensResponse) {
         preferencesManager?.refreshToken = tokens.refreshToken
         set(tokens.accessToken)
+        sessionExpiredState.value = false
     }
 
     fun refreshToken(): String? = preferencesManager?.refreshToken
@@ -43,5 +46,6 @@ class AuthTokenStore(
         preferencesManager?.accessToken = null
         preferencesManager?.refreshToken = null
         tokenState.value = null
+        sessionExpiredState.value = true
     }
 }
