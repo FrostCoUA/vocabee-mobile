@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -12,11 +13,15 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class KtorVocabeeApiAuthRefreshTest {
@@ -58,11 +63,16 @@ class KtorVocabeeApiAuthRefreshTest {
         )
     }
 
+    /**
+     * Відмова refresh — не привід гасити сесію: юзер лишається залогіненим,
+     * токени лишаються в prefs, щоб наступна спроба могла відновити сесію.
+     * Вихід із акаунта робить тільки явний logout.
+     */
     @Test
-    fun invalidRefreshTokenClearsTheLocalSession() = runBlocking {
+    fun failedRefreshKeepsTheLocalSession() = runBlocking {
         val preferences = InMemoryPreferencesManager().apply {
             accessToken = "expired"
-            refreshToken = "invalid-refresh"
+            refreshToken = "stored-refresh"
         }
         val tokenStore = AuthTokenStore(preferences)
         val api = KtorVocabeeApi(
@@ -78,9 +88,104 @@ class KtorVocabeeApiAuthRefreshTest {
 
         runCatching { api.search("bee", "uk", "en") }
 
-        assertNull(preferences.accessToken)
-        assertNull(preferences.refreshToken)
-        assertTrue(tokenStore.sessionExpired.value)
+        assertEquals("expired", preferences.accessToken)
+        assertEquals("stored-refresh", preferences.refreshToken)
+        // UI лише пропонує повторний вхід — сесія локально жива.
+        assertTrue(tokenStore.sessionNeedsReauth.value)
+    }
+
+    /**
+     * Ротація одноразова: якщо інший запит уже обміняв refresh, поки цей був у польоті,
+     * пред'явлений токен повертає 401. Це не мертва сесія — треба повторити зі свіжим
+     * токеном із prefs, а не викидати юзера.
+     */
+    @Test
+    fun rotatedRefreshTokenIsRetriedInsteadOfDroppingTheSession() = runBlocking {
+        val preferences = InMemoryPreferencesManager().apply {
+            accessToken = "expired"
+            refreshToken = "rotated-away"
+        }
+        val tokenStore = AuthTokenStore(preferences)
+        val api = KtorVocabeeApi(
+            client = clientWithEngine { request ->
+                when (request.url.encodedPath) {
+                    "/v1/search" -> if (request.headers[HttpHeaders.Authorization] == "Bearer fresh") {
+                        respond(searchResponse(), HttpStatusCode.OK, jsonHeaders())
+                    } else {
+                        unauthorizedResponse()
+                    }
+                    "/v1/auth/refresh" -> if (request.bodyText().contains("rotated-away")) {
+                        // Паралельний refresh уже завершив ротацію і поклав свіжу пару в prefs.
+                        preferences.refreshToken = "current-refresh"
+                        unauthorizedResponse()
+                    } else {
+                        respond(
+                            content = """{"accessToken":"fresh","refreshToken":"next","expiresIn":900}""",
+                            status = HttpStatusCode.OK,
+                            headers = jsonHeaders(),
+                        )
+                    }
+                    else -> error("Unexpected path: ${request.url.encodedPath}")
+                }
+            },
+            config = VocabeeApiConfig(baseUrl = "https://test.vocabee"),
+            tokenStore = tokenStore,
+        )
+
+        val result = api.search("bee", "uk", "en")
+
+        assertEquals("bee", result.query)
+        assertEquals("next", preferences.refreshToken)
+        assertFalse(tokenStore.sessionNeedsReauth.value)
+    }
+
+    /**
+     * Сервер відкликає пред'явлений refresh у момент обробки. Якщо скасувати корутину
+     * (юзер вийшов з екрана) до запису нової пари, локально лишиться вже відкликаний
+     * токен — сесія стає мертвою назавжди. Тому ротація дописується поза скасуванням.
+     */
+    @Test
+    fun cancelledCallerStillPersistsTheRotatedTokens() = runBlocking {
+        val preferences = InMemoryPreferencesManager().apply {
+            accessToken = "expired"
+            refreshToken = "original-refresh"
+        }
+        val tokenStore = AuthTokenStore(preferences)
+        val refreshReceived = CompletableDeferred<Unit>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val api = KtorVocabeeApi(
+            client = clientWithEngine { request ->
+                when (request.url.encodedPath) {
+                    "/v1/search" -> unauthorizedResponse()
+                    "/v1/auth/refresh" -> {
+                        refreshReceived.complete(Unit)
+                        releaseRefresh.await()
+                        respond(
+                            content = """{"accessToken":"fresh","refreshToken":"rotated","expiresIn":900}""",
+                            status = HttpStatusCode.OK,
+                            headers = jsonHeaders(),
+                        )
+                    }
+                    else -> error("Unexpected path: ${request.url.encodedPath}")
+                }
+            },
+            config = VocabeeApiConfig(baseUrl = "https://test.vocabee"),
+            tokenStore = tokenStore,
+        )
+
+        val job = launch { runCatching { api.search("bee", "uk", "en") } }
+        refreshReceived.await()
+        job.cancel()
+        releaseRefresh.complete(Unit)
+        job.join()
+        // Ротація дописується поза скасуванням — даємо їй завершитись.
+        withTimeout(5_000) {
+            while (preferences.refreshToken == "original-refresh") yield()
+        }
+
+        assertEquals("rotated", preferences.refreshToken)
+        assertEquals("fresh", preferences.accessToken)
+        assertFalse(tokenStore.sessionNeedsReauth.value)
     }
 
     private fun apiWithEngine(
@@ -105,6 +210,8 @@ class KtorVocabeeApiAuthRefreshTest {
         }
         expectSuccess = true
     }
+
+    private suspend fun HttpRequestData.bodyText(): String = body.toByteArray().decodeToString()
 
     private fun MockRequestHandleScope.unauthorizedResponse() = respond(
         content = """{"statusCode":401,"error":"unauthorized","message":"Потрібна повторна авторизація."}""",

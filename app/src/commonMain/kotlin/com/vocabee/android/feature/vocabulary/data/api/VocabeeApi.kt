@@ -2,9 +2,12 @@ package com.vocabee.android.feature.vocabulary.data.api
 
 import kotlinx.coroutines.flow.StateFlow
 
-/** Emits when an expired or revoked refresh session requires a new sign-in. */
+/**
+ * Emits when the session could not be renewed and a fresh sign-in would help.
+ * Це підказка для UI, а не вихід із акаунта: локальні токени й стан лишаються.
+ */
 interface SessionExpiryObservable {
-    val sessionExpired: StateFlow<Boolean>
+    val sessionNeedsReauth: StateFlow<Boolean>
 }
 
 interface VocabeeApi {
@@ -43,8 +46,6 @@ interface VocabeeApi {
     suspend fun currentUser(): UserResponse
 
     suspend fun updateCurrentUser(request: UpdateProfileRequest): UserResponse
-
-    suspend fun refreshSession(refreshToken: String): AuthTokensResponse
 
     suspend fun syncTopics(since: String? = null): SyncResponse
 

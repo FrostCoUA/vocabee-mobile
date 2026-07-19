@@ -509,11 +509,14 @@ private fun MainApp(
     var practiceBottomPanelVisible by remember { mutableStateOf(false) }
     val appSnackbarHostState = remember { SnackbarHostState() }
 
+    // Сесію не вдалося поновити — пропонуємо вхід, але з акаунта не викидаємо:
+    // вийти можна лише кнопкою «Вийти» в профілі.
     LaunchedEffect(api) {
-        (api as? SessionExpiryObservable)?.sessionExpired?.collect { expired ->
-            if (expired && store.state.account is VocabeeAccountState.Authenticated) {
-                store.signOutKeepLastUserState()
-                appSnackbarHostState.showVocabeeSnackbar("Потрібна повторна авторизація.")
+        (api as? SessionExpiryObservable)?.sessionNeedsReauth?.collect { needsReauth ->
+            if (needsReauth && store.state.account is VocabeeAccountState.Authenticated) {
+                appSnackbarHostState.showVocabeeSnackbar(
+                    "Не вдалося оновити сесію. Увійди через Google у профілі, щоб знову синхронізувати.",
+                )
             }
         }
     }
@@ -637,10 +640,8 @@ private fun MainApp(
         if (preferencesManager.accessToken == null && preferencesManager.refreshToken == null) return
         scope.launch {
             try {
-                val refreshToken = preferencesManager.refreshToken
-                if (refreshToken != null) {
-                    backend.refreshSession(refreshToken)
-                }
+                // Ротацію робить сам API-шар під мьютексом на першому 401 — окремий
+                // refresh тут гонився б із ним за одноразовий токен і рвав сесію.
                 val user = backend.currentUser()
                 store.onEvent(
                     VocabeeEvent.ApplyAuthenticatedAccount(
@@ -1079,7 +1080,6 @@ private fun MainApp(
                         InviteFriendsScreen(
                             api = api,
                             isAuthenticated = state.account is VocabeeAccountState.Authenticated,
-                            refreshTokenProvider = { preferencesManager.refreshToken },
                             shareController = shareController,
                             onBack = { backStack.removeLastOrNull() },
                             onShowSnackbar = { message ->

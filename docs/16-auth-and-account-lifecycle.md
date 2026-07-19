@@ -178,12 +178,19 @@ OpenAPI для обох OptionalJwt маршрутів явно публікує
 - Єдине джерело правди для bearer-токена. `token: StateFlow<String?>` — реактивний потік **access**-токена (`asStateFlow`), ініціалізований з `preferencesManager.accessToken`.
 - `current()` — синхронно звіряє зі сховищем (re-read з prefs, оновлює `StateFlow` якщо розійшлося) і повертає актуальний access. Саме `current()` викликається перед кожним bearer-запитом у `KtorVocabeeApi` (`tokenStore.current()?.let { bearerAuth(it) }`).
 - `refreshToken()` — повертає **refresh** з prefs (refresh у `StateFlow` не тримається — він не потрібен реактивно).
-- `set(AuthTokensResponse)` — пише `refreshToken` у prefs і виставляє новий `accessToken`. `clear()` — гасить обидва токени, `StateFlow=null` і сигналізує `sessionExpired` для UI.
+- `set(AuthTokensResponse)` — пише `refreshToken` у prefs і виставляє новий `accessToken`, скидає `sessionNeedsReauth`.
+- `markSessionNeedsReauth()` — **[ЗАРАЗ]** сигнал для UI «сесію не вдалося поновити, запропонуй вхід». Токени навмисно **не** чистяться: причина може бути тимчасова, наступний виклик має шанс підняти сесію сам.
+- `clear()` — гасить обидва токени і `StateFlow=null`. Викликається **лише явним logout** (16.8) — ніколи автоматично з мережевого шару.
 - Refresh зберігається в `PreferencesManager` (`PreferencesManager.kt:34-36`: `accessToken`, `refreshToken`; також `currentUserId`, `lastAuthenticatedUserId`, `lastSyncAt`, `localRevisionEpochMillis`).
 
 ### Виклики API (KtorVocabeeApi)
 
-**[ЗАРАЗ]**: `loginWithGoogle` → `POST /v1/auth/google`, у відповідь `tokenStore.set(tokens)`. `refreshSession` → `POST /v1/auth/refresh`, теж `tokenStore.set(tokens)`. Усі mobile-виклики, які передають bearer (`/auth/me`, `/me`, `/topics/sync*`, `/wallet/*`, а також optional-auth `/search` і `/support`), після `401` **один раз** непомітно оновлюють пару токенів і повторюють вихідний запит. `Mutex` серіалізує одночасні refresh-запити: refresh rotation одноразова, тому паралельні 401 не можуть відкликати сесію одне одного. Якщо refresh також повертає `401`, `AuthTokenStore.clear()` прибирає обидва локальні токени; `SessionExpiryObservable` переводить UI в anonymous-стан і показує запит на повторну авторизацію.
+**[ЗАРАЗ]**: `loginWithGoogle` → `POST /v1/auth/google`, у відповідь `tokenStore.set(tokens)`. Ротацію (`POST /v1/auth/refresh`) робить **тільки** приватний `renewSession` всередині `KtorVocabeeApi` — публічного `refreshSession` у `VocabeeApi` більше немає, щоб UI-шар не міг гнатися за одноразовим refresh-токеном поза мьютексом (саме такі позамьютексні виклики зі startup-sync та InviteFriends раніше вбивали сесію). Усі mobile-виклики, які передають bearer (`/auth/me`, `/me`, `/topics/sync*`, `/wallet/*`, а також optional-auth `/search` і `/support`), після `401` непомітно оновлюють пару токенів і повторюють вихідний запит. Захисти в `renewSession`:
+
+- `Mutex` серіалізує одночасні refresh-запити (rotation одноразова — паралельні 401 не можуть відкликати сесію одне одного).
+- Сам обмін загорнутий у `NonCancellable`: якщо корутину викликача скасували (юзер пішов з екрана), сервер уже revoke'нув пред'явлений токен — нову пару все одно дописуємо в prefs, інакше лишився б мертвий refresh.
+- Якщо пред'явлений refresh отримав `401`, але в prefs уже лежить **інший** (паралельна ротація встигла раніше) — одна повторна спроба зі свіжим токеном (`MaxRefreshAttempts=2`).
+- Якщо refresh остаточно не вдався: `markSessionNeedsReauth()` — UI показує снекбар із пропозицією увійти, **але токени і Authenticated-стан лишаються**. Автоматичного sign-out немає взагалі: з акаунта виводить лише кнопка «Вийти» (16.8).
 
 > **Розрив: mobile не кличе `/auth/logout`.** Серед методів `VocabeeApi`/`KtorVocabeeApi` немає виклику `logout` — у клієнта немає `revoke` на дроті. Sign-out локально лише чистить prefs (16.7). Тобто **refresh-токен на сервері залишається валідним до природного протермінування** після виходу. Узгодити: чи додавати клієнтський виклик `/auth/logout` при sign-out — **[НОВЕ]/уточнити**.
 
@@ -218,12 +225,11 @@ OpenAPI для обох OptionalJwt маршрутів явно публікує
 **[ЗАРАЗ]** `App.kt` `runStartupSync()` (`:451-491`), викликається з `LaunchedEffect(Unit)` (`:556-558`):
 
 1. Якщо немає ні `accessToken`, ні `refreshToken` у prefs → ранній вихід (нема що синхронити, лишаємось локально/анонімно).
-2. Якщо є `refreshToken` → `backend.refreshSession(refreshToken)` (ротація: новий access+refresh у store, 16.3/16.5).
-3. `backend.currentUser()` → `ApplyAuthenticatedAccount(...)` (підтягуємо профіль і `beeBalance` з сервера).
-4. Якщо є незалиті локальні зміни (`localRevisionEpochMillis > 0`) → `syncVocabularyNow()` (заливаємо локальне). Інакше — інкрементальний `syncTopics(since=lastSyncAt)`; за наявності змін застосовуємо знімок (`since==null` → повний).
-5. Будь-яка помилка ковтається (`catch (_) {}`): лишаємось офлайн/локально, явний вхід покаже помилки.
+2. `backend.currentUser()` → `ApplyAuthenticatedAccount(...)` (підтягуємо профіль і `beeBalance` з сервера). Окремого стартового `refreshSession` немає: прострочений access сам відновиться через 401→renew усередині API-шару (16.5) — стартовий refresh поза мьютексом гонився б із паралельними запитами за одноразовий токен.
+3. Якщо є незалиті локальні зміни (`localRevisionEpochMillis > 0`) → `syncVocabularyNow()` (заливаємо локальне). Інакше — інкрементальний `syncTopics(since=lastSyncAt)`; за наявності змін застосовуємо знімок (`since==null` → повний).
+4. Будь-яка помилка ковтається (`catch (_) {}`): лишаємось офлайн/локально, явний вхід покаже помилки.
 
-> Тобто на кожному старті прострочений access відновлюється через refresh **до** першого захищеного запиту. Навіть якщо access протухне під час відкритого застосунку, bearer-виклик непомітно зробить один refresh і повторить запит (§16.5). Якщо refresh не вдався з `401`, клієнт чистить обидва токени; anonymous search після цього можливий лише без `Authorization`.
+> Навіть якщо access протухне під час відкритого застосунку, bearer-виклик непомітно зробить refresh під мьютексом і повторить запит (§16.5). Якщо refresh не вдався, токени **лишаються** і UI лише пропонує повторний вхід (`sessionNeedsReauth`); автоматичного переходу в anonymous немає.
 
 ---
 

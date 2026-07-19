@@ -15,8 +15,13 @@ class AuthTokenStore(
 ) {
     private val tokenState = MutableStateFlow(preferencesManager?.accessToken)
     val token: StateFlow<String?> = tokenState.asStateFlow()
-    private val sessionExpiredState = MutableStateFlow(false)
-    val sessionExpired: StateFlow<Boolean> = sessionExpiredState.asStateFlow()
+    private val sessionNeedsReauthState = MutableStateFlow(false)
+
+    /**
+     * Сесію не вдалося оновити — треба запропонувати новий вхід. Це **не** вихід із
+     * акаунта: токени лишаються на місці, щоб наступна спроба могла відновити сесію.
+     */
+    val sessionNeedsReauth: StateFlow<Boolean> = sessionNeedsReauthState.asStateFlow()
 
     fun current(): String? {
         if (preferencesManager != null) {
@@ -37,15 +42,25 @@ class AuthTokenStore(
     fun set(tokens: AuthTokensResponse) {
         preferencesManager?.refreshToken = tokens.refreshToken
         set(tokens.accessToken)
-        sessionExpiredState.value = false
+        sessionNeedsReauthState.value = false
     }
 
     fun refreshToken(): String? = preferencesManager?.refreshToken
 
+    /**
+     * Сигнал для UI, що сесію треба поновити входом. Токени навмисно лишаються:
+     * причина може бути тимчасовою (сервер перезапустився, мережа), і наступний
+     * виклик має шанс підняти сесію без участі юзера.
+     */
+    fun markSessionNeedsReauth() {
+        sessionNeedsReauthState.value = true
+    }
+
+    /** Повний вихід. Викликається лише явним logout — ніколи автоматично. */
     fun clear() {
         preferencesManager?.accessToken = null
         preferencesManager?.refreshToken = null
         tokenState.value = null
-        sessionExpiredState.value = true
+        sessionNeedsReauthState.value = false
     }
 }

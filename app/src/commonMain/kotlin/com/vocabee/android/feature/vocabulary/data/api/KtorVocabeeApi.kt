@@ -14,8 +14,10 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Ktor-backed [VocabeeApi]. Constructed with the platform HTTP client (built by
@@ -27,7 +29,7 @@ class KtorVocabeeApi(
     private val tokenStore: AuthTokenStore,
 ) : VocabeeApi, SessionExpiryObservable {
 
-    override val sessionExpired = tokenStore.sessionExpired
+    override val sessionNeedsReauth = tokenStore.sessionNeedsReauth
 
     /**
      * A refresh token can only be used once. Serialising refreshes prevents two
@@ -131,7 +133,11 @@ class KtorVocabeeApi(
         }
     }
 
-    override suspend fun refreshSession(refreshToken: String): AuthTokensResponse {
+    /**
+     * Приватний навмисно: ротація мусить іти лише через [renewSession] під мьютексом,
+     * інакше два обміни одним токеном вбивають сесію.
+     */
+    private suspend fun refreshSession(refreshToken: String): AuthTokensResponse {
         val tokens = executeRequest {
             client.post("${config.baseUrl}/v1/auth/refresh") {
                 contentType(ContentType.Application.Json)
@@ -200,33 +206,61 @@ class KtorVocabeeApi(
 
     /** Replays one request after renewing an expired access token. */
     private suspend fun <T> withFreshAccessToken(request: suspend () -> T): T {
-        val failedAccessToken = tokenStore.current() ?: return request()
+        val failedAccessToken = tokenStore.current()
+        if (failedAccessToken == null) {
+            // Access протух і був стертий, але сесія жива — піднімаємо її з refresh.
+            if (tokenStore.refreshToken() == null) return request()
+            renewSession(failedAccessToken = null)
+            return request()
+        }
         return try {
             request()
         } catch (cause: VocabeeApiException) {
             if (cause.statusCode != 401) throw cause
-            refreshAccessTokenAfter401(failedAccessToken)
+            renewSession(failedAccessToken)
             request()
         }
     }
 
-    private suspend fun refreshAccessTokenAfter401(failedAccessToken: String) {
+    /**
+     * Єдина точка ротації сесії. Refresh одноразовий на сервері, тож два паралельні
+     * обміни одним і тим самим токеном вбивали б сесію — [refreshMutex] цього не пускає,
+     * а [NonCancellable] гарантує, що вже відкликаний сервером токен буде замінений
+     * локально навіть якщо викликач зник (юзер пішов з екрана).
+     */
+    private suspend fun renewSession(failedAccessToken: String?) {
         refreshMutex.withLock {
             // Another concurrent request has already completed the rotation.
-            if (tokenStore.current() != failedAccessToken) return
-            val refreshToken = tokenStore.refreshToken() ?: throw VocabeeApiException(
-                statusCode = 401,
-                errorType = "unauthorized",
-                errorMessage = "Потрібна повторна авторизація.",
-            )
-            try {
-                refreshSession(refreshToken)
-            } catch (cause: VocabeeApiException) {
-                if (cause.statusCode == 401) tokenStore.clear()
-                throw cause
+            if (failedAccessToken != null && tokenStore.current() != failedAccessToken) return
+            var presentedToken = tokenStore.refreshToken() ?: run {
+                tokenStore.markSessionNeedsReauth()
+                throw sessionRenewalFailed()
             }
+            repeat(MaxRefreshAttempts) {
+                try {
+                    withContext(NonCancellable) { refreshSession(presentedToken) }
+                    return
+                } catch (cause: VocabeeApiException) {
+                    if (cause.statusCode != 401) throw cause
+                    // Токен уже обміняли деінде — пробуємо тим, що лежить у сховищі зараз.
+                    val storedToken = tokenStore.refreshToken()
+                    if (storedToken == null || storedToken == presentedToken) {
+                        tokenStore.markSessionNeedsReauth()
+                        throw cause
+                    }
+                    presentedToken = storedToken
+                }
+            }
+            tokenStore.markSessionNeedsReauth()
+            throw sessionRenewalFailed()
         }
     }
+
+    private fun sessionRenewalFailed() = VocabeeApiException(
+        statusCode = 401,
+        errorType = "unauthorized",
+        errorMessage = "Потрібна повторна авторизація.",
+    )
 
     private suspend fun <T> executeRequest(request: suspend () -> T): T = try {
         request()
@@ -247,6 +281,9 @@ class KtorVocabeeApi(
         )
     }
 }
+
+/** Одна повторна спроба на випадок, якщо refresh уже обміняли паралельно. */
+private const val MaxRefreshAttempts = 2
 
 private fun HttpResponse.statusValue(): Int = status.value
 private fun HttpResponse.statusValueDescription(): String = status.description

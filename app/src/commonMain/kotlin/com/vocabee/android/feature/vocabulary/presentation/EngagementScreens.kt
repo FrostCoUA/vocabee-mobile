@@ -122,7 +122,6 @@ internal fun PushedScreenTopBar(
 internal fun InviteFriendsScreen(
     api: VocabeeApi?,
     isAuthenticated: Boolean,
-    refreshTokenProvider: () -> String?,
     shareController: ShareController,
     onBack: () -> Unit,
     onShowSnackbar: (String) -> Unit,
@@ -131,13 +130,8 @@ internal fun InviteFriendsScreen(
     var rewardBees by remember { mutableIntStateOf(DefaultReferralRewardBees) }
     LaunchedEffect(isAuthenticated) {
         if (api != null && isAuthenticated) {
-            val referral = runCatching { api.fetchReferral() }.getOrElse {
-                // The access token lives ~15 min — refresh once and retry.
-                runCatching {
-                    refreshTokenProvider()?.let { token -> api.refreshSession(token) }
-                    api.fetchReferral()
-                }.getOrNull()
-            }
+            // Прострочений access (~15 хв) API-шар оновлює сам і повторює запит.
+            val referral = runCatching { api.fetchReferral() }.getOrNull()
             referral?.let {
                 link = it.link
                 rewardBees = it.rewardBees
