@@ -3,6 +3,7 @@ package com.vocabee.android
 import androidx.compose.runtime.remember
 import androidx.compose.ui.window.ComposeUIViewController
 import com.vocabee.android.di.vocabeeCommonModule
+import com.vocabee.android.di.vocabeeIosBaseUrl
 import com.vocabee.android.di.vocabeeIosModule
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApi
 import com.vocabee.android.feature.vocabulary.data.preferences.PreferencesManager
@@ -59,5 +60,6 @@ fun MainViewController(
         remoteLexiconSearch = remember { koin.get<RemoteLexiconSearchUseCase>() },
         api = remember { koin.get<VocabeeApi>() },
         preferencesManager = preferencesManager,
+        showRawTranslationSearchErrors = vocabeeIosBaseUrl == "https://dev-api.vocabee.online",
     )
 }

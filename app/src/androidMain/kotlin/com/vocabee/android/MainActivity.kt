@@ -123,6 +123,7 @@ class MainActivity : ComponentActivity() {
                     remoteLexiconSearch = viewModel.remoteLexiconSearch,
                     api = viewModel.api,
                     preferencesManager = viewModel.preferencesManager,
+                    showRawTranslationSearchErrors = BuildConfig.DEBUG,
                     onExitApp = { finish() },
                 )
             }

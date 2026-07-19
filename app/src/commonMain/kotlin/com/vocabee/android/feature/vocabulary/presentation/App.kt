@@ -271,6 +271,7 @@ private suspend fun searchRemotely(
     topic: DictionaryTopic,
     speakLang: String,
     learnLang: String,
+    showRawError: Boolean,
     onBeeBalanceChanged: (Int) -> Unit = {},
 ): AddWordSearchState {
     if (useCase == null) {
@@ -291,16 +292,21 @@ private suspend fun searchRemotely(
         is RemoteLexiconSearchUseCase.Result.Failure -> AddWordSearchState(
             query = result.query,
             isLoading = false,
-            // UI застосунку україномовний, а `result.message` — це серверний/мережевий
-            // рядок англійською («Network error», NestJS message). Показуємо копірайт
-            // борду, сирий текст назовні не протікає.
-            errorMessage = TranslationSearchFailureMessage,
+            errorMessage = translationSearchFailureMessage(
+                rawMessage = result.message,
+                showRawError = showRawError,
+            ),
         )
     }
 }
 
 /** Підпис під «Не вдалось отримати переклад» (борд 4 · стани панелі). */
-internal const val TranslationSearchFailureMessage = "Перевір інтернет і спробуй ще раз"
+internal const val TranslationSearchFailureMessage = "Something went wrong"
+
+internal fun translationSearchFailureMessage(
+    rawMessage: String,
+    showRawError: Boolean,
+): String = if (showRawError) rawMessage else TranslationSearchFailureMessage
 
 private data class GoogleSignInOutcome(
     val user: UserResponse? = null,
@@ -411,6 +417,7 @@ fun VocabeeApp(
     remoteLexiconSearch: RemoteLexiconSearchUseCase? = null,
     api: VocabeeApi? = null,
     preferencesManager: PreferencesManager = InMemoryPreferencesManager(),
+    showRawTranslationSearchErrors: Boolean = false,
     onExitApp: () -> Unit = {},
 ) {
     val state = store.state
@@ -460,6 +467,7 @@ fun VocabeeApp(
                 remoteLexiconSearch = remoteLexiconSearch,
                 api = api,
                 preferencesManager = preferencesManager,
+                showRawTranslationSearchErrors = showRawTranslationSearchErrors,
                 onExitApp = onExitApp,
             )
         }
@@ -477,6 +485,7 @@ private fun MainApp(
     remoteLexiconSearch: RemoteLexiconSearchUseCase?,
     api: VocabeeApi?,
     preferencesManager: PreferencesManager,
+    showRawTranslationSearchErrors: Boolean,
     onExitApp: () -> Unit,
 ) {
     val state = store.state
@@ -898,6 +907,7 @@ private fun MainApp(
                                         topic = topic,
                                         speakLang = state.userLanguage.code,
                                         learnLang = state.learningLanguage.code,
+                                        showRawError = showRawTranslationSearchErrors,
                                         onBeeBalanceChanged = { balance ->
                                             store.onEvent(VocabeeEvent.SetBeeBalance(balance))
                                         },

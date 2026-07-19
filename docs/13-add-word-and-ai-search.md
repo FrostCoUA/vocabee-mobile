@@ -90,7 +90,7 @@ LaunchedEffect(cleanedQuery) {
 | **Idle (Mic)** | `cleanedQuery.isBlank()` і не слухаємо | `MicStage`: «Продиктуй слово / або почни вводити…» + кнопка мікрофона | `AddWordOverlay.kt:301`, `:495-551` |
 | **Recording** | `isListening == true` | `MicStage` зі станом «Слухаю…», помаранчева хвиля `VoiceWaveform` (28 барів), «торкнись, щоб зупинити» | `AddWordOverlay.kt:301`, `:521-526`, `:611-653` |
 | **Loading** | `searchState.isLoading` | `AddWordLoadingState`: спінер + «Шукаю переклад…» | `AddWordOverlay.kt:308`, `:655-675` |
-| **Error** | `searchState.errorMessage != null` | `AddWordErrorState`: «Не вдалось отримати переклад» + текст помилки (з `VocabeeApiException`) | `AddWordOverlay.kt:309-312`, `:677-707` |
+| **Error** | `searchState.errorMessage != null` | `AddWordErrorState`: «Не вдалось отримати переклад» + повідомлення залежно від build: у release — «Something went wrong», у debug — сирий текст API/мережі | `App.kt`, `AddWordOverlay.kt:309-312`, `:677-707` |
 | **Results** | інакше | `AddWordResultsList` (порожній → «Нічого не знайдено для «{q}»»; інакше — список) | `AddWordResultsList`, `:709-789` |
 
 > `AddWordMode { Idle, Recording, Results }` (`:82`) — декларований enum; фактично станами керують `isListening` / `searchState.isLoading` / `searchState.errorMessage` напряму. `AddWordSearchState` (`:126-133`) — носій loading/results/error + `tier`/`maxResults`.
@@ -106,7 +106,7 @@ Recording-слот хвилі має фіксовану висоту (80 dp + 30
 |---|---|---|
 | **Помилка голосу** | `speechError != null && query.isBlank()` | `VoiceRecognitionErrorState` — див. нижче |
 | **Loading** | `searchState.isLoading` | `AddWordLoadingState`: спінер `Purple` на треку `Tint` + «Шукаю переклад…» |
-| **Error** | `searchState.errorMessage != null` | `AddWordErrorState`: ✕ `OrangeText` + «Не вдалось отримати переклад» / «Перевір інтернет і спробуй ще раз» (`TranslationSearchFailureMessage`); монетка **не** списується (гейт відпрацював до запиту) |
+| **Error** | `searchState.errorMessage != null` | `AddWordErrorState`: ✕ `OrangeText` + «Не вдалось отримати переклад»; у release — «Something went wrong», у debug — сирий текст API/мережі; монетка **не** списується (гейт відпрацював до запиту) |
 | **Results / порожньо** | інакше | `AddWordResultsList`; порожній результат — «Нічого не знайдено для «{q}»» |
 
 **[ЗАРАЗ] Повноекранна помилка голосу** (борд 4, «перероблено»): раніше панель показувала
@@ -121,10 +121,13 @@ Recording-слот хвилі має фіксовану висоту (80 dp + 30
 - кнопка доку в цей момент у стані cancel (✕) — закриває пошук;
 - сирий текст помилки лишається тільки у снекбарі «Голосове введення перервано: {причина}».
 
-Той самий принцип застосовано і до помилки пошуку: `searchRemotely` більше не віддає в UI
-`result.message` (там був англомовний `Network error` / серверний NestJS-рядок) — панель
-показує сталу `TranslationSearchFailureMessage`. Гейт-повідомлення (`translationGateMessage`,
-«потрібні монетки…») ставиться окремо й лишається без змін.
+Для помилки пошуку `searchRemotely` обирає copy залежно від build. Release не розкриває
+деталі інфраструктури та показує сталу `TranslationSearchFailureMessage` («Something went
+wrong»). Debug передає в панель `result.message` без обгортання — наприклад, реальне
+повідомлення gateway про timeout. На Android режим визначає `BuildConfig.DEBUG`; на iOS
+debug-конфігурація використовує `https://dev-api.vocabee.online`, release — production URL.
+Гейт-повідомлення (`translationGateMessage`, «потрібні монетки…») ставиться окремо й
+лишається без змін.
 
 ---
 
