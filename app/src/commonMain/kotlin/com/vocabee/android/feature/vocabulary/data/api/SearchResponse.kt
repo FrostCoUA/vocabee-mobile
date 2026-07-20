@@ -75,6 +75,10 @@ data class SearchMeta(
     val dictionarySource: String? = null,
     val dictionaryOrigin: String? = null,
     val beeBalance: Int? = null,
+    /** True лише коли сервер реально ходив до провайдера перекладу (а не віддав із бази). */
+    val triedProvider: Boolean = false,
+    /** `exact_cached` — з бази; `translated` — згенеровано; `not_a_word`/`echo`/`no_provider_data` — без перекладу. */
+    val providerReason: String? = null,
 )
 
 @Serializable

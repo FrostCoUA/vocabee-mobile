@@ -1,6 +1,7 @@
 package com.vocabee.android.feature.vocabulary.presentation
 
 import androidx.lifecycle.ViewModel
+import com.vocabee.android.core.analytics.AnalyticsTracker
 import com.vocabee.android.feature.vocabulary.domain.VocabularyRepository
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApi
 import com.vocabee.android.feature.vocabulary.data.preferences.PreferencesManager
@@ -12,11 +13,13 @@ class VocabeeViewModel(
     userSessionManager: UserSessionManager,
     val api: VocabeeApi,
     val preferencesManager: PreferencesManager,
+    analyticsTracker: AnalyticsTracker,
 ) : ViewModel() {
     val store = VocabeeStore(
         repository = repository,
         userSessionManager = userSessionManager,
         preferencesManager = preferencesManager,
+        analytics = analyticsTracker,
     )
-    val remoteLexiconSearch = RemoteLexiconSearchUseCase(api)
+    val remoteLexiconSearch = RemoteLexiconSearchUseCase(api, analyticsTracker)
 }

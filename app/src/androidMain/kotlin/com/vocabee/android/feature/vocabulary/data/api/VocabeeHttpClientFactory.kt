@@ -1,5 +1,7 @@
 package com.vocabee.android.feature.vocabulary.data.api
 
+import com.vocabee.android.core.analytics.AnalyticsTracker
+import com.vocabee.android.core.analytics.NoAnalyticsTracker
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -11,7 +13,11 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
 object VocabeeHttpClientFactory {
-    fun create(debugLogging: Boolean = false): HttpClient = HttpClient(OkHttp) {
+    fun create(
+        debugLogging: Boolean = false,
+        analyticsTracker: AnalyticsTracker = NoAnalyticsTracker,
+    ): HttpClient = HttpClient(OkHttp) {
+        install(analyticsHttpPlugin(analyticsTracker))
         install(ContentNegotiation) {
             json(
                 Json {

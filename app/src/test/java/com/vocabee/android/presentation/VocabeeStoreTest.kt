@@ -1,5 +1,6 @@
 package com.vocabee.android.feature.vocabulary.presentation
 
+import com.vocabee.android.core.analytics.AnalyticsTracker
 import com.vocabee.android.feature.vocabulary.data.FakeVocabularyRepository
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
 import com.vocabee.android.feature.vocabulary.domain.manager.StaticUserSessionManager
@@ -574,4 +575,62 @@ class VocabeeStoreTest {
         translation = translation,
         details = details,
     )
+
+    @Test
+    fun analyticsTracksWordLifecycleAndDictionaryCreation() {
+        val analytics = RecordingAnalyticsTracker()
+        val store = VocabeeStore(analytics = analytics)
+        val topic = store.createTopicForTest()
+
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "bee",
+                translation = "бджола",
+            ),
+        )
+        store.onEvent(VocabeeEvent.RemoveWord(topicId = topic.id, translation = "бджола"))
+
+        assertEquals(
+            listOf("dictionary_created", "word_added", "word_deleted"),
+            analytics.events.map { it.first },
+        )
+        val wordAdded = analytics.events[1].second
+        assertEquals("bee", wordAdded["source"])
+        assertEquals("бджола", wordAdded["translation"])
+    }
+
+    @Test
+    fun analyticsIdentifiesOnAuthAndResetsOnSignOut() {
+        val analytics = RecordingAnalyticsTracker()
+        val store = VocabeeStore(analytics = analytics)
+
+        store.authenticateForTest()
+        store.signOutKeepLastUserState()
+
+        assertEquals(listOf("test-user"), analytics.identifiedUsers)
+        assertEquals("test@example.com", analytics.identifyProperties.single()["email"])
+        assertEquals(listOf("signed_out"), analytics.events.map { it.first })
+        assertEquals(1, analytics.resetCount)
+    }
+
+    private class RecordingAnalyticsTracker : AnalyticsTracker {
+        val events = mutableListOf<Pair<String, Map<String, Any?>>>()
+        val identifiedUsers = mutableListOf<String>()
+        val identifyProperties = mutableListOf<Map<String, Any?>>()
+        var resetCount = 0
+
+        override fun track(event: String, properties: Map<String, Any?>) {
+            events += event to properties
+        }
+
+        override fun identify(userId: String, properties: Map<String, Any?>) {
+            identifiedUsers += userId
+            identifyProperties += properties
+        }
+
+        override fun reset() {
+            resetCount += 1
+        }
+    }
 }

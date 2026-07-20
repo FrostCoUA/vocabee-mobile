@@ -3,6 +3,8 @@ package com.vocabee.android.feature.vocabulary.presentation
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.vocabee.android.core.analytics.AnalyticsTracker
+import com.vocabee.android.core.analytics.NoAnalyticsTracker
 import com.vocabee.android.core.platform.currentEpochMillis
 import com.vocabee.android.core.platform.startOfDayEpochMillis
 import com.vocabee.android.feature.vocabulary.data.FakeVocabularyRepository
@@ -232,6 +234,7 @@ class VocabeeStore(
     private val repository: VocabularyRepository = FakeVocabularyRepository(),
     private val userSessionManager: UserSessionManager = StaticUserSessionManager(),
     private val preferencesManager: PreferencesManager = InMemoryPreferencesManager(),
+    private val analytics: AnalyticsTracker = NoAnalyticsTracker,
 ) {
     private val loadUserTopicsUseCase = LoadUserTopicsUseCase(repository, userSessionManager)
     private val createTopicUseCase = CreateTopicUseCase(repository, userSessionManager)
@@ -403,6 +406,10 @@ class VocabeeStore(
         val rounds = preferencesManager.practiceRoundsCompleted + 1
         preferencesManager.practiceRoundsCompleted = rounds
         state = state.copy(practiceRounds = rounds, streakDays = refreshedStreakDays())
+        analytics.track(
+            "practice_round_completed",
+            mapOf("rounds_total" to rounds, "streak_days" to state.streakDays),
+        )
     }
 
     /**
@@ -450,6 +457,16 @@ class VocabeeStore(
         state = state.copy(
             topics = loadUserTopicsUseCase(),
         )
+        analytics.track(
+            "dictionary_created",
+            mapOf(
+                "title" to cleanedTitle,
+                "learning_lang" to state.learningLanguage.code,
+                "known_lang" to state.userLanguage.code,
+                "charged_beecoins" to shouldCharge,
+                "dictionaries_count" to state.topics.size,
+            ),
+        )
         touchLocalRevision()
     }
 
@@ -484,6 +501,7 @@ class VocabeeStore(
             topics = loadUserTopicsUseCase(),
             recentlyAddedWordId = null,
         )
+        analytics.track("dictionary_deleted", mapOf("topic_id" to topicId))
         touchLocalRevision()
     }
 
@@ -499,6 +517,10 @@ class VocabeeStore(
         state = state.copy(
             topics = loadUserTopicsUseCase(),
             recentlyAddedWordId = null,
+        )
+        analytics.track(
+            "dictionary_words_cleared",
+            mapOf("topic_id" to topicId, "words_removed" to clearedCount),
         )
         touchLocalRevision()
     }
@@ -528,6 +550,15 @@ class VocabeeStore(
             topics = loadUserTopicsUseCase(),
             recentlyAddedWordId = word.id,
         )
+        analytics.track(
+            "word_added",
+            mapOf(
+                "topic_id" to topicId,
+                "source" to cleanedSource,
+                "translation" to cleanedTranslation,
+                "has_details" to (details?.takeUnless { it.isEmpty } != null),
+            ),
+        )
         touchLocalRevision()
     }
 
@@ -537,6 +568,7 @@ class VocabeeStore(
         val removed = removeWordUseCase(topicId = topicId, translation = cleaned)
         if (!removed) return
         state = state.copy(topics = loadUserTopicsUseCase())
+        analytics.track("word_deleted", mapOf("topic_id" to topicId))
         touchLocalRevision()
     }
 
@@ -551,6 +583,10 @@ class VocabeeStore(
             topics = loadUserTopicsUseCase(),
             recentlyAddedWordId = state.recentlyAddedWordId.takeIf { it != updated.id },
         )
+        analytics.track(
+            "practice_answer",
+            mapOf("topic_id" to topicId, "word_id" to wordId, "known" to (deltaPercent > 0)),
+        )
         touchLocalRevision()
     }
 
@@ -560,6 +596,7 @@ class VocabeeStore(
         val nextBalance = (state.beeBalance + amount).coerceAtLeast(0)
         preferencesManager.beeBalance = nextBalance
         state = state.copy(beeBalance = nextBalance)
+        analytics.track("beecoins_added", mapOf("amount" to amount, "balance" to nextBalance))
     }
 
     private fun spendBees(amount: Int): Boolean {
@@ -569,6 +606,7 @@ class VocabeeStore(
         val nextBalance = (state.beeBalance - amount).coerceAtLeast(0)
         preferencesManager.beeBalance = nextBalance
         state = state.copy(beeBalance = nextBalance)
+        analytics.track("beecoins_spent", mapOf("amount" to amount, "balance" to nextBalance))
         return true
     }
 
@@ -647,9 +685,22 @@ class VocabeeStore(
             beeBalance = event.beeBalance.coerceAtLeast(0),
             topics = loadUserTopicsUseCase(),
         )
+        // Той самий distinct id, що й у серверних подіях (users.id), тому
+        // клієнтські та бекендові події зливаються в одну персону PostHog.
+        analytics.identify(
+            event.userId,
+            mapOf(
+                "email" to event.email,
+                "name" to event.displayName,
+                "speak_lang" to userLanguage.code,
+                "learn_lang" to learningLanguage.code,
+            ),
+        )
     }
 
     fun signOutKeepLastUserState() {
+        analytics.track("signed_out")
+        analytics.reset()
         preferencesManager.currentUserId = null
         state = state.copy(
             account = VocabeeAccountState.Anonymous,

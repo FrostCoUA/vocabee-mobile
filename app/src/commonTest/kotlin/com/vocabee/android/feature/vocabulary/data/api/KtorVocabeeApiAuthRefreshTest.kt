@@ -66,28 +66,46 @@ class KtorVocabeeApiAuthRefreshTest {
     /**
      * Відмова refresh — не привід гасити сесію: юзер лишається залогіненим,
      * токени лишаються в prefs, щоб наступна спроба могла відновити сесію.
-     * Вихід із акаунта робить тільки явний logout.
+     * Вихід із акаунта робить тільки явний logout. Але публічний `/search`
+     * (D2) при цьому не блокується — він повторюється анонімно, без bearer.
      */
     @Test
-    fun failedRefreshKeepsTheLocalSession() = runBlocking {
+    fun failedRefreshKeepsTheLocalSessionAndFallsBackToAnonymousSearch() = runBlocking {
         val preferences = InMemoryPreferencesManager().apply {
             accessToken = "expired"
             refreshToken = "stored-refresh"
         }
         val tokenStore = AuthTokenStore(preferences)
+        val requests = mutableListOf<String>()
         val api = KtorVocabeeApi(
             client = clientWithEngine { request ->
-                when (request.url.encodedPath) {
-                    "/v1/search", "/v1/auth/refresh" -> unauthorizedResponse()
-                    else -> error("Unexpected path: ${request.url.encodedPath}")
+                val path = request.url.encodedPath
+                requests += "$path ${request.headers[HttpHeaders.Authorization].orEmpty()}"
+                when (path) {
+                    "/v1/search" -> if (request.headers[HttpHeaders.Authorization] == null) {
+                        respond(searchResponse(), HttpStatusCode.OK, jsonHeaders())
+                    } else {
+                        unauthorizedResponse()
+                    }
+                    "/v1/auth/refresh" -> unauthorizedResponse()
+                    else -> error("Unexpected path: $path")
                 }
             },
             config = VocabeeApiConfig(baseUrl = "https://test.vocabee"),
             tokenStore = tokenStore,
         )
 
-        runCatching { api.search("bee", "uk", "en") }
+        val result = api.search("bee", "uk", "en")
 
+        assertEquals("bee", result.query)
+        assertEquals(
+            listOf(
+                "/v1/search Bearer expired",
+                "/v1/auth/refresh ",
+                "/v1/search ",
+            ),
+            requests,
+        )
         assertEquals("expired", preferences.accessToken)
         assertEquals("stored-refresh", preferences.refreshToken)
         // UI лише пропонує повторний вхід — сесія локально жива.

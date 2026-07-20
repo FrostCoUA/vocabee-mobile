@@ -3,6 +3,8 @@ package com.vocabee.android.di
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.vocabee.android.BuildConfig
+import com.vocabee.android.core.analytics.AnalyticsTracker
+import com.vocabee.android.core.analytics.PostHogAnalyticsTracker
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApiConfig
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeHttpClientFactory
 import com.vocabee.android.feature.vocabulary.data.local.VOCABEE_DATABASE_NAME
@@ -16,6 +18,8 @@ import org.koin.androidx.viewmodel.dsl.viewModel
 import org.koin.dsl.module
 
 val vocabeeAndroidModule = module {
+    single<AnalyticsTracker> { PostHogAnalyticsTracker() }
+
     single<PreferencesManager> { AndroidPreferencesManager(androidContext()) }
 
     single {
@@ -24,7 +28,12 @@ val vocabeeAndroidModule = module {
         VocabeeApiConfig(baseUrl = BuildConfig.VOCABEE_API_BASE_URL)
     }
 
-    single<HttpClient> { VocabeeHttpClientFactory.create(debugLogging = BuildConfig.DEBUG) }
+    single<HttpClient> {
+        VocabeeHttpClientFactory.create(
+            debugLogging = BuildConfig.DEBUG,
+            analyticsTracker = get(),
+        )
+    }
 
     single<RoomDatabase.Builder<VocabeeDatabase>> {
         val context = androidContext()
@@ -34,5 +43,5 @@ val vocabeeAndroidModule = module {
         )
     }
 
-    viewModel { VocabeeViewModel(get(), get(), get(), get()) }
+    viewModel { VocabeeViewModel(get(), get(), get(), get(), get()) }
 }

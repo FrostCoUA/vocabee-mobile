@@ -28,6 +28,11 @@
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="@string/vocabee_admob_app_id" />
 
+        <!-- Sentry ініціалізується вручну у VocabeeApplication (DSN з BuildConfig). -->
+        <meta-data
+            android:name="io.sentry.auto-init"
+            android:value="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

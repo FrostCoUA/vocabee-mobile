@@ -33,6 +33,19 @@ val vocabeeAdMobRewardedAdUnitId: String =
     localProps.getProperty("vocabee.admob.rewardedAdUnitId")
         ?: System.getenv("VOCABEE_ADMOB_REWARDED_AD_UNIT_ID")
         ?: "ca-app-pub-3940256099942544/5224354917"
+val vocabeeSentryDsn: String =
+    localProps.getProperty("vocabee.sentry.dsn")
+        ?: System.getenv("VOCABEE_SENTRY_DSN")
+        ?: "https://0173dca9d02a75f689499911111b995c@o4511762662948864.ingest.de.sentry.io/4511762686279760"
+// PostHog project API key — публічний клієнтський ключ (як Sentry DSN), не секрет.
+val vocabeePosthogApiKey: String =
+    localProps.getProperty("vocabee.posthog.apiKey")
+        ?: System.getenv("VOCABEE_POSTHOG_API_KEY")
+        ?: "phc_ofZDMwg8xddytpa9rBHNbRcvFLkgk3UyZ44mUrpufpeW"
+val vocabeePosthogHost: String =
+    localProps.getProperty("vocabee.posthog.host")
+        ?: System.getenv("VOCABEE_POSTHOG_HOST")
+        ?: "https://us.i.posthog.com"
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -84,6 +97,8 @@ kotlin {
         }
 
         androidMain.dependencies {
+            implementation(libs.posthog.android)
+            implementation(libs.sentry.android)
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.lifecycle.viewmodel.ktx)
@@ -122,15 +137,20 @@ android {
 
         buildConfigField("String", "VOCABEE_GOOGLE_WEB_CLIENT_ID", "\"$vocabeeGoogleWebClientId\"")
         buildConfigField("String", "VOCABEE_ADMOB_REWARDED_AD_UNIT_ID", "\"$vocabeeAdMobRewardedAdUnitId\"")
+        buildConfigField("String", "VOCABEE_SENTRY_DSN", "\"$vocabeeSentryDsn\"")
+        buildConfigField("String", "VOCABEE_POSTHOG_API_KEY", "\"$vocabeePosthogApiKey\"")
+        buildConfigField("String", "VOCABEE_POSTHOG_HOST", "\"$vocabeePosthogHost\"")
         resValue("string", "vocabee_admob_app_id", vocabeeAdMobAppId)
     }
 
     buildTypes {
         debug {
             buildConfigField("String", "VOCABEE_API_BASE_URL", "\"$vocabeeDevApiBaseUrl\"")
+            buildConfigField("String", "VOCABEE_SENTRY_ENVIRONMENT", "\"development\"")
         }
         release {
             buildConfigField("String", "VOCABEE_API_BASE_URL", "\"$vocabeeProdApiBaseUrl\"")
+            buildConfigField("String", "VOCABEE_SENTRY_ENVIRONMENT", "\"production\"")
         }
     }
 

@@ -2,5 +2,8 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/iosApp/build/DerivedData/SourcePackages/checkouts/swift-package-manager-google-mobile-ads" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/iosApp/build/DerivedData/SourcePackages/checkouts/swift-package-manager-google-user-messaging-platform" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/vocabee" vcs="Git" />
   </component>
 </project>

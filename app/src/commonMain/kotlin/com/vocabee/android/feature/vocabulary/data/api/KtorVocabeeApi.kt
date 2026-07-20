@@ -42,13 +42,13 @@ class KtorVocabeeApi(
         speakLang: String,
         learnLang: String,
     ): SearchResponse {
-        return withFreshAccessToken {
+        return withOptionalAccessToken { accessToken ->
             executeRequest {
                 client.get("${config.baseUrl}/v1/search") {
                     parameter("q", query)
                     parameter("speak", speakLang)
                     parameter("learn", learnLang)
-                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                    accessToken?.let { token -> bearerAuth(token) }
                 }.body()
             }
         }
@@ -73,7 +73,7 @@ class KtorVocabeeApi(
         sourceLang: String,
         targetLang: String,
     ): ContextGlossaryResponse {
-        return withFreshAccessToken {
+        return withOptionalAccessToken { accessToken ->
             executeRequest {
                 client.post("${config.baseUrl}/v1/search/context-glossary") {
                     contentType(ContentType.Application.Json)
@@ -84,7 +84,7 @@ class KtorVocabeeApi(
                             targetLang = targetLang,
                         ),
                     )
-                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                    accessToken?.let { token -> bearerAuth(token) }
                 }.body()
             }
         }
@@ -201,6 +201,24 @@ class KtorVocabeeApi(
                     tokenStore.current()?.let { token -> bearerAuth(token) }
                 }.body()
             }
+        }
+    }
+
+    /**
+     * Для публічних ендпоінтів (D2: `/search` працює без акаунта). Мертва сесія —
+     * 401 і на запит, і на refresh — не має їх блокувати: повторюємо запит
+     * анонімно, без bearer. Токени навмисно не чистимо (див.
+     * [AuthTokenStore.markSessionNeedsReauth]) — прапорець reauth уже стоїть,
+     * UI запропонує вхід, а пошук тим часом працює у гостьовому режимі.
+     */
+    private suspend fun <T> withOptionalAccessToken(
+        request: suspend (accessToken: String?) -> T,
+    ): T {
+        return try {
+            withFreshAccessToken { request(tokenStore.current()) }
+        } catch (cause: VocabeeApiException) {
+            if (cause.statusCode != 401) throw cause
+            request(null)
         }
     }
 

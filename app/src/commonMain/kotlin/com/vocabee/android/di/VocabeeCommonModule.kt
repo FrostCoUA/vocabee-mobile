@@ -24,5 +24,5 @@ val vocabeeCommonModule = module {
     single<UserSessionManager> { PreferencesUserSessionManager(get()) }
     single { AuthTokenStore(get()) }
     single<VocabeeApi> { KtorVocabeeApi(get(), get(), get()) }
-    single { RemoteLexiconSearchUseCase(get()) }
+    single { RemoteLexiconSearchUseCase(get(), get()) }
 }

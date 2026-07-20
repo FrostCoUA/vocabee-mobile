@@ -287,9 +287,10 @@ Dictionary admin приймає лише окремий RS256 `admin-access-toke
 
 Перед завантаженням V1-пакета exact-parser endpoint можна запустити без БД через
 `npm run db:validate:lexicon-v1 -- <file-or-directory>`; команда має повернути
-`invalid=0`. Поточний V1 importer приймає source `entryType="word"`; source phrases
-лишаються явними exclusions у versioned manifest, доки phrase persistence/search не
-підключені end-to-end.
+`invalid=0`. V1 importer приймає source `entryType="word"` і `entryType="phrase"`:
+фрази зберігаються у `lexicon_phrases`, а source/target phrase unit не маскуються під
+слова. Це робить secondary phrase batches uploadable через той самий admin endpoint;
+пошукове збагачення фраз лишається окремою задачею.
 
 `dictionary-admin-web` **[ЗАРАЗ]** використовує спільну адмін-дизайн-систему
 «Vocabee Redesign» (`@vocabee/admin-ui`) та мобільний знак із трьох сот. Список
@@ -845,6 +846,15 @@ protected plans/consumer — по одному, system key count — 0 до яв
 - `topics.words_synced_at` — коли колекцію слів востаннє звіряли (= `words_updated_at` на той момент).
 - `topic_words.last_synced_at` — коли цей рядок слова востаннє звіряли.
 - Усі nullable: `NULL` = «ніколи не синкалось».
+
+---
+
+## 5. Спостережність (Sentry)
+
+**[ЗАРАЗ]** Обидві сторони звітують в особисту Sentry-org `vocabee` (регіон DE):
+
+- **Клієнт (Android)** — проєкт `android`. `io.sentry:sentry-android` ініціалізується вручну у `VocabeeApplication` (auto-init вимкнено в маніфесті). DSN — з `BuildConfig.VOCABEE_SENTRY_DSN` (ланцюжок `local.properties: vocabee.sentry.dsn` → env `VOCABEE_SENTRY_DSN` → дефолт у `app/build.gradle.kts`); порожній DSN повністю вимикає SDK. `environment`: debug → `development`, release → `production`; діагностичні логи SDK (`isDebug`) — лише в debug-збірках. З коробки: крєші/ANR, сесії (Release Health), breadcrumbs; PII не збирається (дефолт `sendDefaultPii=false`).
+- **Бекенд** — проєкт `node-nestjs`, спільний для client- і dictionary-gateway (`src/instrument.ts` читає `SENTRY_DSN`; статуси ≥500 → `captureException` в `ApiExceptionFilter`; Sentry Logs пошуку — doc 13). У Coolify (Dockerfile build pack) `SENTRY_DSN`/`SENTRY_ENVIRONMENT` задано напряму на кожному застосунку; compose-маппінг `SENTRY_CLIENT_DSN`/`SENTRY_DICTIONARY_DSN` діє лише в локальному docker-compose.
 
 ---
 

@@ -2,6 +2,8 @@ package com.vocabee.android.di
 
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.vocabee.android.core.analytics.AnalyticsTracker
+import com.vocabee.android.core.analytics.NoAnalyticsTracker
 import com.vocabee.android.feature.vocabulary.data.api.IosVocabeeHttpClientFactory
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApiConfig
 import com.vocabee.android.feature.vocabulary.data.local.VOCABEE_DATABASE_NAME
@@ -20,6 +22,9 @@ import platform.Foundation.NSFileManager
 import platform.Foundation.NSUserDomainMask
 
 val vocabeeIosModule = module {
+    // PostHog поки лише на Android; iOS живе без аналітики.
+    single<AnalyticsTracker> { NoAnalyticsTracker }
+
     single<PreferencesManager> { IosPreferencesManager() }
 
     single { VocabeeApiConfig(baseUrl = vocabeeIosBaseUrl) }

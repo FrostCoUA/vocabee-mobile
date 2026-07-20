@@ -321,14 +321,14 @@ DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak
 | 0 | **Нормалізація** | `trim` → `normalize()` = NFKC + trim + lowercase; `isPhrase = слів > 1` | `lexicon.service.ts:137-138`, `:860-862` |
 | 1 | **Детект мови (speak/learn)** | `LanguageDetector.detectBetween`: (a) скрипт-евристика Кирилиця vs Латиниця, (b) `franc-min` якщо ≥4 символи, (c) fallback → `learnLang`. `otherLang` = протилежна detected | `lang-detect.ts:30-55`, `lexicon.service.ts:140-147` |
 | 2 | **Префікс-кеш lexicon** | `findPrefixMatches(detectedLang, normalized, otherLang, maxResults)` — `LIKE 'q%'`, exact-first, тоді primary, тоді коротші слова. Дає живі підказки «cir → circle/circus/circumstance» | `lexicon.repository.ts:308-358`, `lexicon.service.ts:151-161` |
-| 3 | **Freshness / top-up** | Якщо є exact-cached і провайдер `isAvailable`: перевірити, чи є рядок із поточного tier (`acceptedTierNames`). Нема → `needsTopUp` (авто-рефетч при DeepL Free→Pro, зміні AI-моделі) | `lexicon.service.ts:171-191` |
+| 3 | **Freshness / top-up** | **[ЗАРАЗ]** Якщо є exact-cached і провайдер `isAvailable`: рядок свіжий, коли `translator.acceptsTier(row.providerTier)` **або** tier `seed-import` (кураторський імпорт з адмінки — свіжий завжди, без `cacheRole`-вимоги). AI-family (`openai-*`/`ai-*`/`audit-*`) приймає одна одну: зміна `OPENAI_MODEL` **не** знецінює кеш (інакше перший пошук кожного кешованого слова після свапу моделі знову йшов у провайдера — саме це давало «повільний пошук по вже імпортованих словах»). Нема свіжого рядка (напр., лише `wiktionary`) → `needsTopUp` | `lexicon.service.ts`, `provider-tier.ts` (`isAiFamilyTier`, `CURATED_IMPORT_TIER`) |
 | 4 | **Word-validator (квота-гейт)** | Для слова — Hunspell, для фрази — phrase-validator; додатково пропускаються короткі/uppercase/dotted кандидати на абревіатуру (`btw`, `LOL`, `NATO`, `U.S.`), а остаточну валідність вирішує structured AI | `lexicon.service.ts`, word-validator §12 |
 | 5 | **Провайдер перекладу + lexical metadata** | OpenAI класифікує обидві мовні сторони як `word/phrase/expression/abbreviation`, окремо дає register tags, розшифровки, значення, дослівний переклад і приклади; напрямок орієнтується так, щоб mobile завжди отримав metadata learning-side одиниці | `openai-translation.provider.ts`, `translation.provider.ts` |
 | 6 | **Echo-гард** | Кандидати = провайдер-результати, де `normalize(text) != normalizedQuery`. Усі збіглися з вводом → `echo` (НЕ персистимо). `null` → `no_provider_data` | `lexicon.service.ts:209-242` |
 | 7 | **Upsert lexicon + directional cache** | `persistAllVariants`: upsert source і target words, зв'язати `target_word_id`, зберегти тільки `detectedLang → otherLang`. Lexical metadata лежить у `translations.metadata`, тому exact-cache повертає ті самі тип/розшифровку/значення без нового AI-виклику. Старий exact-cache без `sourceUnit/targetUnit` один раз ліниво оновлюється наступним пошуком; уже його відповідь містить metadata, далі знову працює кеш | `lexicon.service.ts`, `lexicon.repository.ts` |
 | 8 | **Збагачення (IPA/audio/examples/senses)** | `enrichLearningEntry` (тільки не-фраза): dictionary-ланцюг (OpenAI → FreeDictionary) дає IPA, audio, senses+приклади, синоніми/антоніми, форми; усе ідемпотентно персиститься; heal-on-read для старого IPA | `lexicon.service.ts`, `lexicon-core.module.ts` |
 | 9 | **Quality repair перед композицією** | Активні translation rows із `qualityScore >= 100` форсують AI-виклик, передають comments та `excludedTranslations`; позначені examples ремонтуються окремим dictionary-викликом із `rejectedExamples`; після успішного ремонту score обнуляється, безуспішний кеш лишається. | `lexicon.service.ts`, `quality-feedback.service.ts` |
-| 10 | **Композиція відповіді** | Провайдер-хіти спершу, тоді не-дубль префікс-підказки, до `maxResults`; під час успішного quality repair старі low-quality variants фільтруються; дедуп по `normalize(knownWord)` | `lexicon.service.ts:245-264` |
+| 10 | **Композиція відповіді** | **[НОВЕ]** Провайдер-хіти спершу, тоді не-дубль префікс-підказки, до `maxResults`. **Точний збіг перекриває підказки:** якщо введене слово є в базі (або його щойно переклав провайдер) — віддаємо лише його переклади, сусідів на ту саму букву відкидаємо. Точного збігу нема (часткове введення `cir`) → підказки лишаються, але не більш як `PREFIX_SUGGESTION_LIMIT = 15`. Під час успішного quality repair старі low-quality variants фільтруються; дедуп по `normalize(knownWord)` | `lexicon.service.ts` |
 
 ### `providerReason` (meta — чому викликали/не викликали провайдер)
 
@@ -339,6 +339,17 @@ DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak
 | `echo` | провайдер віддав ввід дослівно — трактуємо як «нема перекладу», не зберігаємо | `:233-234` |
 | `no_provider_data` | реальне слово, але ланцюг нічого не дав | `:235-239` |
 | `translated` | провайдер дав реальний переклад → персист | `:214-216` |
+
+### Sentry-спостереження за пошуком
+
+**[ЗАРАЗ]** `dictionary-gateway` надсилає структуровані Sentry Logs (не Issues) для
+трьох продуктово важливих результатів: `lexicon.search.cache_hit` для
+`exact_cached`; `lexicon.search.no_translation` для `not_a_word`, `echo` і
+`no_provider_data`; `lexicon.search.ai_translation_generated` для успішного
+перекладу з AI-origin (`openai-*`/`ai-*`). Кожен запис має `search.language`,
+`search.target_language`, `search.is_phrase`, `search.result_count` і, де доречно,
+причину або origin. Сам текст запиту, user id, email та HTTP body навмисно не
+надсилаються.
 
 ### Відповідь `SearchResponseDto` → клієнт
 
@@ -352,8 +363,10 @@ DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak
 
 Активний DI-ланцюг зараз містить **OpenAI translation**. Модель конфігурується через
 `OPENAI_MODEL`, default — `gpt-5.6-sol`; structured JSON повертає до 8 варіантів.
-Кожен результат тегається `openai-<model>`, тому історичні рядки з попередньою моделлю
-лишаються видимими як власний provider tier, а наступний пошук може долити поточний tier.
+Кожен результат тегається `openai-<model>` — це provenance для тулінгу/аудиту, а
+**не** критерій свіжості: `acceptsTier` приймає всю AI-родину, тож свап моделі не
+тригерить масовий рефетч (§10, крок 3). Погані окремі рядки регенеруються через
+quality-feedback і адмін-видалення (`translation_pair_repairs`), не через tier.
 
 | Провайдер | tier-name | variants/call | Доступність | Код |
 |---|---|---|---|---|
