@@ -26,7 +26,7 @@ enum class LexicalRegisterTag {
 
 @Serializable
 data class WordSense(
-    /** Stable backend identity; null only for snapshots saved before V2. */
+    /** Stable backend identity; null for legacy backend rows or pre-V2 local snapshots. */
     val senseKey: String? = null,
     val definition: String,
     val partOfSpeech: String? = null,
@@ -65,12 +65,20 @@ data class ContextGlossary(
 
 /**
  * Rich enrichment for a saved word — populated from the gateway's search response
- * at the moment the user taps "+" and persisted to Room as a single JSON blob via
- * [com.vocabee.android.feature.vocabulary.data.local.VocabeeTypeConverters]. Stays read-only on the
- * mobile: the server is the source of truth for everything in here.
+ * at the moment the user taps "+" and persisted to Room as a single JSON blob by
+ * [com.vocabee.android.feature.vocabulary.data.RoomVocabularyRepository]. Stays read-only
+ * on mobile: the server is the source of truth for everything in here.
  */
 @Serializable
 data class WordDetails(
+    /**
+     * Opaque identity/version fields used by server-authoritative lexicon refresh.
+     * They are persisted and synced, but deliberately do not make an otherwise
+     * empty details payload expandable in the UI.
+     */
+    val translationId: String? = null,
+    val lexiconSchemaVersion: Int? = null,
+    val lexiconRevision: String? = null,
     /** Stable V2 meanings rendered by this translation. */
     val senseKeys: List<String> = emptyList(),
     /**
@@ -107,6 +115,15 @@ data class WordDetails(
             meaning.isNullOrBlank() && literalTranslation.isNullOrBlank() &&
             usageExample.isNullOrBlank() && usageExampleTranslation.isNullOrBlank() &&
             contextGlossary == null
+
+    /** True when this snapshot must survive storage/sync despite having no visible details. */
+    val hasLexiconSnapshot: Boolean
+        get() = !translationId.isNullOrBlank() ||
+            lexiconSchemaVersion != null ||
+            !lexiconRevision.isNullOrBlank()
+
+    val shouldPersist: Boolean
+        get() = !isEmpty || hasLexiconSnapshot
 }
 
 data class LanguageOption(

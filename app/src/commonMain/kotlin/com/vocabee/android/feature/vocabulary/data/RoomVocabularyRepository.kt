@@ -27,10 +27,18 @@ import kotlin.uuid.Uuid
 
 private const val MILLIS_PER_DAY = 86_400_000L
 
-private val detailsCodec = Json {
-    ignoreUnknownKeys = true
-    isLenient = true
-    encodeDefaults = false
+internal object WordDetailsJsonCodec {
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        encodeDefaults = false
+    }
+
+    fun encode(details: WordDetails): String =
+        json.encodeToString(WordDetails.serializer(), details)
+
+    fun decode(rawJson: String): WordDetails =
+        json.decodeFromString(WordDetails.serializer(), rawJson)
 }
 
 class RoomVocabularyRepository(
@@ -177,9 +185,7 @@ class RoomVocabularyRepository(
                 source = source,
                 translation = translation,
                 ipa = ipa,
-                detailsJson = details?.let {
-                    detailsCodec.encodeToString(WordDetails.serializer(), it)
-                },
+                detailsJson = details?.let(WordDetailsJsonCodec::encode),
                 knowledgePercent = 0,
                 addedAtEpochMillis = now,
                 updatedAtEpochMillis = now,
@@ -362,9 +368,7 @@ class RoomVocabularyRepository(
             } else {
                 SyncStatus.PendingUpdate
             }
-            val detailsJson = details?.let {
-                detailsCodec.encodeToString(WordDetails.serializer(), it)
-            }
+            val detailsJson = details?.let(WordDetailsJsonCodec::encode)
             val affected = vocabularyDao.updateWordEnrichment(
                 userKey = userKey,
                 topicId = topicId,
@@ -458,9 +462,7 @@ class RoomVocabularyRepository(
                         source = word.source,
                         translation = word.translation,
                         ipa = word.ipa,
-                        detailsJson = word.details?.let {
-                            detailsCodec.encodeToString(WordDetails.serializer(), it)
-                        },
+                        detailsJson = word.details?.let(WordDetailsJsonCodec::encode),
                         knowledgePercent = word.knowledgePercent.coerceIn(0, 100),
                         addedAtEpochMillis = word.addedAtEpochMillis.takeIf { it > 0L } ?: now,
                         updatedAtEpochMillis = word.updatedAtEpochMillis.takeIf { it > 0L } ?: now,
@@ -513,8 +515,7 @@ class RoomVocabularyRepository(
 
     private fun WordEntity.toDomain(): WordEntry {
         val details = detailsJson?.let { rawJson ->
-            runCatching { detailsCodec.decodeFromString(WordDetails.serializer(), rawJson) }
-                .getOrNull()
+            runCatching { WordDetailsJsonCodec.decode(rawJson) }.getOrNull()
         }
         return WordEntry(
             id = id,

@@ -27,7 +27,7 @@ class KtorVocabeeApi(
     private val client: HttpClient,
     private val config: VocabeeApiConfig,
     private val tokenStore: AuthTokenStore,
-) : VocabeeApi, SessionExpiryObservable {
+) : VocabeeApi, SessionExpiryObservable, LocalSessionController {
 
     override val sessionNeedsReauth = tokenStore.sessionNeedsReauth
 
@@ -57,12 +57,12 @@ class KtorVocabeeApi(
     override suspend fun submitQualityFeedback(
         request: QualityFeedbackRequest,
     ): QualityFeedbackResponse {
-        return withFreshAccessToken {
+        return withFreshAccessToken { accessToken ->
             executeRequest {
                 client.post("${config.baseUrl}/v1/translation-feedback") {
                     contentType(ContentType.Application.Json)
                     setBody(request)
-                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                    accessToken?.let { token -> bearerAuth(token) }
                 }.body()
             }
         }
@@ -107,27 +107,27 @@ class KtorVocabeeApi(
                 )
             }.body<AuthTokensResponse>()
         }
-        tokenStore.set(tokens)
+        tokenStore.replaceSession(tokens)
         return tokens
     }
 
     override suspend fun currentUser(): UserResponse {
-        return withFreshAccessToken {
+        return withFreshAccessToken { accessToken ->
             executeRequest {
                 client.get("${config.baseUrl}/v1/auth/me") {
-                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                    accessToken?.let { token -> bearerAuth(token) }
                 }.body()
             }
         }
     }
 
     override suspend fun updateCurrentUser(request: UpdateProfileRequest): UserResponse {
-        return withFreshAccessToken {
+        return withFreshAccessToken { accessToken ->
             executeRequest {
                 client.patch("${config.baseUrl}/v1/me") {
                     contentType(ContentType.Application.Json)
                     setBody(request)
-                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                    accessToken?.let { token -> bearerAuth(token) }
                 }.body()
             }
         }
@@ -137,71 +137,80 @@ class KtorVocabeeApi(
      * Приватний навмисно: ротація мусить іти лише через [renewSession] під мьютексом,
      * інакше два обміни одним токеном вбивають сесію.
      */
-    private suspend fun refreshSession(refreshToken: String): AuthTokensResponse {
+    private suspend fun refreshSession(
+        refreshToken: String,
+        expectedGeneration: Long,
+    ): AuthTokensResponse {
         val tokens = executeRequest {
             client.post("${config.baseUrl}/v1/auth/refresh") {
                 contentType(ContentType.Application.Json)
                 setBody(RefreshRequest(refreshToken))
             }.body<AuthTokensResponse>()
         }
-        tokenStore.set(tokens)
+        if (!tokenStore.rotateSession(tokens, expectedGeneration)) {
+            throw authSessionChanged()
+        }
         return tokens
     }
 
     override suspend fun syncTopics(since: String?): SyncResponse {
-        return withFreshAccessToken {
+        return withFreshAccessToken { accessToken ->
             executeRequest {
                 client.post("${config.baseUrl}/v1/topics/sync") {
                     contentType(ContentType.Application.Json)
                     setBody(SyncRequest(since))
-                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                    accessToken?.let { token -> bearerAuth(token) }
                 }.body()
             }
         }
     }
 
     override suspend fun applySync(request: ApplySyncRequest): SyncResponse {
-        return withFreshAccessToken {
+        return withFreshAccessToken { accessToken ->
             executeRequest {
                 client.post("${config.baseUrl}/v1/topics/sync/apply") {
                     contentType(ContentType.Application.Json)
                     setBody(request)
-                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                    accessToken?.let { token -> bearerAuth(token) }
                 }.body()
             }
         }
     }
 
     override suspend fun claimRewardedAdBees(): UserResponse {
-        return withFreshAccessToken {
+        return withFreshAccessToken { accessToken ->
             executeRequest {
                 client.post("${config.baseUrl}/v1/wallet/rewarded-ad") {
-                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                    accessToken?.let { token -> bearerAuth(token) }
                 }.body()
             }
         }
     }
 
     override suspend fun fetchReferral(): ReferralResponse {
-        return withFreshAccessToken {
+        return withFreshAccessToken { accessToken ->
             executeRequest {
                 client.get("${config.baseUrl}/v1/referral/me") {
-                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                    accessToken?.let { token -> bearerAuth(token) }
                 }.body()
             }
         }
     }
 
     override suspend fun submitSupport(request: SupportRequestBody): SupportResponse {
-        return withFreshAccessToken {
+        return withFreshAccessToken { accessToken ->
             executeRequest {
                 client.post("${config.baseUrl}/v1/support") {
                     contentType(ContentType.Application.Json)
                     setBody(request)
-                    tokenStore.current()?.let { token -> bearerAuth(token) }
+                    accessToken?.let { token -> bearerAuth(token) }
                 }.body()
             }
         }
+    }
+
+    override suspend fun clearLocalSession() {
+        tokenStore.clear()
     }
 
     /**
@@ -214,65 +223,127 @@ class KtorVocabeeApi(
     private suspend fun <T> withOptionalAccessToken(
         request: suspend (accessToken: String?) -> T,
     ): T {
+        val expectedGeneration = tokenStore.captureSession().generation
         return try {
-            withFreshAccessToken { request(tokenStore.current()) }
+            withFreshAccessToken(request)
         } catch (cause: VocabeeApiException) {
             if (cause.statusCode != 401) throw cause
-            request(null)
+            sessionForGeneration(expectedGeneration)
+            requestForGeneration(expectedGeneration, null, request)
         }
     }
 
-    /** Replays one request after renewing an expired access token. */
-    private suspend fun <T> withFreshAccessToken(request: suspend () -> T): T {
-        val failedAccessToken = tokenStore.current()
+    /** Replays only inside the same bearer-owner generation. */
+    private suspend fun <T> withFreshAccessToken(
+        request: suspend (accessToken: String?) -> T,
+    ): T {
+        val lease = tokenStore.captureSession()
+        val failedAccessToken = lease.accessToken
         if (failedAccessToken == null) {
             // Access протух і був стертий, але сесія жива — піднімаємо її з refresh.
-            if (tokenStore.refreshToken() == null) return request()
-            renewSession(failedAccessToken = null)
-            return request()
+            if (lease.refreshToken == null) {
+                return requestForGeneration(lease.generation, null, request)
+            }
+            renewSession(
+                failedAccessToken = null,
+                expectedGeneration = lease.generation,
+            )
+            return requestForGeneration(
+                lease.generation,
+                accessTokenForGeneration(lease.generation),
+                request,
+            )
         }
         return try {
-            request()
+            requestForGeneration(lease.generation, failedAccessToken, request)
         } catch (cause: VocabeeApiException) {
             if (cause.statusCode != 401) throw cause
-            renewSession(failedAccessToken)
-            request()
+            renewSession(failedAccessToken, lease.generation)
+            requestForGeneration(
+                lease.generation,
+                accessTokenForGeneration(lease.generation),
+                request,
+            )
         }
     }
 
     /**
      * Єдина точка ротації сесії. Refresh одноразовий на сервері, тож два паралельні
      * обміни одним і тим самим токеном вбивали б сесію — [refreshMutex] цього не пускає,
-     * а [NonCancellable] гарантує, що вже відкликаний сервером токен буде замінений
-     * локально навіть якщо викликач зник (юзер пішов з екрана).
+     * а [NonCancellable] дає завершити вже розпочатий обмін. Запис нової пари все
+     * одно виконується лише для того самого покоління сесії: logout або новий login
+     * інвалідовують результат старого refresh.
      */
-    private suspend fun renewSession(failedAccessToken: String?) {
+    private suspend fun renewSession(
+        failedAccessToken: String?,
+        expectedGeneration: Long,
+    ) {
         refreshMutex.withLock {
+            val currentSession = sessionForGeneration(expectedGeneration)
             // Another concurrent request has already completed the rotation.
-            if (failedAccessToken != null && tokenStore.current() != failedAccessToken) return
-            var presentedToken = tokenStore.refreshToken() ?: run {
-                tokenStore.markSessionNeedsReauth()
+            if (currentSession.accessToken != failedAccessToken) {
+                return
+            }
+            var presentedToken = currentSession.refreshToken ?: run {
+                markSessionNeedsReauthOrThrow(expectedGeneration)
                 throw sessionRenewalFailed()
             }
             repeat(MaxRefreshAttempts) {
                 try {
-                    withContext(NonCancellable) { refreshSession(presentedToken) }
+                    withContext(NonCancellable) {
+                        refreshSession(presentedToken, expectedGeneration)
+                    }
                     return
                 } catch (cause: VocabeeApiException) {
+                    if (cause.errorType == AuthSessionChangedErrorType) throw cause
                     if (cause.statusCode != 401) throw cause
                     // Токен уже обміняли деінде — пробуємо тим, що лежить у сховищі зараз.
-                    val storedToken = tokenStore.refreshToken()
+                    val storedToken = sessionForGeneration(expectedGeneration).refreshToken
                     if (storedToken == null || storedToken == presentedToken) {
-                        tokenStore.markSessionNeedsReauth()
+                        markSessionNeedsReauthOrThrow(expectedGeneration)
                         throw cause
                     }
                     presentedToken = storedToken
                 }
             }
-            tokenStore.markSessionNeedsReauth()
+            markSessionNeedsReauthOrThrow(expectedGeneration)
             throw sessionRenewalFailed()
         }
     }
+
+    private fun accessTokenForGeneration(expectedGeneration: Long): String? {
+        return sessionForGeneration(expectedGeneration).accessToken
+    }
+
+    private suspend fun <T> requestForGeneration(
+        expectedGeneration: Long,
+        accessToken: String?,
+        request: suspend (accessToken: String?) -> T,
+    ): T {
+        val response = request(accessToken)
+        sessionForGeneration(expectedGeneration)
+        return response
+    }
+
+    private fun sessionForGeneration(expectedGeneration: Long): AuthSessionLease {
+        val session = tokenStore.captureSession()
+        if (session.generation != expectedGeneration) {
+            throw authSessionChanged()
+        }
+        return session
+    }
+
+    private suspend fun markSessionNeedsReauthOrThrow(expectedGeneration: Long) {
+        if (!tokenStore.markSessionNeedsReauth(expectedGeneration)) {
+            throw authSessionChanged()
+        }
+    }
+
+    private fun authSessionChanged() = VocabeeApiException(
+        statusCode = null,
+        errorType = AuthSessionChangedErrorType,
+        errorMessage = "Сесію акаунта змінено під час запиту.",
+    )
 
     private fun sessionRenewalFailed() = VocabeeApiException(
         statusCode = 401,
@@ -302,6 +373,7 @@ class KtorVocabeeApi(
 
 /** Одна повторна спроба на випадок, якщо refresh уже обміняли паралельно. */
 private const val MaxRefreshAttempts = 2
+private const val AuthSessionChangedErrorType = "auth_session_changed"
 
 private fun HttpResponse.statusValue(): Int = status.value
 private fun HttpResponse.statusValueDescription(): String = status.description

@@ -2,9 +2,9 @@
 
 > **Єдиний верхньорівневий опис «весь функціонал» Vocabee.** Цей документ — карта-зміст усіх можливостей застосунку, згрупованих за доменами. Він **не дублює** деталі — для кожної функції є посилання на профільний документ `00–17`.
 >
-> Позначки стану в усьому файлі: **[ЗАРАЗ]** — поведінка в поточному коді; **[НОВЕ]** — затверджена зміна (журнал рішень D1–D14); **[МАЙБУТНЄ]** — заплановано пізніше / TBD.
+> Позначки стану в усьому файлі: **[ЗАРАЗ]** — поведінка в поточному коді; **[НОВЕ]** — затверджена зміна (журнал рішень D1–D15); **[МАЙБУТНЄ]** — заплановано пізніше / TBD.
 >
-> Джерело істини рішень — журнал **D1–D14** у [00-overview-and-decisions.md](00-overview-and-decisions.md). Деталі кожного домену живуть у профільних документах, а технічні API/дані — у [17-api-and-data-reference.md](17-api-and-data-reference.md) та відповідному профільному розділі.
+> Джерело істини рішень — журнал **D1–D15** у [00-overview-and-decisions.md](00-overview-and-decisions.md). Деталі кожного домену живуть у профільних документах, а технічні API/дані — у [17-api-and-data-reference.md](17-api-and-data-reference.md) та відповідному профільному розділі.
 
 ---
 
@@ -78,7 +78,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Багата модель деталей | `WordDetails`: lexical metadata + senses (definition/PoS/tags/examples/syn/ant), word-level syn/ant/forms/partOfSpeech. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §1 |
 | Фоновий словничок прикладу | Після локального save один безкоштовний batch розкладає exact речення на токени й зберігає їх контекстні переклади в `WordDetails.contextGlossary`; для авторизованого юзера пара `слово+конкретний переклад+напрямок` також пишеться в приватний server glossary, а offline/anonymous снапшот проєктується туди через `applySync`. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §6.1, [17](17-api-and-data-reference.md) §1.5 |
 | Інтерактивний контекст у деталях | Контекст показується цілісним реченням із span-ами; popup дає конкретний переклад і `+` миттєво додає залежне слово до відкритого словника, тоді як цільове слово лишається без підказки. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §3.2 |
-| Снапшот перекладу/IPA/деталей | Збережене слово — заморожений знімок провайдера; зміни lexicon його не оновлюють. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §5 |
+| Версійний snapshot перекладу/IPA/деталей | Для auth збережене слово має офлайн-кеш серверної target-language проєкції; vocabulary sync повністю замінює lexical payload після зміни content revision/schema, не чіпаючи прогрес. Анонімний snapshot оновиться після входу. | [ЗАРАЗ] D15 | [14](14-word-details-and-audio.md) §5, [06](06-sync-and-account-merge.md) §1 |
 | Озвучення слова (TTS) | Кнопка `Sound` на картці → озвучує source-слово source-мовою. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §4, [08](08-languages-speech-themes.md) §4 |
 | Свайп-видалення слова | Reveal-кнопка «Видалити» (88dp) → видалення одразу (без діалогу). | [ЗАРАЗ] | [12](12-motion-and-interaction-brief.md) §D |
 | Full-swipe-to-delete | Далекий свайп одразу комітить видалення (як Gmail). | [НОВЕ] | [12](12-motion-and-interaction-brief.md) §D.2 |
@@ -87,7 +87,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Дублікати перекладів дозволені | Один source може мати кілька різних перекладів; дедуп лише по парі `source+translation`. | [ЗАРАЗ] | [03](03-data-caching.md) §6.5 |
 | Порожній словник лишається | Видалення останнього слова не видаляє словник. | [ЗАРАЗ] | [07](07-deletion.md) §1 |
 | Озвучення target-слова target-мовою | Можливість озвучити переклад (зараз лише source). | [МАЙБУТНЄ] | [08](08-languages-speech-themes.md) §4.2 |
-| Ре-енричмент збережених слів | Підтягнути свіжі senses/forms за `sourceWordId`. | [МАЙБУТНЄ] | [14](14-word-details-and-audio.md) §5.3 |
+| Ре-енричмент збережених слів через sync | Backend звіряє content hash/schema та повертає повну канонічну заміну текстів, IPA, senses/examples/relations/forms; stale client не може відкотити її старим metadata. | [ЗАРАЗ] D15 | [14](14-word-details-and-audio.md) §5.3, [17](17-api-and-data-reference.md) §4 |
 
 ### 3.3 AI-пошук / переклад (`/search`-пайплайн)
 
@@ -227,7 +227,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | PUSH — `applySync` | Повний снапшот → `POST /v1/topics/sync/apply` → серверний снапшот назад. | [ЗАРАЗ] | [06](06-sync-and-account-merge.md) §1.2, [17](17-api-and-data-reference.md) §4.2 |
 | PULL — `syncTopics(since)` | Delta-pull змінених після курсора; `deletedTopicIds/deletedWordIds`. | [ЗАРАЗ] | [06](06-sync-and-account-merge.md) §1.3, [17](17-api-and-data-reference.md) §4.1 |
 | LWW-розв'язання конфліктів | Last-Write-Wins по рядку за таймстемпами. | [ЗАРАЗ] | [06](06-sync-and-account-merge.md) §1.6 |
-| Курсор синку | `lastSyncAt` (серверний час) + `localRevisionEpochMillis` (dirty-лічильник). | [ЗАРАЗ] | [06](06-sync-and-account-merge.md) §1.4 |
+| Курсор синку | Per-user `lastSyncAt(userKey)` + `localRevisionEpochMillis(userKey)`; один coordinator серіалізує відповіді й відкидає stale account/revision lease. | [ЗАРАЗ] | [06](06-sync-and-account-merge.md) §1.4 |
 | Startup-sync (холодний старт) | refresh → `currentUser` → дельта/повний синк (фоном у Main). | [ЗАРАЗ] | [02](02-onboarding-and-launch.md) §1.5, [16](16-auth-and-account-lifecycle.md) §16.7 |
 | Офлайн-стійкість | Локальні зміни оптимістично в Room; тихий ретрай при появі мережі. | [ЗАРАЗ] | [10](10-edge-cases-and-open-items.md) #3 |
 | Обхід лімітів (поточна діра) | `applySync` не валідує квоти → 20 словників заливаються безкоштовно. | [ЗАРАЗ] вразливість | [06](06-sync-and-account-merge.md) §2 |
@@ -238,6 +238,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Шторка мержу (5 варіантів) | Погодитись (мерж) / затерти серверне / відкинути локальне / скасувати / інший email. | [НОВЕ] D9 | [06](06-sync-and-account-merge.md) §4.3 |
 | Обчислення вартості мержу | `billable × DICTIONARY_CREATION_BEE_COST`; нестача монеток → лише не-мерж. | [НОВЕ] D9 | [06](06-sync-and-account-merge.md) §4.4 |
 | `replaceSyncSnapshot` (затерти) | Повне перезатирання локальної бази серверним снапшотом. | [ЗАРАЗ] | [03](03-data-caching.md) §4 |
+| Версійне оновлення lexical details | Перед sync-відповіддю gateway звіряє saved words із read-only Dictionary snapshot; реальна зміна bump-ить word/topic timestamps і потрапляє у звичайний delta. App schema upgrade форсить full pull. | [ЗАРАЗ] D15 | [06](06-sync-and-account-merge.md) §1, [17](17-api-and-data-reference.md) §4 |
 
 ### 3.9 Мови / мовлення (Languages / Speech)
 
@@ -347,7 +348,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 
 ## 4. Нове / заплановане (backlog)
 
-### 4.1 [НОВЕ] — затверджені зміни (D1–D14)
+### 4.1 [НОВЕ] — затверджені зміни (D1–D15)
 
 | # | Зміна | Рішення | Док |
 |---|---|---|---|
@@ -368,10 +369,11 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | N15 | Клієнт кличе `/auth/logout`; refresh-failed → sign-out | — / уточнити | [16](16-auth-and-account-lifecycle.md) §16.8 |
 | N16 | Унікальний email-індекс; явне лінкування Google за email | — / уточнити | [10](10-edge-cases-and-open-items.md) #12 |
 | N17 | Error/empty-стани (офлайн-пошук, «не знайдено», TTS/STT/мікрофон) | — | [10](10-edge-cases-and-open-items.md) §1 |
-| N18 | Прибрати `sourceLang/targetLang` з `UpdateTopicDto` (D6 «існуючі незмінні») | D6 | [17](17-api-and-data-reference.md) §1.6 |
+| N18 | Зберегти пару мов існуючого словника immutable: backward-compatible `UpdateTopicDto` відхиляє її фактичну зміну | D6 | [17](17-api-and-data-reference.md) §1.6 |
 | N19 | 4-та таба «Маркет»: серверний каталог готових словників, покупка, entitlement, мовні шторки й insufficient-funds | D12 | [19](19-market-word-packs.md) |
 | N20 | Розділ «Економіка» в client-admin-web: усі ціни/винагороди, market offers, versioned draft/publish, scopes і audit | D13 | [20](20-client-admin-economy-config.md) |
 | N21 | Client-admin wallet: сумарні баланси/витрати, append-only ledger, individual/bulk бонусні монетки | D14 | [21](21-client-admin-wallet-operations.md) |
+| N22 | Server-authoritative saved-word details: target-language projection, content revision/schema та повна заміна через vocabulary sync | D15 | [14](14-word-details-and-audio.md) §5, [06](06-sync-and-account-merge.md) §1 |
 
 ### 4.2 [МАЙБУТНЄ] — відкладено / TBD
 
@@ -381,7 +383,6 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | F2 | premium-tier із реальним монетизаційним важелем | [16](16-auth-and-account-lifecycle.md) O1, [10](10-edge-cases-and-open-items.md) O1 |
 | F3 | Гостьовий серверний рядок (`is_anonymous`, `RegisteredUserGuard`) | [16](16-auth-and-account-lifecycle.md) O2/O3 |
 | F4 | Озвучення target-слова target-мовою (TTS) | [08](08-languages-speech-themes.md) §4.2 |
-| F5 | Ре-енричмент збережених слів за `sourceWordId` | [14](14-word-details-and-audio.md) §5.3 |
 | F6 | Реальна доставка нагадувань про тренування (push/local notif) | [15](15-profile-and-settings.md) §4.1 |
 | F7 | Реальний стрік / лічильник тренувань у профілі | [15](15-profile-and-settings.md) §7, [11](11-practice-training.md) §11 |
 | F8 | Редагування `displayName` + аватар Google | [15](15-profile-and-settings.md) §2.2 |
@@ -430,7 +431,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 
 | # | Док | Домени |
 |---|---|---|
-| 00 | [Огляд і рішення](00-overview-and-decisions.md) | Призначення, стани, глосарій, константи, D1–D14 |
+| 00 | [Огляд і рішення](00-overview-and-decisions.md) | Призначення, стани, глосарій, константи, D1–D15 |
 | 01 | [Екрани](01-screens.md) | Усі екрани + bottom sheets + навігація |
 | 02 | [Онбординг і запуск](02-onboarding-and-launch.md) | Launch tree, розвилка D5, повторні запуски |
 | 03 | [Дані й кешування](03-data-caching.md) | Room, per-user партиціювання, кеш |

@@ -39,9 +39,20 @@ interface PreferencesManager {
 
     var lastAuthenticatedUserId: String?
 
-    var lastSyncAt: String?
+    /** Per-user server cursor. A missing value intentionally forces a full pull. */
+    fun lastSyncAt(userKey: String): String?
 
-    var localRevisionEpochMillis: Long
+    fun setLastSyncAt(userKey: String, value: String?)
+
+    /** Per-user dirty/change token used to reject stale sync responses. */
+    fun localRevisionEpochMillis(userKey: String): Long
+
+    fun setLocalRevisionEpochMillis(userKey: String, value: Long)
+
+    /** Last lexicon details schema successfully applied to this user's local snapshots. */
+    fun appliedLexiconSchemaVersion(userKey: String): Int
+
+    fun setAppliedLexiconSchemaVersion(userKey: String, version: Int)
 
     /** Стрік активності в днях поспіль; 0 = ще жодного зафіксованого дня. */
     var streakDays: Int
@@ -59,6 +70,10 @@ interface PreferencesManager {
  * a clean install — never reports onboarding as completed.
  */
 class InMemoryPreferencesManager : PreferencesManager {
+    private val lastSyncAtByUser = mutableMapOf<String, String>()
+    private val localRevisionByUser = mutableMapOf<String, Long>()
+    private val appliedLexiconSchemaVersions = mutableMapOf<String, Int>()
+
     override var hasCompletedOnboarding: Boolean = false
     override var userLanguageCode: String? = null
     override var learningLanguageCode: String? = null
@@ -68,8 +83,30 @@ class InMemoryPreferencesManager : PreferencesManager {
     override var refreshToken: String? = null
     override var currentUserId: String? = null
     override var lastAuthenticatedUserId: String? = null
-    override var lastSyncAt: String? = null
-    override var localRevisionEpochMillis: Long = 0L
+    override fun lastSyncAt(userKey: String): String? = lastSyncAtByUser[userKey]
+
+    override fun setLastSyncAt(userKey: String, value: String?) {
+        if (value == null) {
+            lastSyncAtByUser.remove(userKey)
+        } else {
+            lastSyncAtByUser[userKey] = value
+        }
+    }
+
+    override fun localRevisionEpochMillis(userKey: String): Long =
+        localRevisionByUser[userKey] ?: 0L
+
+    override fun setLocalRevisionEpochMillis(userKey: String, value: Long) {
+        localRevisionByUser[userKey] = value.coerceAtLeast(0L)
+    }
+
+    override fun appliedLexiconSchemaVersion(userKey: String): Int =
+        appliedLexiconSchemaVersions[userKey] ?: 0
+
+    override fun setAppliedLexiconSchemaVersion(userKey: String, version: Int) {
+        appliedLexiconSchemaVersions[userKey] = version.coerceAtLeast(0)
+    }
+
     override var streakDays: Int = 0
     override var lastActiveDayStartMillis: Long = 0L
     override var practiceRoundsCompleted: Int = 0

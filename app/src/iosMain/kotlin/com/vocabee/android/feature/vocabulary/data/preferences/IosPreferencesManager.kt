@@ -55,13 +55,31 @@ class IosPreferencesManager : PreferencesManager {
         get() = string(KEY_LAST_AUTH_USER)
         set(value) = setString(KEY_LAST_AUTH_USER, value)
 
-    override var lastSyncAt: String?
-        get() = string(KEY_LAST_SYNC_AT)
-        set(value) = setString(KEY_LAST_SYNC_AT, value)
+    override fun lastSyncAt(userKey: String): String? = string(lastSyncAtKey(userKey))
 
-    override var localRevisionEpochMillis: Long
-        get() = defaults.integerForKey(KEY_LOCAL_REVISION)
-        set(value) = defaults.setInteger(value, KEY_LOCAL_REVISION)
+    override fun setLastSyncAt(userKey: String, value: String?) {
+        setString(lastSyncAtKey(userKey), value)
+    }
+
+    override fun localRevisionEpochMillis(userKey: String): Long =
+        defaults.integerForKey(localRevisionEpochMillisKey(userKey))
+
+    override fun setLocalRevisionEpochMillis(userKey: String, value: Long) {
+        defaults.setInteger(
+            value.coerceAtLeast(0L),
+            localRevisionEpochMillisKey(userKey),
+        )
+    }
+
+    override fun appliedLexiconSchemaVersion(userKey: String): Int =
+        defaults.integerForKey(appliedLexiconSchemaVersionKey(userKey)).toInt()
+
+    override fun setAppliedLexiconSchemaVersion(userKey: String, version: Int) {
+        defaults.setInteger(
+            version.coerceAtLeast(0).toLong(),
+            appliedLexiconSchemaVersionKey(userKey),
+        )
+    }
 
     override var streakDays: Int
         get() = defaults.integerForKey(KEY_STREAK_DAYS).toInt()
@@ -85,11 +103,21 @@ class IosPreferencesManager : PreferencesManager {
         const val KEY_REFRESH_TOKEN = "refreshToken"
         const val KEY_CURRENT_USER = "currentUserId"
         const val KEY_LAST_AUTH_USER = "lastAuthenticatedUserId"
-        const val KEY_LAST_SYNC_AT = "lastSyncAt"
-        const val KEY_LOCAL_REVISION = "localRevisionEpochMillis"
+        const val KEY_LAST_SYNC_AT_PREFIX = "lastSyncAt."
+        const val KEY_LOCAL_REVISION_PREFIX = "localRevisionEpochMillis."
+        const val KEY_APPLIED_LEXICON_SCHEMA_VERSION_PREFIX =
+            "appliedLexiconSchemaVersion."
         const val KEY_STREAK_DAYS = "streakDays"
         const val KEY_LAST_ACTIVE_DAY_START = "lastActiveDayStartMillis"
         const val KEY_PRACTICE_ROUNDS = "practiceRoundsCompleted"
         const val DEFAULT_BEE_BALANCE = 50
+
+        fun lastSyncAtKey(userKey: String): String = "$KEY_LAST_SYNC_AT_PREFIX$userKey"
+
+        fun localRevisionEpochMillisKey(userKey: String): String =
+            "$KEY_LOCAL_REVISION_PREFIX$userKey"
+
+        fun appliedLexiconSchemaVersionKey(userKey: String): String =
+            "$KEY_APPLIED_LEXICON_SCHEMA_VERSION_PREFIX$userKey"
     }
 }

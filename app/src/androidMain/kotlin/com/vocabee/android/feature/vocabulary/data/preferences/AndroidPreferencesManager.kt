@@ -68,15 +68,33 @@ class AndroidPreferencesManager(
             if (value == null) remove(KEY_LAST_AUTH_USER_ID) else putString(KEY_LAST_AUTH_USER_ID, value)
         }
 
-    override var lastSyncAt: String?
-        get() = prefs.getString(KEY_LAST_SYNC_AT, null)
-        set(value) = prefs.edit {
-            if (value == null) remove(KEY_LAST_SYNC_AT) else putString(KEY_LAST_SYNC_AT, value)
-        }
+    override fun lastSyncAt(userKey: String): String? =
+        prefs.getString(lastSyncAtKey(userKey), null)
 
-    override var localRevisionEpochMillis: Long
-        get() = prefs.getLong(KEY_LOCAL_REVISION_EPOCH_MILLIS, 0L)
-        set(value) = prefs.edit { putLong(KEY_LOCAL_REVISION_EPOCH_MILLIS, value.coerceAtLeast(0L)) }
+    override fun setLastSyncAt(userKey: String, value: String?) {
+        prefs.edit {
+            val key = lastSyncAtKey(userKey)
+            if (value == null) remove(key) else putString(key, value)
+        }
+    }
+
+    override fun localRevisionEpochMillis(userKey: String): Long =
+        prefs.getLong(localRevisionEpochMillisKey(userKey), 0L)
+
+    override fun setLocalRevisionEpochMillis(userKey: String, value: Long) {
+        prefs.edit {
+            putLong(localRevisionEpochMillisKey(userKey), value.coerceAtLeast(0L))
+        }
+    }
+
+    override fun appliedLexiconSchemaVersion(userKey: String): Int =
+        prefs.getInt(appliedLexiconSchemaVersionKey(userKey), 0)
+
+    override fun setAppliedLexiconSchemaVersion(userKey: String, version: Int) {
+        prefs.edit {
+            putInt(appliedLexiconSchemaVersionKey(userKey), version.coerceAtLeast(0))
+        }
+    }
 
     override var streakDays: Int
         get() = prefs.getInt(KEY_STREAK_DAYS, 0)
@@ -101,11 +119,22 @@ class AndroidPreferencesManager(
         const val KEY_REFRESH_TOKEN = "refresh_token"
         const val KEY_CURRENT_USER_ID = "current_user_id"
         const val KEY_LAST_AUTH_USER_ID = "last_authenticated_user_id"
-        const val KEY_LAST_SYNC_AT = "last_sync_at"
-        const val KEY_LOCAL_REVISION_EPOCH_MILLIS = "local_revision_epoch_millis"
+        const val KEY_LAST_SYNC_AT_PREFIX = "last_sync_at_"
+        const val KEY_LOCAL_REVISION_EPOCH_MILLIS_PREFIX =
+            "local_revision_epoch_millis_"
+        const val KEY_APPLIED_LEXICON_SCHEMA_VERSION_PREFIX =
+            "applied_lexicon_schema_version_"
         const val KEY_STREAK_DAYS = "streak_days"
         const val KEY_LAST_ACTIVE_DAY_START = "last_active_day_start_millis"
         const val KEY_PRACTICE_ROUNDS = "practice_rounds_completed"
         const val DEFAULT_BEE_BALANCE = 50
+
+        fun lastSyncAtKey(userKey: String): String = "$KEY_LAST_SYNC_AT_PREFIX$userKey"
+
+        fun localRevisionEpochMillisKey(userKey: String): String =
+            "$KEY_LOCAL_REVISION_EPOCH_MILLIS_PREFIX$userKey"
+
+        fun appliedLexiconSchemaVersionKey(userKey: String): String =
+            "$KEY_APPLIED_LEXICON_SCHEMA_VERSION_PREFIX$userKey"
     }
 }

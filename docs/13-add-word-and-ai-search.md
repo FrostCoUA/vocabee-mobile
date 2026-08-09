@@ -4,7 +4,7 @@
 
 Суміжні документи (не дублюються тут): онбординг — `02`, дані/кеш — `03`, економіка/монетки — `04`, sync+мерж — `06`, мови/мовлення/теми (деталі STT) — `08`, крайові випадки — `10`, motion-бриф (морф-анімація) — `12`.
 
-Легенда: **[ЗАРАЗ]** — як у коді сьогодні; **[НОВЕ]** — затверджена зміна (D1–D11); **[МАЙБУТНЄ]** — відкладено.
+Легенда: **[ЗАРАЗ]** — як у коді сьогодні; **[НОВЕ]** — затверджена зміна (D1–D15); **[МАЙБУТНЄ]** — відкладено.
 
 ---
 
@@ -320,16 +320,16 @@ DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak
 |---|---|---|---|
 | 0 | **Нормалізація** | `trim` → `normalize()` = NFKC + trim + lowercase; `isPhrase = слів > 1` | `lexicon.service.ts:137-138`, `:860-862` |
 | 1 | **Детект мови (speak/learn)** | `LanguageDetector.detectBetween`: (a) скрипт-евристика Кирилиця vs Латиниця, (b) `franc-min` якщо ≥4 символи, (c) fallback → `learnLang`. `otherLang` = протилежна detected | `lang-detect.ts:30-55`, `lexicon.service.ts:140-147` |
-| 2 | **Префікс-кеш lexicon** | `findPrefixMatches(detectedLang, normalized, otherLang, maxResults)` — `LIKE 'q%'`, exact-first, тоді primary, тоді коротші слова. Дає живі підказки «cir → circle/circus/circumstance» | `lexicon.repository.ts:308-358`, `lexicon.service.ts:151-161` |
+| 2 | **Префікс-кеш lexicon** | `findPrefixMatches(detectedLang, normalized, otherLang, maxResults)` — `LIKE 'q%'`, exact-first, тоді primary, тоді коротші слова. Дає живі підказки «cir → circle/circus/circumstance». Якщо exact-збігу нема, сервер спершу обрізає список до 15 видимих варіантів, а тоді для кожного підтягує вже збережений snapshot IPA/PoS/senses/examples/forms/relations і V2 `senseKeys`. Це read-only hydration: dictionary/AI, sense-attribution і quality repair для часткового вводу не запускаються. Legacy sense без персистованого key повертає `senseKey=null`, а не вигаданий stable ID. | `lexicon.repository.ts`, `lexicon.service.ts` |
 | 3 | **Freshness / top-up** | **[ЗАРАЗ]** Якщо є exact-cached і провайдер `isAvailable`: рядок свіжий, коли `translator.acceptsTier(row.providerTier)` **або** tier `seed-import`. Кураторський імпорт — не лише свіжий, а й **immutable у звичайному `/search`**: missing IPA/metadata, quality score або pending repair не запускають автоматичний provider top-up і не переписують reviewed-дані. AI-family (`openai-*`/`ai-*`/`audit-*`) приймає одна одну: зміна `OPENAI_MODEL` не знецінює runtime-кеш. | `lexicon.service.ts`, `provider-tier.ts` (`CURATED_IMPORT_TIER`) |
 | 4 | **Word-validator (квота-гейт)** | Для слова — Hunspell, для фрази — phrase-validator; додатково пропускаються короткі/uppercase/dotted кандидати на абревіатуру (`btw`, `LOL`, `NATO`, `U.S.`), а остаточну валідність вирішує structured AI | `lexicon.service.ts`, word-validator §12 |
 | 5 | **Провайдер перекладу + lexical metadata** | OpenAI класифікує обидві мовні сторони як `word/phrase/expression/abbreviation`, окремо дає register tags, розшифровки, значення, дослівний переклад і приклади; напрямок орієнтується так, щоб mobile завжди отримав metadata learning-side одиниці | `openai-translation.provider.ts`, `translation.provider.ts` |
 | 6 | **Echo-гард** | Кандидати = провайдер-результати, де `normalize(text) != normalizedQuery`. Усі збіглися з вводом → `echo` (НЕ персистимо). `null` → `no_provider_data` | `lexicon.service.ts:209-242` |
 | 7 | **Upsert lexicon + directional cache** | `persistAllVariants`: upsert source і target words, зв'язати `target_word_id`, зберегти тільки `detectedLang → otherLang`. Reviewed V2 import переносить IPA, якщо його однозначно дає Kaikki, зберігає stable `senseKey` і всі reviewed `translations[].senseKeys` у many-to-many `translation_senses`; перший зв'язок також проєктується в legacy `translations.sense_id`, тому чинний клієнт одразу отримує контекст без AI-атрибуції. Відсутній IPA не блокує імпорт і не запускає runtime AI. V1 endpoint лишається лише для сумісності. | `lexicon.service.ts`, `dictionary-lexicon-import.service.ts` |
-| 8 | **Збагачення (IPA/audio/examples/senses)** | Для runtime/provider rows `enrichLearningEntry` (тільки не-фраза) може запустити dictionary-ланцюг (OpenAI → FreeDictionary). **Відсутній IPA не форсить runtime-enrichment:** exact-запис повертається з `ipa=null`, а IPA дозаповнюється окремим curated batch/re-import. Runtime-рефетч exact-кешу лишається для `form-of-only`. Для `seed-import` exact lookup лише збирає вже персистовані IPA/senses/examples/forms: відсутнє поле повертається порожнім і **не є дозволом на runtime-добудову**. Одночасно сервер надсилає `lexicon_curated_data_missing` з парою мов, source/target, `translationOrigin` і переліком прогалин — це черга для перегенерації нашого batch, не AI-fallback. | `lexicon.service.ts`, `search-observability.ts`, `lexicon-core.module.ts` |
+| 8 | **Збагачення (IPA/audio/examples/senses)** | Для runtime/provider rows `enrichLearningEntry` (тільки не-фраза) може запустити dictionary-ланцюг (OpenAI → FreeDictionary). **Відсутній IPA не форсить runtime-enrichment:** exact-запис повертається з `ipa=null`, а IPA дозаповнюється окремим curated batch/re-import. Runtime-рефетч exact-кешу лишається для `form-of-only`. Для `seed-import` exact lookup лише збирає вже персистовані IPA/senses/examples/forms: відсутнє поле повертається порожнім і **не є дозволом на runtime-добудову**. Senses обмежуються union активних `translation_senses` саме для requested target language; examples читаються лише з `translation_lang = targetLang OR NULL`, target-specific рядок має пріоритет. Порожня directional attribution не відкриває всі word-global senses. Одночасно сервер надсилає `lexicon_curated_data_missing` з парою мов, source/target, `translationOrigin` і переліком прогалин — це черга для перегенерації нашого batch, не AI-fallback. | `lexicon.service.ts`, `lexicon.repository.ts`, `search-observability.ts`, `lexicon-core.module.ts` |
 | 8.1 | **Runtime V2 sense attribution** | Кожен runtime sense одразу отримує детермінований stable `senseKey`; старі NULL-key senses ліниво апгрейдяться на exact search. OpenAI повертає для кожного перекладу один або кілька `senseKeys[]`, backend атомарно пише всі links у `translation_senses`, а `translations.sense_id`/`senseIndex` лишає як першу compatibility-проєкцію. Старі provider rows без V2 marker переатрибутуються один раз; miss має cooldown. | `sense-key.ts`, `openai-sense-attribution.provider.ts`, `lexicon.service.ts` |
 | 9 | **Quality repair перед композицією** | Runtime translation rows із `qualityScore >= 100` можуть форсувати repair. `seed-import` не ремонтується автоматично через user search: сигнал лишається предметом явної кураторської правки й повторного імпорту. | `lexicon.service.ts`, `quality-feedback.service.ts` |
-| 10 | **Композиція відповіді** | **[НОВЕ]** Провайдер-хіти спершу, тоді не-дубль префікс-підказки, до `maxResults`. **Точний збіг перекриває підказки:** якщо введене слово є в базі (або його щойно переклав провайдер) — віддаємо лише його переклади, сусідів на ту саму букву відкидаємо. Точного збігу нема (часткове введення `cir`) → підказки лишаються, але не більш як `PREFIX_SUGGESTION_LIMIT = 15`. Під час успішного quality repair старі low-quality variants фільтруються; дедуп по `normalize(knownWord)` | `lexicon.service.ts` |
+| 10 | **Композиція відповіді** | **[ЗАРАЗ]** Провайдер-хіти спершу, тоді не-дубль префікс-підказки, до `maxResults`. **Точний збіг перекриває підказки:** якщо введене слово є в базі (або його щойно переклав провайдер) — віддаємо лише його переклади, сусідів на ту саму букву відкидаємо. Точного збігу нема (часткове введення `cir`) → не більш як `PREFIX_SUGGESTION_LIMIT = 15` підказок, кожна з повним уже персистованим snapshot деталей. Однаковий source-example у кількох мовних імпортах дедуплікується на сервері за normalized `(senseId,text)` після target-language фільтра; mobile не маскує помилки даних локальним `distinct`. Під час успішного quality repair старі low-quality variants фільтруються; варіанти дедупляться по парі normalized known/learning text. | `lexicon.service.ts` |
 
 ### `providerReason` (meta — чому викликали/не викликали провайдер)
 
@@ -355,7 +355,7 @@ DTO запиту `SearchQueryDto` (`search.dto.ts`): `q` (1–200, trim), `speak
 **[ЗАРАЗ]** Кожна provider-спроба, викликана прогалиною вже збереженого запису,
 окремо надсилає personless PostHog event `lexicon_incomplete_data_fallback` і
 Sentry log `lexicon.incomplete_data.provider_fallback`. Властивості: `operation`,
-`gap_reasons`, `provider`, мови, `lexicon_word_id`, lemma, `curated_import` і
+`gap_reasons`, `provider`, мови, `lexicon_word_id`, `curated_import` і
 `potentially_billable`. Причини runtime-fallback охоплюють missing lexical metadata/variant,
 form-of-only, missing sense examples/attribution та quality repair. Подія з
 `curated_import=true` є regression-сигналом: нормальний `seed-import` заблокований
@@ -364,6 +364,11 @@ form-of-only, missing sense examples/attribution та quality repair. Подія
 `source_lang`, `target_lang`, `learning_lang`, source lemma/normalized, target text,
 `translation_id`, `translation_origin` та `regeneration_key` для точного відбору
 рядків під час перегенерації.
+
+Runtime fallback telemetry не містить сирий user query/lemma: `lexicon_word_id` достатній,
+щоб знайти cache row для діагностики, не відправляючи імена чи довільний введений текст у
+Sentry/PostHog. Curated-missing event може містити lexeme/target із reviewed batch, бо це
+не user input і саме вони утворюють regeneration key.
 
 ### Відповідь `SearchResponseDto` → клієнт
 
@@ -490,7 +495,9 @@ RemoteLexiconSearchUseCase.toOption → List<TranslationOption>
 AddWordResultsList (слово+IPA+переклад+Sparkle, розгортання деталей, +/✓)
    │   дубль: alreadyAdded(сервер) ∨ existingTranslations(локально)
    ▼
-onAdd → canAddWordToDictionary() → AddWord (learningWord, value, ipa, details) → sync
+onAdd → canAddWordToDictionary() → AddWord (learningWord, value, ipa, details + translationId) → sync
+   │   auth sync: Dictionary target-scoped projector → schema+SHA-256 revision
+   │   changed snapshot → повна заміна text/IPA/details; прогрес/context окремо (D15)
    │   серверний meta.beeBalance → SetBeeBalance (звірка балансу, D1)
    ▼
 AddedCountBar «N слів додано · Готово» → close() (morph назад)

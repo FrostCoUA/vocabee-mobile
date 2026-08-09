@@ -136,6 +136,8 @@ import com.vocabee.android.core.presentation.designsystem.languageFlag
 import com.vocabee.android.core.presentation.designsystem.languageName
 import com.vocabee.android.core.presentation.designsystem.prototypeTopicIcon
 import com.vocabee.android.core.presentation.designsystem.prototypeTopicTheme
+import com.vocabee.android.feature.vocabulary.data.api.CLIENT_SUPPORTED_LEXICON_SCHEMA_VERSION
+import com.vocabee.android.feature.vocabulary.data.api.LocalSessionController
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApi
 import com.vocabee.android.feature.vocabulary.data.api.VocabeeApiException
 import com.vocabee.android.feature.vocabulary.data.api.SessionExpiryObservable
@@ -145,6 +147,8 @@ import com.vocabee.android.feature.vocabulary.data.api.UserResponse
 import com.vocabee.android.feature.vocabulary.data.api.QualityFeedbackRequest
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
 import com.vocabee.android.feature.vocabulary.data.preferences.PreferencesManager
+import com.vocabee.android.feature.vocabulary.data.sync.VocabularySyncAttempt
+import com.vocabee.android.feature.vocabulary.data.sync.VocabularySyncCoordinator
 import com.vocabee.android.feature.vocabulary.data.sync.toApplySyncRequest
 import com.vocabee.android.feature.vocabulary.data.sync.toVocabularySyncSnapshot
 import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
@@ -188,6 +192,40 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
 
 private const val VoicePressStartDelayMillis = 250L
+
+/**
+ * Selects the startup pull shape. A client details-schema upgrade always gets a
+ * full snapshot, even when the ordinary vocabulary delta would be empty.
+ */
+internal suspend fun fetchStartupVocabularySnapshot(
+    since: String?,
+    forceFullLexiconRefresh: Boolean,
+    syncTopics: suspend (since: String?) -> SyncResponse,
+): SyncResponse? {
+    if (forceFullLexiconRefresh) return syncTopics(null)
+
+    val delta = syncTopics(since)
+    if (since == null) return delta
+    val hasRemoteChanges = delta.topics.isNotEmpty() ||
+        delta.words.isNotEmpty() ||
+        delta.deletedTopicIds.isNotEmpty() ||
+        delta.deletedWordIds.isNotEmpty()
+    return if (hasRemoteChanges) syncTopics(null) else null
+}
+
+internal fun handleVocabularySyncAttempt(
+    attempt: VocabularySyncAttempt<SyncResponse>,
+    onDone: ((SyncResponse) -> Unit)?,
+    onError: ((String) -> Unit)?,
+) {
+    when (attempt) {
+        is VocabularySyncAttempt.Applied -> onDone?.invoke(attempt.response)
+        VocabularySyncAttempt.AccountChanged ->
+            onError?.invoke("Акаунт змінився. Повтори синхронізацію.")
+        VocabularySyncAttempt.LocalRevisionChanged ->
+            onError?.invoke("Локальні дані змінилися. Повтори синхронізацію.")
+    }
+}
 
 internal enum class AppFlow { Splash, Onboarding, Auth, LanguageSelect, Main }
 
@@ -321,6 +359,7 @@ private data class GoogleSignInOutcome(
 private data class PendingSyncConflict(
     val user: UserResponse,
     val serverSnapshot: SyncResponse,
+    val capturedLocalRevision: Long,
     val localTopicCount: Int,
     val localWordCount: Int,
     val localProfile: LocalProfileSyncState,
@@ -495,6 +534,12 @@ private fun MainApp(
 ) {
     val state = store.state
     val scope = rememberCoroutineScope()
+    val syncCoordinator = remember(preferencesManager) {
+        VocabularySyncCoordinator(
+            preferencesManager = preferencesManager,
+            activeUserKey = { preferencesManager.currentUserId },
+        )
+    }
     val contextGlossaryUseCase = remember(api) { api?.let(::ContextGlossaryUseCase) }
     val backStack = rememberNavBackStack(
         vocabeeSavedStateConfiguration,
@@ -531,11 +576,16 @@ private fun MainApp(
         backStack.add(route)
     }
 
-    fun applyServerSnapshot(snapshot: SyncResponse) {
-        store.replaceCurrentSyncSnapshot(
-            snapshot.toVocabularySyncSnapshot(store.state.supportedLanguages),
+    fun applyServerSnapshot(userKey: String, snapshot: SyncResponse) {
+        store.replaceSyncSnapshot(
+            userKey = userKey,
+            snapshot = snapshot.toVocabularySyncSnapshot(store.state.supportedLanguages),
         )
-        store.markCurrentVocabularySynced(snapshot.serverTime)
+        store.markVocabularySynced(
+            userKey = userKey,
+            serverTime = snapshot.serverTime,
+            lexiconSchemaVersion = snapshot.lexiconSchemaVersion,
+        )
     }
 
     fun syncVocabularyNow(
@@ -543,14 +593,34 @@ private fun MainApp(
         onDone: ((SyncResponse) -> Unit)? = null,
         onError: ((String) -> Unit)? = null,
     ) {
-        val backend = api ?: return
-        if (store.state.account !is VocabeeAccountState.Authenticated) return
+        val backend = api ?: run {
+            onError?.invoke("API клієнт недоступний")
+            return
+        }
+        val userKey = (store.state.account as? VocabeeAccountState.Authenticated)?.userId
+            ?: run {
+                onError?.invoke("Акаунт змінився. Повтори синхронізацію.")
+                return
+            }
         scope.launch {
             try {
-                val snapshot = store.exportCurrentSyncSnapshot(includeDeleted = true)
-                val response = backend.applySync(snapshot.toApplySyncRequest(replaceServerState))
-                applyServerSnapshot(response)
-                onDone?.invoke(response)
+                val attempt = syncCoordinator.run(
+                    userKey = userKey,
+                    request = {
+                        val snapshot = store.exportSyncSnapshot(
+                            userKey = userKey,
+                            includeDeleted = true,
+                        )
+                        backend.applySync(
+                            snapshot.toApplySyncRequest(
+                                expectedUserId = userKey,
+                                replaceServerState = replaceServerState,
+                            ),
+                        )
+                    },
+                    apply = { response -> applyServerSnapshot(userKey, response) },
+                )
+                handleVocabularySyncAttempt(attempt, onDone, onError)
             } catch (cause: VocabeeApiException) {
                 onError?.invoke(cause.errorMessage ?: "Не вдалося синхронізувати словники")
             } catch (cause: Exception) {
@@ -596,7 +666,7 @@ private fun MainApp(
 
     fun pushProfileSettings(profile: LocalProfileSyncState? = null) {
         val backend = api ?: return
-        if (store.state.account !is VocabeeAccountState.Authenticated) return
+        val userKey = (store.state.account as? VocabeeAccountState.Authenticated)?.userId ?: return
         val profileState = profile ?: LocalProfileSyncState(
             speakLang = store.state.userLanguage.code,
             learnLang = store.state.learningLanguage.code,
@@ -613,6 +683,9 @@ private fun MainApp(
                         darkThemeEnabled = profileState.darkThemeEnabled,
                     ),
                 )
+                if (preferencesManager.currentUserId != userKey || user.id != userKey) {
+                    return@launch
+                }
                 store.onEvent(
                     VocabeeEvent.ApplyAuthenticatedAccount(
                         userId = user.id,
@@ -631,9 +704,15 @@ private fun MainApp(
         }
     }
 
-    fun clearAuthenticatedSessionForAnotherEmail() {
-        preferencesManager.accessToken = null
-        preferencesManager.refreshToken = null
+    suspend fun clearAuthenticatedSessionForAnotherEmail() {
+        val sessionController = api as? LocalSessionController
+        if (sessionController != null) {
+            sessionController.clearLocalSession()
+        } else {
+            // Preview/test doubles may not own an AuthTokenStore.
+            preferencesManager.accessToken = null
+            preferencesManager.refreshToken = null
+        }
         preferencesManager.currentUserId = null
         pendingSyncConflict = null
         sheet = null
@@ -645,9 +724,14 @@ private fun MainApp(
         if (preferencesManager.accessToken == null && preferencesManager.refreshToken == null) return
         scope.launch {
             try {
+                val expectedUserKey = preferencesManager.currentUserId
                 // Ротацію робить сам API-шар під мьютексом на першому 401 — окремий
                 // refresh тут гонився б із ним за одноразовий токен і рвав сесію.
                 val user = backend.currentUser()
+                if (preferencesManager.currentUserId != expectedUserKey) return@launch
+                if (preferencesManager.accessToken == null && preferencesManager.refreshToken == null) {
+                    return@launch
+                }
                 store.onEvent(
                     VocabeeEvent.ApplyAuthenticatedAccount(
                         userId = user.id,
@@ -660,20 +744,37 @@ private fun MainApp(
                         beeBalance = user.beeBalance,
                     ),
                 )
-                if (preferencesManager.localRevisionEpochMillis > 0L) {
-                    syncVocabularyNow()
-                } else {
-                    val since = preferencesManager.lastSyncAt
-                    val delta = backend.syncTopics(since)
-                    val hasRemoteChanges = since == null ||
-                        delta.topics.isNotEmpty() ||
-                        delta.words.isNotEmpty() ||
-                        delta.deletedTopicIds.isNotEmpty() ||
-                        delta.deletedWordIds.isNotEmpty()
-                    if (hasRemoteChanges) {
-                        applyServerSnapshot(if (since == null) delta else backend.syncTopics(null))
-                    }
-                }
+                syncCoordinator.run(
+                    userKey = user.id,
+                    request = { capturedLocalRevision ->
+                        val hasPendingRoomRows = store.hasPendingSyncChanges(user.id)
+                        if (capturedLocalRevision > 0L || hasPendingRoomRows) {
+                            val localSnapshot = store.exportSyncSnapshot(
+                                userKey = user.id,
+                                includeDeleted = true,
+                            )
+                            backend.applySync(
+                                localSnapshot.toApplySyncRequest(
+                                    expectedUserId = user.id,
+                                    replaceServerState = false,
+                                ),
+                            )
+                        } else {
+                            val since = preferencesManager.lastSyncAt(user.id)
+                            val appliedSchemaVersion =
+                                preferencesManager.appliedLexiconSchemaVersion(user.id)
+                            fetchStartupVocabularySnapshot(
+                                since = since,
+                                forceFullLexiconRefresh =
+                                    appliedSchemaVersion < CLIENT_SUPPORTED_LEXICON_SCHEMA_VERSION,
+                                syncTopics = backend::syncTopics,
+                            )
+                        }
+                    },
+                    apply = { snapshot ->
+                        snapshot?.let { applyServerSnapshot(user.id, it) }
+                    },
+                )
             } catch (_: Exception) {
                 // Stay local/offline; explicit login will surface errors.
             }
@@ -706,33 +807,76 @@ private fun MainApp(
             val signedInUser = outcome.user
             if (signedInUser != null && api != null) {
                 try {
-                    val serverSnapshot = api.syncTopics(null)
-                    val serverHasVocabulary = serverSnapshot.topics.isNotEmpty() ||
-                        serverSnapshot.words.isNotEmpty()
-                    if (hadLocalAnonymousVocabulary && serverHasVocabulary) {
-                        pendingSyncConflict = PendingSyncConflict(
-                            user = signedInUser,
-                            serverSnapshot = serverSnapshot,
-                            localTopicCount = localAnonymousTopicCount,
-                            localWordCount = localAnonymousWordCount,
-                            localProfile = localProfileBeforeSignIn,
-                        )
-                        sheet = PrototypeSheet.SyncConflict
-                        appSnackbarHostState.showVocabeeSnackbar("Потрібно обрати стан синхронізації")
-                    } else {
-                        if (hadLocalAnonymousVocabulary) {
-                            store.moveAnonymousVocabularyToCurrentUser()
-                            pushProfileSettings(localProfileBeforeSignIn)
-                            syncVocabularyNow(replaceServerState = false) {
-                                scope.launch {
-                                    appSnackbarHostState.showVocabeeSnackbar("Акаунт синхронізовано")
-                                }
+                    var movedAnonymousVocabulary = false
+                    val syncAttempt = syncCoordinator.run(
+                        userKey = signedInUser.id,
+                        request = { capturedLocalRevision ->
+                            if (
+                                capturedLocalRevision > 0L ||
+                                store.hasPendingSyncChanges(signedInUser.id)
+                            ) {
+                                val localSnapshot = store.exportSyncSnapshot(
+                                    userKey = signedInUser.id,
+                                    includeDeleted = true,
+                                )
+                                api.applySync(
+                                    localSnapshot.toApplySyncRequest(
+                                        expectedUserId = signedInUser.id,
+                                        replaceServerState = false,
+                                    ),
+                                )
+                            } else {
+                                api.syncTopics(null)
                             }
-                        } else {
-                            applyServerSnapshot(serverSnapshot)
-                            appSnackbarHostState.showVocabeeSnackbar("Акаунт синхронізовано")
+                        },
+                        apply = { serverSnapshot ->
+                            val serverHasVocabulary = serverSnapshot.topics.isNotEmpty() ||
+                                serverSnapshot.words.isNotEmpty()
+                            when {
+                                hadLocalAnonymousVocabulary && serverHasVocabulary -> Unit
+                                hadLocalAnonymousVocabulary -> {
+                                    store.moveAnonymousVocabularyToCurrentUser()
+                                    movedAnonymousVocabulary = true
+                                }
+                                else -> applyServerSnapshot(signedInUser.id, serverSnapshot)
+                            }
+                        },
+                    )
+                    if (syncAttempt is VocabularySyncAttempt.Applied) {
+                        val serverSnapshot = syncAttempt.response
+                        val serverHasVocabulary = serverSnapshot.topics.isNotEmpty() ||
+                            serverSnapshot.words.isNotEmpty()
+                        when {
+                            hadLocalAnonymousVocabulary && serverHasVocabulary -> {
+                                pendingSyncConflict = PendingSyncConflict(
+                                    user = signedInUser,
+                                    serverSnapshot = serverSnapshot,
+                                    capturedLocalRevision = syncAttempt.capturedLocalRevision,
+                                    localTopicCount = localAnonymousTopicCount,
+                                    localWordCount = localAnonymousWordCount,
+                                    localProfile = localProfileBeforeSignIn,
+                                )
+                                sheet = PrototypeSheet.SyncConflict
+                                appSnackbarHostState.showVocabeeSnackbar(
+                                    "Потрібно обрати стан синхронізації",
+                                )
+                            }
+                            movedAnonymousVocabulary -> {
+                                pushProfileSettings(localProfileBeforeSignIn)
+                                syncVocabularyNow(replaceServerState = false) {
+                                    scope.launch {
+                                        appSnackbarHostState.showVocabeeSnackbar(
+                                            "Акаунт синхронізовано",
+                                        )
+                                    }
+                                }
+                                sheet = null
+                            }
+                            else -> {
+                                appSnackbarHostState.showVocabeeSnackbar("Акаунт синхронізовано")
+                                sheet = null
+                            }
                         }
-                        sheet = null
                     }
                 } catch (cause: Exception) {
                     val message = cause.message ?: "Не вдалося синхронізувати акаунт"
@@ -1127,9 +1271,7 @@ private fun MainApp(
                                 pushProfileSettings()
                             },
                             onLogoutClick = {
-                                preferencesManager.accessToken = null
-                                preferencesManager.refreshToken = null
-                                store.signOutKeepLastUserState()
+                                scope.launch { clearAuthenticatedSessionForAnotherEmail() }
                             },
                             onSpeakingClick = { sheet = PrototypeSheet.LanguageForProfile(ProfileLanguageTarget.Speaking) },
                             onLearningClick = { sheet = PrototypeSheet.LanguageForProfile(ProfileLanguageTarget.Learning) },
@@ -1328,13 +1470,58 @@ private fun MainApp(
                         isLoading = googleAuthLoading,
                         onDismiss = { },
                         onUseServer = {
-                            applyServerSnapshot(conflict.serverSnapshot)
-                            store.discardAnonymousVocabulary()
-                            pendingSyncConflict = null
-                            sheet = null
-                            scope.launch { appSnackbarHostState.showVocabeeSnackbar("Взято стан з бекенда") }
+                            val backend = api
+                            if (backend == null) {
+                                scope.launch {
+                                    appSnackbarHostState.showVocabeeSnackbar("API клієнт недоступний")
+                                }
+                            } else {
+                                googleAuthLoading = true
+                                scope.launch {
+                                    try {
+                                        val attempt = syncCoordinator.run(
+                                            userKey = conflict.user.id,
+                                            expectedLocalRevision =
+                                                conflict.capturedLocalRevision,
+                                            request = { backend.syncTopics(null) },
+                                            apply = { freshSnapshot ->
+                                                applyServerSnapshot(conflict.user.id, freshSnapshot)
+                                                store.discardAnonymousVocabulary()
+                                            },
+                                        )
+                                        when (attempt) {
+                                            is VocabularySyncAttempt.Applied -> {
+                                                pendingSyncConflict = null
+                                                sheet = null
+                                                appSnackbarHostState.showVocabeeSnackbar(
+                                                    "Взято стан з бекенда",
+                                                )
+                                            }
+                                            VocabularySyncAttempt.AccountChanged -> Unit
+                                            VocabularySyncAttempt.LocalRevisionChanged -> {
+                                                pendingSyncConflict = conflict.copy(
+                                                    capturedLocalRevision = preferencesManager
+                                                        .localRevisionEpochMillis(conflict.user.id),
+                                                )
+                                                appSnackbarHostState.showVocabeeSnackbar(
+                                                    "Локальні дані змінилися. Підтвердь вибір ще раз.",
+                                                )
+                                            }
+                                        }
+                                    } catch (cause: Exception) {
+                                        appSnackbarHostState.showVocabeeSnackbar(
+                                            cause.message ?: "Не вдалося завантажити стан з бекенда",
+                                        )
+                                    } finally {
+                                        googleAuthLoading = false
+                                    }
+                                }
+                            }
                         },
                         onUseLocal = {
+                            if (preferencesManager.currentUserId != conflict.user.id) {
+                                return@SyncConflictSheet
+                            }
                             googleAuthLoading = true
                             store.moveAnonymousVocabularyToCurrentUser()
                             pushProfileSettings(conflict.localProfile)
@@ -1353,8 +1540,10 @@ private fun MainApp(
                             )
                         },
                         onOtherEmail = {
-                            clearAuthenticatedSessionForAnotherEmail()
-                            scope.launch { appSnackbarHostState.showVocabeeSnackbar("Увійди іншим Google акаунтом") }
+                            scope.launch {
+                                clearAuthenticatedSessionForAnotherEmail()
+                                appSnackbarHostState.showVocabeeSnackbar("Увійди іншим Google акаунтом")
+                            }
                         },
                     )
                 }

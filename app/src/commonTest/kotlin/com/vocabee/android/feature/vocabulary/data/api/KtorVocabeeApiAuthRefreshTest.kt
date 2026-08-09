@@ -14,6 +14,8 @@ import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -22,6 +24,8 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class KtorVocabeeApiAuthRefreshTest {
@@ -124,6 +128,7 @@ class KtorVocabeeApiAuthRefreshTest {
             refreshToken = "rotated-away"
         }
         val tokenStore = AuthTokenStore(preferences)
+        val sessionGeneration = tokenStore.captureSession().generation
         val api = KtorVocabeeApi(
             client = clientWithEngine { request ->
                 when (request.url.encodedPath) {
@@ -133,8 +138,15 @@ class KtorVocabeeApiAuthRefreshTest {
                         unauthorizedResponse()
                     }
                     "/v1/auth/refresh" -> if (request.bodyText().contains("rotated-away")) {
-                        // Паралельний refresh уже завершив ротацію і поклав свіжу пару в prefs.
-                        preferences.refreshToken = "current-refresh"
+                        // Паралельний refresh уже завершив ротацію тієї самої сесії.
+                        tokenStore.rotateSession(
+                            AuthTokensResponse(
+                                accessToken = "concurrent-fresh",
+                                refreshToken = "current-refresh",
+                                expiresIn = 900,
+                            ),
+                            expectedGeneration = sessionGeneration,
+                        )
                         unauthorizedResponse()
                     } else {
                         respond(
@@ -204,6 +216,259 @@ class KtorVocabeeApiAuthRefreshTest {
         assertEquals("rotated", preferences.refreshToken)
         assertEquals("fresh", preferences.accessToken)
         assertFalse(tokenStore.sessionNeedsReauth.value)
+    }
+
+    @Test
+    fun staleRefreshCannotOverwriteANewerLoginSession() = runBlocking {
+        val preferences = InMemoryPreferencesManager().apply {
+            accessToken = "account-a-expired"
+            refreshToken = "account-a-refresh"
+        }
+        val tokenStore = AuthTokenStore(preferences)
+        val refreshReceived = CompletableDeferred<Unit>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val api = KtorVocabeeApi(
+            client = clientWithEngine { request ->
+                when (request.url.encodedPath) {
+                    "/v1/search" -> unauthorizedResponse()
+                    "/v1/auth/refresh" -> {
+                        refreshReceived.complete(Unit)
+                        releaseRefresh.await()
+                        respond(
+                            content = """{"accessToken":"account-a-fresh","refreshToken":"account-a-rotated","expiresIn":900}""",
+                            status = HttpStatusCode.OK,
+                            headers = jsonHeaders(),
+                        )
+                    }
+                    else -> error("Unexpected path: ${request.url.encodedPath}")
+                }
+            },
+            config = VocabeeApiConfig(baseUrl = "https://test.vocabee"),
+            tokenStore = tokenStore,
+        )
+        val outcome = CompletableDeferred<Result<SearchResponse>>()
+
+        val requestJob = launch {
+            outcome.complete(runCatching { api.search("bee", "uk", "en") })
+        }
+        refreshReceived.await()
+        tokenStore.replaceSession(
+            AuthTokensResponse(
+                accessToken = "account-b-access",
+                refreshToken = "account-b-refresh",
+                expiresIn = 900,
+            ),
+        )
+        releaseRefresh.complete(Unit)
+        requestJob.join()
+
+        val error = assertNotNull(outcome.await().exceptionOrNull() as? VocabeeApiException)
+        assertEquals("auth_session_changed", error.errorType)
+        assertEquals("account-b-access", tokenStore.current())
+        assertEquals("account-b-refresh", tokenStore.refreshToken())
+        assertEquals("account-b-access", preferences.accessToken)
+        assertEquals("account-b-refresh", preferences.refreshToken)
+    }
+
+    @Test
+    fun staleRefreshCannotRestoreALoggedOutSession() = runBlocking {
+        val preferences = InMemoryPreferencesManager().apply {
+            accessToken = "account-a-expired"
+            refreshToken = "account-a-refresh"
+        }
+        val tokenStore = AuthTokenStore(preferences)
+        val refreshReceived = CompletableDeferred<Unit>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val api = KtorVocabeeApi(
+            client = clientWithEngine { request ->
+                when (request.url.encodedPath) {
+                    "/v1/search" -> unauthorizedResponse()
+                    "/v1/auth/refresh" -> {
+                        refreshReceived.complete(Unit)
+                        releaseRefresh.await()
+                        respond(
+                            content = """{"accessToken":"account-a-fresh","refreshToken":"account-a-rotated","expiresIn":900}""",
+                            status = HttpStatusCode.OK,
+                            headers = jsonHeaders(),
+                        )
+                    }
+                    else -> error("Unexpected path: ${request.url.encodedPath}")
+                }
+            },
+            config = VocabeeApiConfig(baseUrl = "https://test.vocabee"),
+            tokenStore = tokenStore,
+        )
+        val outcome = CompletableDeferred<Result<SearchResponse>>()
+
+        val requestJob = launch {
+            outcome.complete(runCatching { api.search("bee", "uk", "en") })
+        }
+        refreshReceived.await()
+        tokenStore.clear()
+        releaseRefresh.complete(Unit)
+        requestJob.join()
+
+        val error = assertNotNull(outcome.await().exceptionOrNull() as? VocabeeApiException)
+        assertEquals("auth_session_changed", error.errorType)
+        assertNull(tokenStore.current())
+        assertNull(tokenStore.refreshToken())
+        assertNull(preferences.accessToken)
+        assertNull(preferences.refreshToken)
+    }
+
+    @Test
+    fun mutatingRequestIsNeverReplayedWithAnotherAccountsBearer() = runBlocking {
+        val preferences = InMemoryPreferencesManager().apply {
+            accessToken = "account-a-access"
+            refreshToken = "account-a-refresh"
+        }
+        val tokenStore = AuthTokenStore(preferences)
+        val applyBearers = mutableListOf<String?>()
+        var refreshRequests = 0
+        val api = KtorVocabeeApi(
+            client = clientWithEngine { request ->
+                when (request.url.encodedPath) {
+                    "/v1/topics/sync/apply" -> {
+                        applyBearers += request.headers[HttpHeaders.Authorization]
+                        tokenStore.replaceSession(
+                            AuthTokensResponse(
+                                accessToken = "account-b-access",
+                                refreshToken = "account-b-refresh",
+                                expiresIn = 900,
+                            ),
+                        )
+                        unauthorizedResponse()
+                    }
+                    "/v1/auth/refresh" -> {
+                        refreshRequests += 1
+                        error("A stale request must not refresh another account's session")
+                    }
+                    else -> error("Unexpected path: ${request.url.encodedPath}")
+                }
+            },
+            config = VocabeeApiConfig(baseUrl = "https://test.vocabee"),
+            tokenStore = tokenStore,
+        )
+
+        val result = runCatching {
+            api.applySync(
+                ApplySyncRequest(
+                    expectedUserId = "00000000-0000-4000-8000-00000000000a",
+                    topics = emptyList(),
+                    words = emptyList(),
+                ),
+            )
+        }
+
+        val error = assertNotNull(result.exceptionOrNull() as? VocabeeApiException)
+        assertEquals("auth_session_changed", error.errorType)
+        assertEquals(listOf<String?>("Bearer account-a-access"), applyBearers)
+        assertEquals(0, refreshRequests)
+        assertEquals("account-b-access", tokenStore.current())
+        assertEquals("account-b-refresh", tokenStore.refreshToken())
+    }
+
+    @Test
+    fun concurrentRequestsWithoutAccessShareOneRefreshRotation() = runBlocking {
+        val preferences = InMemoryPreferencesManager().apply {
+            accessToken = null
+            refreshToken = "shared-refresh"
+        }
+        val tokenStore = AuthTokenStore(preferences)
+        val refreshReceived = CompletableDeferred<Unit>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val searchBearers = mutableListOf<String?>()
+        var refreshRequests = 0
+        val api = KtorVocabeeApi(
+            client = clientWithEngine { request ->
+                when (request.url.encodedPath) {
+                    "/v1/auth/refresh" -> {
+                        refreshRequests += 1
+                        refreshReceived.complete(Unit)
+                        releaseRefresh.await()
+                        respond(
+                            content = """{"accessToken":"shared-access","refreshToken":"rotated-refresh","expiresIn":900}""",
+                            status = HttpStatusCode.OK,
+                            headers = jsonHeaders(),
+                        )
+                    }
+                    "/v1/search" -> {
+                        searchBearers += request.headers[HttpHeaders.Authorization]
+                        respond(searchResponse(), HttpStatusCode.OK, jsonHeaders())
+                    }
+                    else -> error("Unexpected path: ${request.url.encodedPath}")
+                }
+            },
+            config = VocabeeApiConfig(baseUrl = "https://test.vocabee"),
+            tokenStore = tokenStore,
+        )
+
+        val first = async { api.search("bee", "uk", "en") }
+        refreshReceived.await()
+        val second = async(start = CoroutineStart.UNDISPATCHED) {
+            api.search("bee", "uk", "en")
+        }
+        releaseRefresh.complete(Unit)
+
+        assertEquals("bee", first.await().query)
+        assertEquals("bee", second.await().query)
+        assertEquals(1, refreshRequests)
+        assertEquals(
+            listOf<String?>("Bearer shared-access", "Bearer shared-access"),
+            searchBearers,
+        )
+        assertEquals("shared-access", tokenStore.current())
+        assertEquals("rotated-refresh", tokenStore.refreshToken())
+    }
+
+    @Test
+    fun successfulResponseFromAChangedSessionIsRejected() = runBlocking {
+        val preferences = InMemoryPreferencesManager().apply {
+            accessToken = "account-a-access"
+            refreshToken = "account-a-refresh"
+        }
+        val tokenStore = AuthTokenStore(preferences)
+        val responseStarted = CompletableDeferred<Unit>()
+        val releaseResponse = CompletableDeferred<Unit>()
+        val searchBearers = mutableListOf<String?>()
+        val api = KtorVocabeeApi(
+            client = clientWithEngine { request ->
+                when (request.url.encodedPath) {
+                    "/v1/search" -> {
+                        searchBearers += request.headers[HttpHeaders.Authorization]
+                        responseStarted.complete(Unit)
+                        releaseResponse.await()
+                        respond(searchResponse(), HttpStatusCode.OK, jsonHeaders())
+                    }
+                    else -> error("Unexpected path: ${request.url.encodedPath}")
+                }
+            },
+            config = VocabeeApiConfig(baseUrl = "https://test.vocabee"),
+            tokenStore = tokenStore,
+        )
+        val outcome = CompletableDeferred<Result<SearchResponse>>()
+
+        val requestJob = launch {
+            outcome.complete(runCatching { api.search("bee", "uk", "en") })
+        }
+        responseStarted.await()
+        tokenStore.replaceSession(
+            AuthTokensResponse(
+                accessToken = "account-b-access",
+                refreshToken = "account-b-refresh",
+                expiresIn = 900,
+            ),
+        )
+        releaseResponse.complete(Unit)
+        requestJob.join()
+
+        val result = outcome.await()
+        assertTrue(result.isFailure)
+        val error = assertNotNull(result.exceptionOrNull() as? VocabeeApiException)
+        assertEquals("auth_session_changed", error.errorType)
+        assertEquals(listOf<String?>("Bearer account-a-access"), searchBearers)
+        assertEquals("account-b-access", tokenStore.current())
+        assertEquals("account-b-refresh", tokenStore.refreshToken())
     }
 
     private fun apiWithEngine(

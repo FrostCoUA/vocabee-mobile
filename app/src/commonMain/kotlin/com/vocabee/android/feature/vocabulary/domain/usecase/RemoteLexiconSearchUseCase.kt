@@ -177,6 +177,9 @@ internal fun SearchVariant.toOption(existingTranslations: Set<String>): Translat
         learningWord = learningWord,
         ipa = ipa,
         details = WordDetails(
+            translationId = translationId.takeIf { it.isNotBlank() },
+            lexiconSchemaVersion = lexiconSchemaVersion,
+            lexiconRevision = lexiconRevision,
             senseKeys = senseKeys.distinct(),
             senseIndex = senseIndex,
             senses = senses.map { sense ->
@@ -202,7 +205,7 @@ internal fun SearchVariant.toOption(existingTranslations: Set<String>): Translat
             literalTranslation = literalTranslation,
             usageExample = usageExample,
             usageExampleTranslation = usageExampleTranslation,
-        ).takeUnless { it.isEmpty },
+        ).takeIf { it.shouldPersist },
     )
 }
 

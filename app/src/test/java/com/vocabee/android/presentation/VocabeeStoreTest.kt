@@ -6,13 +6,17 @@ import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferenc
 import com.vocabee.android.feature.vocabulary.domain.manager.StaticUserSessionManager
 import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
 import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossaryToken
+import com.vocabee.android.feature.vocabulary.domain.model.DEFAULT_LOCAL_USER_KEY
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
+import com.vocabee.android.feature.vocabulary.domain.model.VocabularySyncSnapshot
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import com.vocabee.android.feature.vocabulary.domain.model.WordForm
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -96,6 +100,83 @@ class VocabeeStoreTest {
     }
 
     @Test
+    fun successfulSyncStoresSupportedLexiconSchemaVersionPerUser() {
+        val preferences = InMemoryPreferencesManager()
+        val repository = FakeVocabularyRepository()
+        val firstUserStore = VocabeeStore(
+            repository = repository,
+            userSessionManager = StaticUserSessionManager("user-a"),
+            preferencesManager = preferences,
+        )
+        val secondUserStore = VocabeeStore(
+            repository = repository,
+            userSessionManager = StaticUserSessionManager("user-b"),
+            preferencesManager = preferences,
+        )
+        preferences.setLocalRevisionEpochMillis("user-a", 3L)
+        preferences.setLocalRevisionEpochMillis("user-b", 8L)
+
+        firstUserStore.markVocabularySynced(
+            userKey = "user-a",
+            serverTime = "2026-08-10T00:00:00.000Z",
+            lexiconSchemaVersion = 7,
+        )
+
+        assertEquals(1, preferences.appliedLexiconSchemaVersion("user-a"))
+        assertEquals(0, preferences.appliedLexiconSchemaVersion("user-b"))
+        assertEquals("2026-08-10T00:00:00.000Z", preferences.lastSyncAt("user-a"))
+        assertEquals(0L, preferences.localRevisionEpochMillis("user-a"))
+        assertNull(preferences.lastSyncAt("user-b"))
+        assertEquals(8L, preferences.localRevisionEpochMillis("user-b"))
+
+        secondUserStore.markVocabularySynced(
+            userKey = "user-b",
+            serverTime = "2026-08-10T00:00:01.000Z",
+            lexiconSchemaVersion = 1,
+        )
+
+        assertEquals(1, preferences.appliedLexiconSchemaVersion("user-a"))
+        assertEquals(1, preferences.appliedLexiconSchemaVersion("user-b"))
+        assertEquals("2026-08-10T00:00:01.000Z", preferences.lastSyncAt("user-b"))
+        assertEquals(0L, preferences.localRevisionEpochMillis("user-b"))
+    }
+
+    @Test
+    fun pendingRoomRowsStillRequirePushWhenNewPerUserRevisionDefaultsToZero() {
+        val preferences = InMemoryPreferencesManager()
+        val store = VocabeeStore(preferencesManager = preferences)
+        store.createTopicForTest()
+        preferences.setLocalRevisionEpochMillis(DEFAULT_LOCAL_USER_KEY, 0L)
+
+        assertTrue(store.hasPendingSyncChanges(DEFAULT_LOCAL_USER_KEY))
+    }
+
+    @Test
+    fun explicitSnapshotReplacementForAnotherAccountDoesNotReplaceCurrentAccountState() {
+        val repository = FakeVocabularyRepository()
+        val store = VocabeeStore(
+            repository = repository,
+            userSessionManager = StaticUserSessionManager("user-a"),
+        )
+        val currentTopic = store.createTopicForTest(title = "Account A")
+        val otherTopic = DictionaryTopic(
+            id = "topic-b",
+            userKey = "user-b",
+            title = "Account B",
+            sourceLanguage = store.state.learningLanguage,
+            targetLanguage = store.state.userLanguage,
+        )
+
+        store.replaceSyncSnapshot(
+            userKey = "user-b",
+            snapshot = VocabularySyncSnapshot(listOf(otherTopic)),
+        )
+
+        assertEquals(listOf(currentTopic.id), store.state.topics.map { it.id })
+        assertEquals(listOf(otherTopic.id), repository.topicsForUser("user-b").map { it.id })
+    }
+
+    @Test
     fun removeTopicDeletesDictionaryFromState() {
         val store = VocabeeStore()
         val topic = store.createTopicForTest()
@@ -123,13 +204,75 @@ class VocabeeStoreTest {
     }
 
     @Test
+    fun addWordKeepsTheExactSearchDetailsSnapshotThroughTheRepositoryBoundary() {
+        val repository = FakeVocabularyRepository()
+        val store = VocabeeStore(repository = repository)
+        val topic = store.createTopicForTest()
+        val details = WordDetails(
+            senseKeys = listOf("sense_circumstance_noun_situation"),
+            senses = listOf(
+                WordSense(
+                    senseKey = "sense_circumstance_noun_situation",
+                    definition = "a fact or condition connected with an event",
+                    partOfSpeech = "noun",
+                    examples = listOf("We met under unusual circumstances."),
+                    synonyms = listOf("condition", "situation"),
+                ),
+            ),
+            forms = listOf(WordForm("circumstances", listOf("plural"))),
+            partOfSpeech = listOf("noun"),
+        )
+
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "circumstance",
+                translation = "обставина",
+                ipa = "/ˈsɜːkəmstəns/",
+                details = details,
+            ),
+        )
+
+        val storedInState = store.topicForTest(topic.id).words.single()
+        val storedInRepository = repository.topicsForUser(topic.userKey).single().words.single()
+        assertEquals(details, storedInState.details)
+        assertEquals(details, storedInRepository.details)
+        assertEquals("/ˈsɜːkəmstəns/", storedInState.ipa)
+    }
+
+    @Test
+    fun addWordKeepsControlOnlyLexiconSnapshotWithoutVisibleDetails() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+        val controlOnly = WordDetails(
+            translationId = "translation-obvious",
+            lexiconSchemaVersion = 1,
+            lexiconRevision = "sha256:obvious-v2",
+        )
+
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "obvious",
+                translation = "очевидний",
+                details = controlOnly,
+            ),
+        )
+
+        val stored = requireNotNull(store.topicForTest(topic.id).words.single().details)
+        assertTrue(stored.isEmpty)
+        assertTrue(stored.shouldPersist)
+        assertEquals(controlOnly, stored)
+    }
+
+    @Test
     fun contextGlossaryEnrichmentIsPersistedAndMarksLocalRevision() {
         val preferences = InMemoryPreferencesManager()
         val store = VocabeeStore(preferencesManager = preferences)
         val topic = store.createTopicForTest()
         store.onEvent(VocabeeEvent.AddWord(topic.id, "world", "світ"))
         val word = store.topicForTest(topic.id).words.single()
-        val beforeRevision = preferences.localRevisionEpochMillis
+        val beforeRevision = preferences.localRevisionEpochMillis(DEFAULT_LOCAL_USER_KEY)
         val glossary = ContextGlossary(
             sentence = "Hello world!",
             sourceLang = "en",
@@ -151,7 +294,7 @@ class VocabeeStoreTest {
             glossary,
             store.topicForTest(topic.id).words.single().details?.contextGlossary,
         )
-        assertTrue(preferences.localRevisionEpochMillis > beforeRevision)
+        assertTrue(preferences.localRevisionEpochMillis(DEFAULT_LOCAL_USER_KEY) > beforeRevision)
     }
 
     @Test
@@ -453,7 +596,7 @@ class VocabeeStoreTest {
         store.onEvent(VocabeeEvent.AddWord(topic.id, "flight", "рейс"))
         store.onEvent(VocabeeEvent.AddWord(other.id, "job", "робота"))
         val balanceBefore = store.state.beeBalance
-        val revisionBefore = prefs.localRevisionEpochMillis
+        val revisionBefore = prefs.localRevisionEpochMillis(DEFAULT_LOCAL_USER_KEY)
 
         store.onEvent(VocabeeEvent.ClearTopicWords(topic.id))
 
@@ -465,7 +608,7 @@ class VocabeeStoreTest {
         assertEquals(1, store.topicForTest(other.id).words.size)
         // Монетки за видалення не повертаються (D3), але зміну треба синхронізувати.
         assertEquals(balanceBefore, store.state.beeBalance)
-        assertTrue(prefs.localRevisionEpochMillis > revisionBefore)
+        assertTrue(prefs.localRevisionEpochMillis(DEFAULT_LOCAL_USER_KEY) > revisionBefore)
     }
 
     @Test
@@ -473,7 +616,7 @@ class VocabeeStoreTest {
         val prefs = InMemoryPreferencesManager()
         val store = VocabeeStore(preferencesManager = prefs)
         val topic = store.createTopicForTest(title = "Порожній")
-        val revisionBefore = prefs.localRevisionEpochMillis
+        val revisionBefore = prefs.localRevisionEpochMillis(DEFAULT_LOCAL_USER_KEY)
 
         store.onEvent(VocabeeEvent.ClearTopicWords(topic.id))
         store.onEvent(VocabeeEvent.ClearTopicWords("no-such-topic"))
@@ -481,7 +624,7 @@ class VocabeeStoreTest {
 
         assertEquals(1, store.state.topics.size)
         assertTrue(store.topicForTest(topic.id).words.isEmpty())
-        assertEquals(revisionBefore, prefs.localRevisionEpochMillis)
+        assertEquals(revisionBefore, prefs.localRevisionEpochMillis(DEFAULT_LOCAL_USER_KEY))
     }
 
     @Test

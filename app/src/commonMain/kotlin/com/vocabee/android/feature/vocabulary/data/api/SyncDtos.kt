@@ -3,6 +3,8 @@ package com.vocabee.android.feature.vocabulary.data.api
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
+const val CLIENT_SUPPORTED_LEXICON_SCHEMA_VERSION = 1
+
 @Serializable
 data class UpdateProfileRequest(
     val speakLang: String? = null,
@@ -28,10 +30,13 @@ data class SyncResponse(
     val deletedTopicIds: List<String>,
     val deletedWordIds: List<String>,
     val serverTime: String,
+    val lexiconSchemaVersion: Int = 1,
 )
 
 @Serializable
 data class ApplySyncRequest(
+    /** Authenticated user captured when this mutation payload was built. */
+    val expectedUserId: String,
     val topics: List<ClientTopicSync>,
     val words: List<ClientTopicWordSync>,
     val replaceServerState: Boolean = false,

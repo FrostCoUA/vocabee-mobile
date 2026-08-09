@@ -1,6 +1,6 @@
 # 14 — Деталі слова/фрази та озвучення
 
-Документ описує **багату модель деталей слова** (senses, синоніми/антоніми, форми, частини мови, приклади, IPA), як ці деталі відображаються в розгортуваному рядку словника, **звідки вони беруться** (серверне збагачення `lexicon` + `lexicon_examples`), як працює **озвучення (TTS)** і чому **снапшот перекладу/IPA у `topic_words`** лишається сталим, навіть якщо `lexicon` пізніше змінять.
+Документ описує **багату модель деталей слова** (senses, синоніми/антоніми, форми, частини мови, приклади, IPA), як ці деталі відображаються в розгортуваному рядку словника, **звідки вони беруться** (серверне збагачення `lexicon` + `lexicon_examples`), як працює **озвучення (TTS)** і як за D15 офлайн-снапшот перекладу/IPA у `topic_words` версійно оновлюється через vocabulary sync.
 
 Позначення: **[ЗАРАЗ]** — поточна поведінка коду; **[НОВЕ]** — затверджена зміна; **Припущення (уточнити)** — там, де рішення немає.
 
@@ -34,7 +34,11 @@
 
 ```kotlin
 data class WordDetails(
+    val translationId: String? = null,
+    val lexiconSchemaVersion: Int? = null,
+    val lexiconRevision: String? = null,
     val senseKeys: List<String> = emptyList(),
+    val senseIndex: Int? = null,              // legacy positional attribution
     val senses: List<WordSense> = emptyList(),
     val synonyms: List<String> = emptyList(),   // word-level
     val antonyms: List<String> = emptyList(),   // word-level
@@ -50,6 +54,7 @@ data class WordDetails(
     val usageExampleTranslation: String? = null,
     val contextGlossary: ContextGlossary? = null,
 ) {
+    // Control fields deliberately do not make a card visually expandable.
     val isEmpty get() = senses.isEmpty() && synonyms.isEmpty() &&
         antonyms.isEmpty() && forms.isEmpty() && partOfSpeech.isEmpty() &&
         lexicalUnitKind == Word && registerTags.isEmpty() &&
@@ -57,12 +62,19 @@ data class WordDetails(
         meaning.isNullOrBlank() && literalTranslation.isNullOrBlank() &&
         usageExample.isNullOrBlank() && usageExampleTranslation.isNullOrBlank() &&
         contextGlossary == null
+
+    val hasLexiconSnapshot get() = !translationId.isNullOrBlank() ||
+        lexiconSchemaVersion != null || !lexiconRevision.isNullOrBlank()
+    val shouldPersist get() = !isEmpty || hasLexiconSnapshot
 }
 ```
 
-- **Read-only на мобільному**: сервер — єдине джерело істини для всього всередині (`VocabularyModels.kt:23-28`). Клієнт не редагує деталі.
+- **Read-only на мобільному**: сервер — єдине джерело істини для всього всередині (`VocabularyModels.kt:23-28`). Клієнт не редагує lexical details і не маскує серверні повтори локальним дедупом; sync повністю замінює snapshot. Єдиний client-owned підоб'єкт — персональний `contextGlossary`.
 - **Контекстний снапшот**: `ContextGlossary(sentence, sourceLang, targetLang, tokens[])`; кожен `ContextGlossaryToken` має exact `surface`, normalized-форму, UTF-16 `start/endExclusive`, контекстний `translation` і опційний `lemma`. Він добудовується gateway після локального save, а не руками користувача, і дає офлайн-попапи в тренуванні.
-- `isEmpty` — гард: порожній `WordDetails` трактується як «деталей нема» (впливає на розгортання рядка, §3.1, і на те, чи зберігати взагалі — `RemoteLexiconSearchUseCase.kt:113` робить `.takeUnless { it.isEmpty }`).
+- `isEmpty` керує лише видимим розгортанням і навмисно ігнорує три opaque control
+  fields. `shouldPersist` додатково враховує `hasLexiconSnapshot`, тому навіть варіант
+  без видимих senses/examples не губить identity/schema/revision, потрібні наступному
+  серверному refresh (`RemoteLexiconSearchUseCase` робить `.takeIf { it.shouldPersist }`).
 - **Два рівні синонімів/антонімів:** word-level (`WordDetails.synonyms/antonyms`) і sense-level (`WordSense.synonyms/antonyms`). У бекенді обидва зберігаються в `lexicon_relations` з nullable `sense_id` (`0005:49`); у UI зараз рендеряться лише word-level (§3.3).
 
 ### 1.2 Структурний тип і регістр — різні виміри
@@ -81,7 +93,7 @@ data class WordDetails(
 
 | Поле | Тип | Значення | Серверне джерело |
 |---|---|---|---|
-| `senseKey` | `String?` | Stable V2 identity значення; null тільки у старому локальному snapshot | `lexicon_senses.sense_key` |
+| `senseKey` | `String?` | Stable V2 identity значення; null для legacy backend row без персистованого key або старого локального snapshot | `lexicon_senses.sense_key` |
 | `definition` | `String` | Текст означення (обов'язкове) | `lexicon_senses.definition` (`lexicon.ts:132`) |
 | `partOfSpeech` | `String?` | Частина мови саме цього значення | `lexicon_senses.part_of_speech` (`lexicon.ts:133`) |
 | `tags` | `List<String>` | Грам./стильові мітки значення | `lexicon_senses.tags` (`lexicon.ts:134`) |
@@ -128,7 +140,7 @@ data class WordForm(val text: String, val tags: List<String> = emptyList())
 - **Партиціонування:** усі lexicon-таблиці партиціоновані `LIST (word_lang)` — по партиції на мову (`uk,en,de,es,fr,pl,it`, `0005:90`). PK включає `word_lang`, бо Postgres вимагає ключ партиції в PK (`lexicon.ts:36`).
 - **Без FK до партиціонованого батька:** `lexicon_examples` і relations тримають `(word_lang, word_id)` як «м'який» лінк — цілісність на рівні застосунку, бо FK до партиціонованих таблиць обмежені (`lexicon.ts:93-97`).
 - **`sense_id` опційний** усюди (examples/relations): NULL → застосовується до слова в цілому; не-NULL → до конкретного значення (`lexicon.ts:104`, `0005:49`).
-- **Дедуплікація:** synonyms/forms унікальні по `(word, kind, lower(text))` без `sense_id` — той самий синонім з кількох значень схлопується в один рядок (`0005:59-62`, `:80`).
+- **Дедуплікація:** після `0021_lexicon_relation_sense_scope.sql` word-level relation унікальна по `(word, kind, lower(text)) WHERE sense_id IS NULL`, а sense-level — по `(word, sense_id, kind, lower(text)) WHERE sense_id IS NOT NULL`. Той самий синонім може належати двом різним значенням, але повтор у межах одного значення лишається ідемпотентним. Форми окремо унікальні по `(word, lower(form_text))`.
 
 ### 2.2 Як це доходить до мобільного
 
@@ -136,6 +148,11 @@ data class WordForm(val text: String, val tags: List<String> = emptyList())
 
 ```kotlin
 details = WordDetails(
+    translationId = translationId,
+    lexiconSchemaVersion = lexiconSchemaVersion,
+    lexiconRevision = lexiconRevision,
+    senseKeys = senseKeys,
+    senseIndex = senseIndex,
     senses = senses.map { WordSense(it.definition, it.partOfSpeech, it.tags,
         it.examples.map { ex -> ex.text }, it.synonyms, it.antonyms) },
     synonyms = synonyms,
@@ -150,11 +167,14 @@ details = WordDetails(
     literalTranslation = literalTranslation,
     usageExample = usageExample,
     usageExampleTranslation = usageExampleTranslation,
-).takeUnless { it.isEmpty }   // порожнє → null
+).takeIf { it.shouldPersist } // null лише без visible details і control snapshot
 ```
 
-- **Момент персисту:** коли користувач тапає «+», збагачення відповіді записується в Room **одним JSON-блобом** через `VocabeeTypeConverters` (док-коментар `VocabularyModels.kt:23-28`; крос-лінк **doc 03** про конвертери/кеш). Тобто `WordEntry.details` — це **снапшот того, що віддав провайдер у момент додавання** (узгоджено зі снапшотом перекладу/IPA, §5).
-- **`WordEntry.details` nullable** (`VocabularyModels.kt:67`): `null`, якщо слово додане до появи цього поля, або провайдер не повернув жодного збагачення.
+- **Момент персисту:** коли користувач тапає «+», `RoomVocabularyRepository` кодує збагачення через свій `WordDetailsJsonCodec` і записує в Room **одним JSON-блобом** (`details_json`). `VocabeeTypeConverters` тут не бере участі — він конвертує `SyncStatus`. Це миттєвий офлайн-снапшот відповіді пошуку; для auth-користувача наступний sync зв'язує його з Dictionary translation/lexeme, додає `lexiconRevision`/`lexiconSchemaVersion` і надалі замінює свіжою канонічною проєкцією (D15, §5).
+- **Частковий пошук не створює обрізаний снапшот:** prefix-підказка (`circumstanc → circumstance`) уже містить персистовані IPA/PoS/senses/examples/forms/relations і `senseKeys` так само, як exact cache-hit. Сервер читає деталі лише для 15 варіантів, які повертає, і не запускає dictionary/AI або repair side effects під час autocomplete. Якщо старий sense ще не має персистованого key, DTO чесно несе `senseKey=null`, а не обчислений, але відсутній у БД ID.
+- **`WordEntry.details` nullable**: `null`, якщо слово додане до появи цього поля або
+  відповідь не має ані видимого збагачення, ані opaque snapshot identity. Результат без
+  senses/examples, але з `translationId`/revision, зберігає control-only `WordDetails`.
 
 ### 2.3 AI-маркування (звідки «AI»)
 
@@ -265,9 +285,9 @@ interface SpeechOutputController {
 
 ---
 
-## 5. Снапшот перекладу/IPA у `topic_words` (сталість)
+## 5. Версійний snapshot перекладу/IPA у `topic_words` (D15)
 
-### 5.1 `topic_words` — копія, а не посилання на lexicon
+### 5.1 `topic_words` — офлайн-копія, а не live join
 
 **[ЗАРАЗ]** Слово словника користувача зберігає **власну копію** тексту/перекладу/IPA, а не лайв-посилання на `lexicon_words` (`topics.ts:50-81`):
 
@@ -280,27 +300,30 @@ interface SpeechOutputController {
 | `source` / `origin` | `varchar(16)` / `text` | провайдер, що дав запис |
 | `metadata` | `jsonb` | додаткове збагачення (за потреби) |
 
-### 5.2 Чому це важливо
+### 5.2 Чому це все ще snapshot
 
-- **Сталість:** `wordText`/`translationText`/`ipa` у `topic_words` — це **знімок у момент додавання**. Якщо `lexicon_words.ipa`, означення чи переклади пізніше **зміняться/перезапишуться провайдером**, слово в словнику користувача **не зміниться** — він бачить те, що додав.
-- `sourceWordId` — лише **м'який** лінк (nullable, без FK, бо `lexicon_words` партиціоновано — `lexicon.ts:60-61`). Він **не** змушує `topic_words` слідувати за lexicon; це підказка для майбутнього ре-енричменту, не лайв-джойн.
-- На мобільному цей самий принцип віддзеркалено: `WordEntry` несе власні `source`/`translation`/`ipa`/`details` (`VocabularyModels.kt:56-72`); `details` записані одним JSON-блобом у момент додавання (§2.2). Lexicon на сервері — джерело істини **для пошуку нових слів**, але збережене слово вже відв'язане.
+- UI ніколи не робить live join із Dictionary API: `wordText`/`translationText`/`ipa`/`details` локально доступні офлайн і рендеряться одразу.
+- `sourceWordId` лишається **м'яким** server-side лінком (nullable, без cross-DB FK). Додатковий opaque translation ref, schema version і SHA-256 revision лежать у `metadata.lexiconSnapshot`; мобільний кешує їх у backward-compatible `details_json`.
+- Перед кожною auth sync-відповіддю `client-gateway` батчем просить у `dictionary-gateway` read-only канонічну проєкцію. Вона обмежена парою мов словника: для EN→UK не потрапляють EN→ES приклади або EN→DE значення. Якщо revision змінилась, сервер робить **повну заміну**, а не JSON merge, і bump-ить timestamps слова/словника — звичайний delta-sync привозить оновлення.
+- Stale client payload не може відкотити новішу lexical revision. Для linked слова backend приймає від mobile лише user-owned прогрес/delete і валідний `contextGlossary`; canonical texts/IPA/details відбудовує Dictionary projector.
+- `contextGlossary` і навчальний прогрес мають окремий lifecycle. Glossary зберігається під час звичайного refresh; якщо він був похідним саме від старого canonical sentence, яке замінили, snapshot інвалідується для повторного збагачення.
 
 ### 5.3 Наслідки та межі
 
 | Сценарій | Поведінка |
 |---|---|
-| Провайдер уточнив IPA в `lexicon_words` | Збережене слово показує **старий** `topic_words.ipa` (сталий). |
-| Провайдер додав/змінив значення в `lexicon_senses` | `WordEntry.details` (снапшот при додаванні) **не оновлюється** автоматично. |
-| Слово додане до появи `details` | `WordEntry.details == null` → рядок без розгортання деталей (хіба що текст обрізаний, §3.1). |
-
-> **Припущення (уточнити):** чи передбачено ре-енричмент збережених слів (підтягнути свіжі senses/forms за `sourceWordId`). Зараз код такого потоку не має — снапшот лишається замороженим. Узгодити з **doc 03** (кеш) і **doc 06** (sync).
+| Провайдер/куратор уточнив IPA, definition, example або form | Наступний auth sync порівнює content revision і повністю замінює локальний snapshot. |
+| У БД є однаковий source-example для кількох target languages | Projector читає лише `translation_lang = targetLang OR NULL`, віддає target-specific рядок першим і дедуплікує normalized source text на сервері. |
+| Інша мовна пара імпортувала окремий sense того самого headword | У details входить лише union senses, linked до активних translations поточного `learningWord + targetLang`; cross-direction sense не рендериться. |
+| Слово додане до появи `details`/lexicon ref | Sync робить legacy resolve лише за однозначною парою мов + normalized source/translation; неоднозначний/manual запис не вгадується й не втрачає старий payload. |
+| Змінилася schema `WordDetails` | Server revision містить schema version; нова версія app робить full pull. Еволюція має бути additive або мати паралельну versioned projection — старий binary не може зрозуміти breaking rename. |
+| Анонім без JWT | Vocabulary sync відсутній (D2), тому snapshot лишається локальним до входу/мержу в акаунт. |
 
 ---
 
 ## 6. Крос-лінки
 
-- **doc 03** — Room-кеш, `VocabeeTypeConverters`, як `WordDetails` серіалізується JSON-блобом.
+- **doc 03** — Room-кеш і зберігання `WordDetails` у `details_json`; фактичний JSON codec належить `RoomVocabularyRepository`, а `VocabeeTypeConverters` обслуговує `SyncStatus`.
 - **doc 08 §3** — напрямок перекладу і STT (primary/alternative мови розпізнавача), D8.
 - **doc 08 §4** — повна механіка TTS (асинхронна ініціалізація, source-мова, обмеження).
 - **doc 06** — sync/мерж: як `topic_words`-снапшоти зливаються при вході.

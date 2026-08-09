@@ -10,6 +10,11 @@ interface SessionExpiryObservable {
     val sessionNeedsReauth: StateFlow<Boolean>
 }
 
+/** Local bearer-session lifecycle owned by the concrete API client. */
+interface LocalSessionController {
+    suspend fun clearLocalSession()
+}
+
 interface VocabeeApi {
     /**
      * Calls `GET /v1/search?q=&speak=&learn=` on the gateway. Returns the parsed

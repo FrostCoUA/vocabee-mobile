@@ -8,14 +8,16 @@ import com.vocabee.android.core.analytics.NoAnalyticsTracker
 import com.vocabee.android.core.platform.currentEpochMillis
 import com.vocabee.android.core.platform.startOfDayEpochMillis
 import com.vocabee.android.feature.vocabulary.data.FakeVocabularyRepository
-import com.vocabee.android.feature.vocabulary.domain.VocabularyRepository
+import com.vocabee.android.feature.vocabulary.data.api.CLIENT_SUPPORTED_LEXICON_SCHEMA_VERSION
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
 import com.vocabee.android.feature.vocabulary.data.preferences.PreferencesManager
+import com.vocabee.android.feature.vocabulary.domain.VocabularyRepository
 import com.vocabee.android.feature.vocabulary.domain.manager.StaticUserSessionManager
 import com.vocabee.android.feature.vocabulary.domain.manager.UserSessionManager
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.DEFAULT_LOCAL_USER_KEY
 import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
+import com.vocabee.android.feature.vocabulary.domain.model.SyncStatus
 import com.vocabee.android.feature.vocabulary.domain.model.VocabularySyncSnapshot
 import com.vocabee.android.feature.vocabulary.domain.usecase.AdjustWordKnowledgeUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.AddWordUseCase
@@ -306,30 +308,55 @@ class VocabeeStore(
         return repository.hasVocabulary(userSessionManager.currentUserKey)
     }
 
-    fun exportCurrentSyncSnapshot(includeDeleted: Boolean): VocabularySyncSnapshot {
-        return repository.exportSyncSnapshot(userSessionManager.currentUserKey, includeDeleted)
+    fun exportSyncSnapshot(userKey: String, includeDeleted: Boolean): VocabularySyncSnapshot {
+        return repository.exportSyncSnapshot(userKey, includeDeleted)
     }
 
-    fun replaceCurrentSyncSnapshot(snapshot: VocabularySyncSnapshot) {
-        repository.replaceSyncSnapshot(userSessionManager.currentUserKey, snapshot)
-        state = state.copy(topics = loadUserTopicsUseCase())
+    fun hasPendingSyncChanges(userKey: String): Boolean {
+        return repository.exportSyncSnapshot(userKey, includeDeleted = true).topics.any { topic ->
+            topic.syncStatus != SyncStatus.Synced ||
+                topic.words.any { word -> word.syncStatus != SyncStatus.Synced }
+        }
     }
 
-    fun markCurrentVocabularySynced(serverTime: String) {
-        repository.markSynced(userSessionManager.currentUserKey)
-        preferencesManager.lastSyncAt = serverTime
-        preferencesManager.localRevisionEpochMillis = 0L
-        state = state.copy(topics = loadUserTopicsUseCase())
+    fun replaceSyncSnapshot(userKey: String, snapshot: VocabularySyncSnapshot) {
+        repository.replaceSyncSnapshot(userKey, snapshot)
+        if (userSessionManager.currentUserKey == userKey) {
+            state = state.copy(topics = loadUserTopicsUseCase())
+        }
+    }
+
+    fun markVocabularySynced(
+        userKey: String,
+        serverTime: String,
+        lexiconSchemaVersion: Int,
+    ) {
+        repository.markSynced(userKey)
+        preferencesManager.setLastSyncAt(userKey, serverTime)
+        preferencesManager.setLocalRevisionEpochMillis(userKey, 0L)
+        preferencesManager.setAppliedLexiconSchemaVersion(
+            userKey = userKey,
+            version = minOf(
+                lexiconSchemaVersion.coerceAtLeast(0),
+                CLIENT_SUPPORTED_LEXICON_SCHEMA_VERSION,
+            ),
+        )
+        if (userSessionManager.currentUserKey == userKey) {
+            state = state.copy(topics = loadUserTopicsUseCase())
+        }
     }
 
     fun moveAnonymousVocabularyToCurrentUser() {
-        repository.moveUserVocabulary(DEFAULT_LOCAL_USER_KEY, userSessionManager.currentUserKey)
-        touchLocalRevision()
+        val targetUserKey = userSessionManager.currentUserKey
+        repository.moveUserVocabulary(DEFAULT_LOCAL_USER_KEY, targetUserKey)
+        preferencesManager.setLocalRevisionEpochMillis(DEFAULT_LOCAL_USER_KEY, 0L)
+        touchLocalRevision(targetUserKey)
         state = state.copy(topics = loadUserTopicsUseCase())
     }
 
     fun discardAnonymousVocabulary() {
         repository.replaceSyncSnapshot(DEFAULT_LOCAL_USER_KEY, VocabularySyncSnapshot(emptyList()))
+        preferencesManager.setLocalRevisionEpochMillis(DEFAULT_LOCAL_USER_KEY, 0L)
     }
 
     fun anonymousDictionaryLimitReached(): Boolean {
@@ -542,7 +569,7 @@ class VocabeeStore(
             source = cleanedSource,
             translation = cleanedTranslation,
             ipa = ipa?.trim()?.takeIf { it.isNotEmpty() },
-            details = details?.takeUnless { it.isEmpty },
+            details = details?.takeIf { it.shouldPersist },
         )
         if (word == null) return
 
@@ -556,7 +583,7 @@ class VocabeeStore(
                 "topic_id" to topicId,
                 "source" to cleanedSource,
                 "translation" to cleanedTranslation,
-                "has_details" to (details?.takeUnless { it.isEmpty } != null),
+                "has_details" to (details?.isEmpty == false),
             ),
         )
         touchLocalRevision()
@@ -708,7 +735,10 @@ class VocabeeStore(
         )
     }
 
-    fun touchLocalRevision() {
-        preferencesManager.localRevisionEpochMillis = preferencesManager.localRevisionEpochMillis + 1L
+    fun touchLocalRevision(userKey: String = userSessionManager.currentUserKey) {
+        preferencesManager.setLocalRevisionEpochMillis(
+            userKey = userKey,
+            value = preferencesManager.localRevisionEpochMillis(userKey) + 1L,
+        )
     }
 }

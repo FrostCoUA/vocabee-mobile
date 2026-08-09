@@ -40,10 +40,14 @@ gateway (NestJS + Postgres), а також як планується мерж л
 
 ### 1.2 PUSH — `applySync`
 
-`syncVocabularyNow()` (`App.kt:384-403`) збирає **повний** снапшот користувача
-(`store.exportCurrentSyncSnapshot(includeDeleted = true)`), мапить його в
-`ApplySyncRequest` (`VocabularySyncMapper.kt:29-62`) і шле `POST /v1/topics/sync/apply`
-(`KtorVocabeeApi.kt:145-160`).
+`syncVocabularyNow()` збирає **повний** снапшот явно захопленого користувача
+(`store.exportSyncSnapshot(userKey, includeDeleted = true)`), мапить його в
+`ApplySyncRequest` і шле `POST /v1/topics/sync/apply` усередині
+`VocabularySyncCoordinator`. Запит не покладається на динамічний `currentUserKey` під
+час застосування відповіді: він також несе `expectedUserId` із того самого захопленого
+auth lease. Gateway порівнює його з JWT principal **до першого запису** і повертає
+`403`, якщо payload акаунта A був відправлений або повторений уже з токеном акаунта B.
+Поле optional для старих binary, але поточний mobile надсилає його для кожного PUSH.
 
 Мапінг (`VocabularySyncMapper.kt`):
 - словник → `ClientTopicSync` з `deleted = syncStatus == PendingDelete`;
@@ -55,7 +59,8 @@ gateway (NestJS + Postgres), а також як планується мерж л
 1. застосовує кожен `topic` через `applyClientTopic` (`:335-395`);
 2. застосовує кожне `word` через `applyClientWord` (`:397-458`);
 3. якщо `replaceServerState=true` — викликає `softDeleteMissingClientRows` (`:460-511`);
-4. повертає **повний** снапшот через `this.sync(userId, null)` (`:332`).
+4. перед відповіддю версійно звіряє linked saved words із read-only Dictionary snapshot (D15);
+5. повертає **повний** снапшот через `this.sync(userId, null)` (`:332`).
 
 ### 1.3 PULL — `syncTopics(since)`
 
@@ -68,17 +73,24 @@ gateway (NestJS + Postgres), а також як планується мерж л
 - повертає `SyncResponse` із розділенням на активні (`deletedAt IS NULL`) та видалені
   (`deletedAt IS NOT NULL` → `deletedTopicIds`/`deletedWordIds`) (`:305-315`).
 
-### 1.4 Курсор і «брудний» прапорець
+### 1.4 Per-user курсор, dirty-ревізія та lease синку
 
-- **`serverTime`** (`SyncDtos.kt:30`) — ISO-час відповіді сервера. Клієнт зберігає його
-  як `preferencesManager.lastSyncAt` у `markCurrentVocabularySynced` (`VocabeeStore.kt:196-199`).
-  Це курсор для наступного `syncTopics(since)`.
-- **`localRevisionEpochMillis`** — монотонний лічильник локальних правок
-  (`VocabeeStore.kt:458`, інкремент на кожну зміну). `> 0` означає «є незалиті локальні зміни».
-  `runStartupSync` (`App.kt:473-486`) дивиться на нього: якщо `> 0` → робить PUSH
-  (`syncVocabularyNow()`), інакше робить дельта-PULL від `lastSyncAt`.
-- `markCurrentVocabularySynced` обнуляє `localRevisionEpochMillis = 0L` (`VocabeeStore.kt:198`)
-  і викликає `repository.markSynced(...)` (`:197`).
+- **`serverTime`** — ISO-час відповіді сервера. Після успішного застосування клієнт
+  зберігає його як `preferencesManager.lastSyncAt(userKey)`. Це per-user курсор
+  наступного `syncTopics(since)`; акаунти на одному пристрої не ділять його.
+- **`localRevisionEpochMillis(userKey)`** — per-user монотонний лічильник локальних
+  правок. `> 0` або наявність `Pending*`-рядків у Room означає, що спочатку потрібен
+  PUSH; додаткова перевірка Room захищає апгрейд зі старих device-global prefs.
+- Усі мережеві vocabulary sync виконуються через один `VocabularySyncCoordinator`
+  (`Mutex`). Перед запитом він фіксує `userKey` і локальну ревізію, а перед повною
+  заміною Room перевіряє їх ще раз. Відповідь попереднього акаунта або відповідь,
+  під час якої користувач локально щось змінив, відкидається без очищення dirty-стану;
+  паралельні відповіді не можуть застосуватися у зворотному порядку.
+- Мережевий шар окремо фіксує generation bearer-сесії. Після login/logout retry не
+  може перечитати токен нового акаунта, старий refresh не може його перезаписати, а
+  `expectedUserId` на `applySync` є другим серверним бар'єром до будь-якої мутації.
+- `markVocabularySynced(userKey, ...)` пересуває курсор, обнуляє ревізію й маркує
+  Room-рядки synced лише для явно переданого користувача після успішного lease.
 
 ### 1.5 deletedTopicIds / deletedWordIds
 
@@ -114,6 +126,33 @@ gateway (NestJS + Postgres), а також як планується мерж л
 речення й offset — окремий приклад. Завдяки цьому локальний anonymous glossary потрапляє
 до акаунта при першому push, а повторний sync не дублює пару чи те саме входження.
 Видалення topic/word не каскадить у glossary: він зберігає накопичену історію контекстів.
+
+### 1.8 **[ЗАРАЗ]** Server-authoritative lexical refresh (D15)
+
+Перед кожною auth sync-відповіддю `client-gateway` збирає активні `topic_words` і
+батчами звертається до захищеного read-only Dictionary snapshot endpoint. Проєкція
+визначається парою мов словника, тому повертає лише senses, linked до активних
+translations поточного `sourceLang → targetLang`, і приклади з
+`translation_lang = targetLang OR NULL`; однаковий normalized source-example
+дедуплікується на сервері з пріоритетом target-specific рядка.
+
+Канонічний payload має schema version і SHA-256 `lexiconRevision`, що охоплює
+texts, IPA, senses/examples/relations/forms та lexical metadata. Якщо revision не
+змінилася — `updated_at` не рухається. Якщо змінилася — `topic_words` отримує повну
+заміну, а `topics.words_updated_at` bump-иться, тому звичайний delta-pull одразу
+бачить виправлення. `dictionary-gateway` outage не блокує vocabulary sync: сервер
+лишає останній валідний offline snapshot і повторить reconciliation пізніше.
+
+`applySync` більше не вважає весь `metadata.details` client-owned. Для linked rows
+старий mobile payload не може відкотити canonical revision або стерти невідоме
+нове поле; merge-яться лише progress/delete та валідний `contextGlossary`.
+Unlinked/manual слово зберігає provisional snapshot. Legacy binding виконується
+лише за однозначним збігом мовної пари + normalized word/translation; неоднозначний
+рядок не вгадується. `contextGlossary` переживає звичайний refresh, але
+інвалідується, якщо був похідним від canonical sentence, яке сервер замінив.
+Прямі `POST/PATCH .../words` проходять через ту саму linked/provisional політику,
+тому старий клієнт не обходить D15 поза sync. Невалідний `translationId`-hint
+відкидається як hint для конкретного рядка, а не зупиняє весь batch.
 
 ---
 
@@ -219,10 +258,12 @@ D1: **сервер — єдине джерело істини**. `applySync` м�
 
 ### 4.1 Звідки береться конфлікт [ЗАРАЗ]
 
-`startGoogleSignIn` (`App.kt:493-554`): після входу робить `api.syncTopics(null)`
-(`:518`). Якщо `hadLocalAnonymousVocabulary && serverHasVocabulary` (`:521`) — відкриває
-`SyncConflictSheet` із `PendingSyncConflict` (`:522-529`). Інакше — або переносить локальне
-(`moveAnonymousVocabularyToCurrentUser` + PUSH, `:531-538`), або приймає серверне (`:540-541`).
+`startGoogleSignIn`: після входу отримує серверний стан через
+`VocabularySyncCoordinator`. Якщо для auth-user вже є dirty revision/`Pending*`-рядки,
+спершу виконується PUSH; інакше — full pull. Якщо одночасно є локальна анонімна
+вокабулярія і серверні дані, відкривається `SyncConflictSheet`, а
+`PendingSyncConflict` зберігає captured auth-user revision. Інакше локальне переноситься
+й пушиться або серверний snapshot застосовується під тим самим account/revision lease.
 
 ### 4.2 Поточна шторка [ЗАРАЗ] — бінарна
 
@@ -230,7 +271,7 @@ D1: **сервер — єдине джерело істини**. `applySync` м�
 
 | Кнопка | Дія | Код |
 |---|---|---|
-| Взяти стан з бекенда | `applyServerSnapshot` + `discardAnonymousVocabulary` | `App.kt:894-900` |
+| Взяти стан з бекенда | Повторно звірити account/revision під coordinator, зробити свіжий `syncTopics(null)`, тоді `applyServerSnapshot` + `discardAnonymousVocabulary`; при локальній зміні попросити підтвердження ще раз | `App.kt`, `VocabularySyncCoordinator.kt` |
 | Залити локальний стан | `moveAnonymousVocabularyToCurrentUser` + `syncVocabularyNow(replaceServerState = true)` (затирає серверне!) | `App.kt:901-918` |
 | Увійти іншим email | `clearAuthenticatedSessionForAnotherEmail` | `App.kt:919-922` |
 
@@ -328,6 +369,7 @@ PULL  PUSH      PULL/PULL      ┌────┴──────────�
 | 1 | **[ЗАРАЗ] `markSynced` оптимістично чистить `PendingDelete`** | `repository.markSynced` (`FakeVocabularyRepository.kt:185-192`) **сліпо** ставить `Synced` на всі топіки/слова, без поштучного підтвердження від сервера, що delete справді застосовано. Якщо PUSH частково впав/відхилений (розділ 3) — клієнт усе одно вважатиме все синканим. За D1 чистити статус треба лише за списком `applied` з відповіді. |
 | 2 | **[ЗАРАЗ] Видалення `PendingCreate`-словника все одно шлеться як delete** | Локально новий словник (`PendingCreate`), якого сервер ще не бачив, при видаленні мапиться в `deleted=true` (`VocabularySyncMapper.kt:42`) і відправляється. На сервері `applyClientTopic` робить early-return, якщо рядка немає (`topics.service.ts:345-346`) — тобто delete по неіснуючому id безпечний, але це зайвий трафік: рядок можна було б просто не слати. |
 | 3 | **[ЗАРАЗ] `beeBalance` не йде через vocabulary-sync** | Баланс монеток НЕ передається в `ApplySyncRequest`/`SyncResponse` (`SyncDtos.kt`). Він приходить окремо: через `currentUser()` (`App.kt:460,473`) і `claimRewardedAdBees()` (`App.kt:575`), які кладуть `user.beeBalance` у стор. За D1 авторитетний баланс після списань у `applySync` має повертатися в самій sync-відповіді (`newBeeBalance`, розділ 3.2), щоб не було розсинхрону між списанням за словник і показаним балансом. |
-| 4 | **[ЗАРАЗ] PUSH завжди шле повний снапшот** | `exportCurrentSyncSnapshot(includeDeleted = true)` (`App.kt:393`) віддає **всі** топіки/слова, а не лише брудні. Дельти на PUSH немає — за великого словника payload росте лінійно (підсилює потребу в ліміті розміру з розділу 3). |
+| 4 | **[ЗАРАЗ] PUSH завжди шле повний снапшот** | `exportSyncSnapshot(userKey, includeDeleted = true)` віддає **всі** топіки/слова захопленого користувача, а не лише брудні. Дельти на PUSH немає — за великого словника payload росте лінійно (підсилює потребу в ліміті розміру з розділу 3). |
 | 5 | **[ЗАРАЗ] `icon` зашитий як `"book"`** | Мапер завжди шле `icon = "book"` (`VocabularySyncMapper.kt:38`), хоча сервер уже зберігає `icon` per-topic. Це втрачає вибір іконки (пор. D7) при синку. |
 | 6 | **[ЗАРАЗ] Усі локальні таймстемпи після PULL = 0** | `toVocabularySyncSnapshot` ставить `createdAtEpochMillis=0`, `updatedAtEpochMillis=0`, `updatedLabel=Today` (`VocabularySyncMapper.kt:75-79,89-90`) — серверні часи на клієнт не маппляться, тож «коли оновлено» після синку недостовірне. |
+| 7 | **[ЗАРАЗ D15] App schema upgrade форсить full pull** | Applied lexical schema зберігається per-user. Якщо вона менша за `CLIENT_SUPPORTED_LEXICON_SCHEMA_VERSION`, startup викликає `syncTopics(null)` навіть за порожньої звичайної delta; version фіксується лише після успішного застосування snapshot. |

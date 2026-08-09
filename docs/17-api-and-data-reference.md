@@ -325,7 +325,7 @@ Dictionary admin UI та звичайні admin routes приймають окр
 | GET | `/v1/admin/lexicon/translations/:translationId` | `dictionary:lexicon:read` | Останній active або soft-deleted рядок: source/target lexical entry, IPA, senses/examples, synonyms/antonyms/forms, alternatives, provenance і safe metadata; не повна immutable history |
 | POST | `/v1/admin/lexicon/import` | `dictionary:lexicon:write` | Legacy reviewed `.jsonl`; перевіряє мови, `needsReview`/review status і структуру рядків, додає source/target lexical entries та enrichment, пропускає дублікати за нормалізованою парою слово+переклад |
 | POST | `/v1/admin/lexicon/import-v1` | `dictionary:lexicon:write` | Multipart `file` з `formatVersion: "v1"` JSONL; звичайне word вимагає reviewed `partOfSpeech`, senses і приклад для кожного sense, а IPA є best-effort і може бути відсутнім; multi-sense translations вимагають `senseIndex`. Імпорт сам не викликає AI/провайдера: однозначний reviewed IPA з Kaikki дозаповнює старе значення, але конфлікт двох seed IPA відхиляється; reviewed `senseIndex` одразу встановлює/виправляє translation→sense. `seed-import` після цього immutable у звичайному search; знайдена прогалина створює personless `lexicon_curated_data_missing` для перегенерації batch, без provider fallback. |
-| POST | `/v1/admin/lexicon/import-v2` | `X-API-Key` · `dictionary:lexicon:write` | Multipart `file` з `formatVersion: "v2"` JSONL. Кожен sense має stable `senseKey`, кожен example — `senseKey`, а кожен translation — непорожній `senseKeys[]`; positional `senseIndex` заборонений. Опційний `X-Content-SHA256` звіряє raw bytes до імпорту; відповідь завжди містить `fileSha256` і `fileSizeBytes`. Імпорт upsert-ить stable keys, атомарно замінює many-to-many `translation_senses` у межах запису, а перший link проєктує у legacy `translations.sense_id`. Один переклад може належати кільком значенням. Повтор того самого reviewed файла безпечний на рівні row upsert; AI/провайдер не викликається. |
+| POST | `/v1/admin/lexicon/import-v2` | `X-API-Key` · `dictionary:lexicon:write` | Multipart `file` з `formatVersion: "v2"` JSONL. Кожен sense має stable `senseKey`, кожен example — `senseKey`, а кожен translation — непорожній `senseKeys[]`; positional `senseIndex`, дублікати нормалізованого translation text і `confidence: null` заборонені. Опційний `X-Content-SHA256` звіряє raw bytes до імпорту; відповідь завжди містить `fileSha256` і `fileSizeBytes`. Увесь файл спочатку проходить структурну перевірку, а кожен прийнятий запис імпортується у власній DB-транзакції: stable keys upsert-яться, `translation_senses` авторитетно замінюються в межах запису, а перший link проєктується у legacy `translations.sense_id`. Наявний provider-row атомарно стає curated разом із target linkage/provenance/metadata; точний повтор є no-op і не викликає AI/провайдера. Неочікувана DB-помилка повертає клієнту загальне повідомлення, а оригінал із безпечним контекстом потрапляє у Sentry. |
 | POST | `/v1/admin/lexicon/quality-feedback` | `dictionary:lexicon:write` | `{targetType: "translation"\|"example", targetId, comment?}`; адмінський dislike не видаляє рядок, додає 100 балів якості один раз для цього адміністратора й повертає поточний бал |
 | POST | `/v1/admin/lexicon/translations/:translationId/delete` | `dictionary:lexicon:write` | `{reason}` 3..500; soft-delete + pending pair repair + audit в одній transaction; repeated state →409 |
 | POST | `/v1/admin/lexicon/translations/:translationId/restore` | `dictionary:lexicon:write` | `{reason}` 3..500; відновлює останній рядок і скасовує pending repair slot, якщо його ще не спожито; audit atomically |
@@ -335,9 +335,9 @@ Dictionary admin UI та звичайні admin routes приймають окр
 | GET/POST | `/v1/admin/api-consumers` | `dictionary:consumers:read` / `dictionary:consumers:write` | List/create external consumer; server фіксує plan/scopes |
 | GET | `/v1/admin/api-consumers/:consumerId` | `dictionary:consumers:read` | Safe consumer summary |
 | POST | `/v1/admin/api-consumers/:consumerId/enable` / `disable` | `dictionary:consumers:write` | External lifecycle + `{reason}`; protected system consumer immutable |
-| POST | `/v1/admin/api-consumers/:consumerId/keys` | `dictionary:keys:write` | Створити ключ; `{key,rawKey}`, raw видимий один раз |
+| POST | `/v1/admin/api-consumers/:consumerId/keys` | `dictionary:keys:write` | Створити ключ; `{key,rawKey}`, raw видимий один раз і повертається лише після post-commit read-back та криптографічної перевірки поточним gateway; непідтверджений запис дає safe 503 і Sentry event замість мертвого ключа |
 | GET | `/v1/admin/api-consumers/:consumerId/keys` | `dictionary:consumers:read` | Лише safe summaries без raw/digest/pepper |
-| POST | `/v1/admin/api-keys/:keyId/rotate` | `dictionary:keys:write` | Active successor + one-time raw; predecessor `retiring` на 900 с |
+| POST | `/v1/admin/api-keys/:keyId/rotate` | `dictionary:keys:write` | Active successor + one-time raw після такого самого post-commit read-back; predecessor `retiring` на 900 с |
 | POST | `/v1/admin/api-keys/:keyId/revoke` | `dictionary:keys:write` | Незворотний revoke; останній usable system key захищений 409 |
 
 Новий production gate — exact parser без БД:
@@ -395,7 +395,10 @@ Folder drop рекурсивно обходить вкладені катало�
 ізольованим API-key transport без admin bearer, `X-Content-SHA256` обов'язковий;
 401 від помилкового uploader key не завершує admin-сесію. Є «Пауза після
 поточного батчу»; UI-черга живе лише до reload вкладки, тоді як міжсесійне
-resume лишається відповідальністю skill receipts.
+resume лишається відповідальністю skill receipts. Автопрогін зупиняється на
+першому permanent 4xx або навіть HTTP 200 з `clean=false`: проблемний батч
+отримує warning із точною причиною, а всі наступні залишаються pending для
+безпечного продовження після виправлення.
 
 `dictionary-admin-web` **[ЗАРАЗ]** використовує спільну адмін-дизайн-систему
 «Vocabee Redesign» (`@vocabee/admin-ui`) та мобільний знак із трьох сот. Список
@@ -511,6 +514,7 @@ Mobile-контракт обслуговує
 | GET | `dictionary-gateway /v1/search?q=&speak=&learn=&limit=` | `X-API-Key` | App-neutral lexicon search; `limit` 1..50, default 50 |
 | POST | `client-gateway /v1/search/context-glossary` | Optional JWT | Безкоштовний mobile facade: один batch для exact прикладу; wallet не викликається |
 | POST | `dictionary-gateway /v1/search/context-glossary` | `X-API-Key`, scope `dictionary:search` | Детермінована токенізація + один contextual provider request; один quota admission на речення |
+| POST | `dictionary-gateway /v1/snapshots` | `X-API-Key` fixed protected `client-gateway` consumer | До 200 provider-free canonical saved-word projections для vocabulary sync; зовнішній search key отримує 403 |
 
 Dictionary guard спершу шукає DB key за public id і timing-safe звіряє HMAC повного
 raw key; під час rollout лише потім може перевірити legacy literal fallback. Missing,
@@ -558,7 +562,8 @@ UTF-16 offsets зберігаються в `user_context_glossary_examples` з �
 `VariantDto`: **`translationId`** (durable id рядка `translations`, незмінно проходить
 dictionary → client facade), `knownWord`, `learningWord`, `ipa?`, `audioUrl?`,
 `partOfSpeech[]`, `examples[]` (`{text, translation?}`), `senses[]`
-(`{senseKey, definition, partOfSpeech?, tags[], examples[], synonyms[], antonyms[]}`),
+(`{senseKey: string|null, definition, partOfSpeech?, tags[], examples[], synonyms[], antonyms[]}`;
+`null` дозволено лише для legacy row без персистованого stable key),
 `synonyms[]`, `antonyms[]`, `forms[]` (`{text, tags[]}`), `senseKeys[]` (усі stable
 значення, які рендерить переклад), `senseIndex?` (перша compatibility-проєкція
 для старих клієнтів; null — не атрибутовано),
@@ -569,16 +574,27 @@ dictionary → client facade), `knownWord`, `learningWord`, `ipa?`, `audioUrl?`,
 `confidence?`, `isPrimary`, `cached`, `match` (`exact`\|`prefix`). Dictionary response
 не містить `tier`/`beeBalance`; їх додає тільки client facade.
 
+**[ЗАРАЗ]** `match="prefix"` не означає скорочений DTO. Коли exact-збігу нема,
+dictionary-gateway обирає не більш як 15 підказок і read-only підтягує для них уже
+персистовані IPA/PoS, senses/examples, synonyms/antonyms, forms та V2 `senseKeys`.
+Legacy sense без записаного key лишається `senseKey=null` — gateway не видає
+обчислений на льоту ID за стабільний, доки такого рядка немає в БД.
+Autocomplete не запускає translator/dictionary, sense-attribution або quality repair.
+Це важливо, бо mobile не робить другого detail-запиту: натискання `+` зберігає саме цей
+response snapshot у `WordEntry.details`/Room.
+
 `MetaDto`: `totalAvailable`, `triedProvider`, `providerReason` (`exact_cached`\|`not_a_word`\|`echo`\|`no_provider_data`\|`translated`\|null), `dictionarySource?`, `dictionaryOrigin?`, `beeBalance?`.
 
 > Клієнтський `SearchResponse` (`SearchResponse.kt`) — спрощене дзеркало:
-> **[ЗАРАЗ]** `SearchVariant` ще не десеріалізує `translationId` або `match`;
-> durable `translationId` уже є в обох backend response-контрактах, але mobile ще не
-> зберігає його. `SearchMeta` тримає лише `totalAvailable`, `dictionarySource`,
+> **[ЗАРАЗ]** `SearchVariant` десеріалізує durable `translationId` і переносить його
+> в opaque control-поля `WordDetails`; `match` mobile не моделює. Опційні
+> `lexiconSchemaVersion`/`lexiconRevision` сумісно приймаються, хоча первинний search
+> може віддати лише id, а server-authoritative revision встановлює sync. `SearchMeta` тримає лише `totalAvailable`, `dictionarySource`,
 > `dictionaryOrigin`, `beeBalance` (без `triedProvider`/`providerReason`).
 > `SearchExample` має поле `translation?` (НЕ плоский рядок).
-> Lexical metadata персиститься в `translations.metadata`; у `topic_words.metadata`
-> мобільний sync кладе весь `WordDetails`, тож окремої SQL-міграції saved words не треба.
+> У sync видимі поля йдуть у `topic_words.metadata.details`, а opaque
+> `{translationId,lexiconSchemaVersion,lexiconRevision}` — у sibling
+> `metadata.lexiconSnapshot`; окремої SQL/Room-міграції saved words не треба.
 
 ### 1.6 Topics (`/v1/topics`)
 
@@ -602,13 +618,36 @@ dictionary → client facade), `knownWord`, `learningWord`, `ipa?`, `audioUrl?`,
 >
 > **[ЗАРАЗ]** Економіка (списання −10 за словник понад `FREE_DICTIONARY_LIMIT=2`, перевірка квот ANON) у цих ендпоінтах ще НЕ реалізована як сервер-авторитетна; DELETE без повернення — legacy-деталь D3, superseded by D11. **[НОВЕ]** `client-gateway` застосовує версійну політику й immutable charge/refund за D1/D11. Деталі — `04`, `06`, `07`.
 
+**[ЗАРАЗ, D15]** Перед обома sync-відповідями `client-gateway` батчами звіряє
+активні saved words із `/v1/snapshots`. Canonical payload містить learning-lexeme ref,
+directional translation ref, `schemaVersion`, детерміновану SHA-256 `revision`,
+канонічні word/translation text, IPA і повні details. Зміна revision оновлює
+`topic_words.updated_at` та `topics.words_updated_at`, тому потрапляє у звичайну delta;
+ідентичний payload timestamp не бампить. Dictionary outage лишає останній валідний
+snapshot і не блокує vocabulary sync. `SyncResponseDto` завжди додає
+`lexiconSchemaVersion`; mobile зберігає applied version per-user і при підвищенні
+client-supported schema один раз форсить full pull.
+
+Для linked row lexical metadata належить серверу: stale client не може повернути старі
+examples/senses або стерти невідомі йому майбутні поля. Із client payload merge-яться
+лише user-owned progress/delete та валідний `contextGlossary`. Unlinked row тимчасово
+зберігає offline snapshot і передає `translationId` лише як недовірений hint; Dictionary
+перевіряє його UUID, напрямок та lexical identity перед binding. Та сама authority-межа
+використовується не лише в `applySync`, а й у прямих `POST/PATCH .../words`: linked
+canonical payload не можна відкотити обхідним endpoint, а новий рядок одразу проходить
+provider-free reconciliation.
+
 **`CreateTopicDto`** (`topic.dto.ts`): `name` (1..120), `color` (≤16, hex `#RGB/#RRGGBB` або palette-ключ), `icon?` (з `TOPIC_ICONS`), `sourceLang`/`targetLang` (IsIn — мова, що вивчається / переклад), `position?` (≥0), `deviceOriginId?` (≤64, дедуп sync).
 
 > **`TOPIC_ICONS` [ЗАРАЗ]** (`topic.dto.ts:18`): `book, plane, film, work, food, feelings, music, sport, tech, travel, study` (11 шт.). **[НОВЕ]** за **D7** набір ширший (серіал/книга/подорожі/їжа/робота/школа/спорт/музика/природа/техніка/шопінг/діти/здоров'я/загальна) — узгодити з `08-languages-speech-themes.md`.
 
 **`UpdateTopicDto`**: усі поля опц. — `name?`, `color?`, `icon?`, `sourceLang?`, `targetLang?`, `position?`.
 
-> **D6**: мова словника — дефолт із профілю при створенні, оверрайд у `CreateTopicDto`; існуючі незмінні. **[ЗАРАЗ]** код дозволяє `sourceLang/targetLang` у `UpdateTopicDto` — суперечить «існуючі незмінні»; **[НОВЕ]** прибрати ці поля з патчу (уточнити в `08`).
+> **D6 [ЗАРАЗ]**: мова словника — дефолт із профілю при створенні, оверрайд у
+> `CreateTopicDto`; для backward-compatible DTO мовні поля ще приймаються, але якщо
+> відрізняються від збереженої пари, service повертає `400` і нічого не змінює. Це
+> тримає існуючі словники immutable та не дозволяє записати lexical snapshot старого
+> напрямку під нову мовну пару.
 
 **`AddTopicWordDto`** (`topic-word.dto.ts`): `wordText` (1..200), `translationText` (1..200), `ipa?` (≤120), `sourceWordLang?`, `sourceWordId?` (UUID), `source` (IsIn `ENTRY_SOURCES`), `origin` (≤80), `deviceOriginId?` (≤64), `metadata?` (object), `knowledgePercent?` (0..100, дефолт 0).
 
@@ -746,13 +785,13 @@ anti-fraud signals, provider secrets або повний admin config.
 | `updatedAtEpochMillis` | Long | дефолт = added |
 | `syncStatus` | `SyncStatus` | дефолт `PendingCreate` |
 
-> **[НОВЕ] Поля знань D10** — у поточному `WordEntry` НЕ існують. Гібрид пріоритет+Leitner потребує: `timesCorrect`, `timesWrong`, `boxLevel`, `lastReviewedAt`, `dueAt`. Поточний бекенд/клієнт мають лише `knowledgePercent`. Канон полів — `11-practice-training.md`; план персистенції — §3 (Room) і §3 (Postgres, майбутня `0020_training_fields.sql` **[НОВЕ, ще не створена]**).
+> **[НОВЕ] Поля знань D10** — у поточному `WordEntry` НЕ існують. Гібрид пріоритет+Leitner потребує: `timesCorrect`, `timesWrong`, `boxLevel`, `lastReviewedAt`, `dueAt`. Поточний бекенд/клієнт мають лише `knowledgePercent`. Канон полів — `11-practice-training.md`; план персистенції — §3 (Room) і §3 (Postgres, майбутня `0022_training_fields.sql` **[НОВЕ, ще не створена]**).
 
 ### 2.4 WordDetails / WordSense / WordForm (`VocabularyModels.kt:8-40`)
 
-- **`WordDetails`**: `senseKeys: List<String>` (V2 many-to-many атрибуція), legacy `senseIndex: Int?` (перша проєкція), `senses: List<WordSense>`, `synonyms: List<String>`, `antonyms: List<String>`, `forms: List<WordForm>`, `partOfSpeech: List<String>`, lexical metadata та `contextGlossary: ContextGlossary?`; обчислюване `isEmpty`. Read-only на клієнті, серіалізується в Room як один JSON-блоб.
+- **`WordDetails`**: opaque control `translationId`, `lexiconSchemaVersion`, `lexiconRevision`; `senseKeys: List<String>` (V2 many-to-many атрибуція), legacy `senseIndex: Int?` (перша проєкція), `senses: List<WordSense>`, `synonyms: List<String>`, `antonyms: List<String>`, `forms: List<WordForm>`, `partOfSpeech: List<String>`, lexical metadata та `contextGlossary: ContextGlossary?`. `isEmpty` ігнорує control-поля, а `shouldPersist` не дає загубити control-only snapshot. Read-only на клієнті, серіалізується в Room як один JSON-блоб.
 - **`ContextGlossary`**: exact `sentence`, `sourceLang`, `targetLang`, `tokens[]`; token містить `surface`, `normalized`, UTF-16 `start/endExclusive`, `translation`, `lemma?`. Окремої Room/Postgres-міграції не треба, бо снапшот їде всередині наявного details/metadata JSON.
-- **`WordSense`**: `senseKey?`, `definition`, `partOfSpeech?`, `tags[]`, `examples: List<String>`, `synonyms[]`, `antonyms[]`. Null key дозволений лише для старого локального snapshot. (Зверни увагу: тут `examples` — плоскі `String`, на відміну від серверного `SenseDto.examples` = `{text, translation?}`.)
+- **`WordSense`**: `senseKey?`, `definition`, `partOfSpeech?`, `tags[]`, `examples: List<String>`, `synonyms[]`, `antonyms[]`. Null key дозволений для legacy backend row без персистованого stable key та для старого локального snapshot. (Зверни увагу: тут `examples` — плоскі `String`, на відміну від серверного `SenseDto.examples` = `{text, translation?}`.)
 - **`WordForm`**: `text`, `tags: List<String>`.
 
 ### 2.5 LanguageOption (`VocabularyModels.kt:42`)
@@ -859,16 +898,16 @@ Enum: `PendingCreate`, `PendingUpdate`, `Synced`, `PendingDelete`. Зберіг�
 
 **`topic_words`** (`schema/topics.ts`): `id` uuid PK, `topic_id` uuid FK→topics CASCADE, `word_text`/`translation_text` text, `ipa` text, `source_word_lang` varchar(8), `source_word_id` uuid, `source` varchar(16), `origin` text, `device_origin_id` text, `metadata` jsonb def `{}`, **`knowledge_percent` integer NN def 0** (CHECK 0..100), `added_at`/`updated_at` timestamptz, **`deleted_at` timestamptz**, `last_synced_at` timestamptz. Індекси: `topic_id`; `(topic_id, updated_at)`; `(topic_id, last_synced_at)`.
 
-> **[НОВЕ] Поля тренування D10** для `topic_words` (майбутня `0020_training_fields.sql`, ще не створена): `times_correct` int def 0, `times_wrong` int def 0, `box_level` int def 0 (Leitner), `last_reviewed_at` timestamptz, `due_at` timestamptz.
+> **[НОВЕ] Поля тренування D10** для `topic_words` (майбутня `0022_training_fields.sql`, ще не створена): `times_correct` int def 0, `times_wrong` int def 0, `box_level` int def 0 (Leitner), `last_reviewed_at` timestamptz, `due_at` timestamptz.
 
 **`languages`** (`schema/languages.ts`): `code` varchar(8) PK, `name`, `native_name`, `speech_tag`, `flag` — довідник, сидиться з `SUPPORTED_LANGUAGES`.
 
 **Лексикон** (`schema/lexicon.ts`) — джерело перекладів/збагачення; **партиціювання LIST за мовою** (`uk, en, de, es, fr, pl, it, pt, tr, he, ar, lt, cs`), тому PK містить мовний код:
 - **`lexicon_words`** — PARTITION BY LIST (`lang`); PK `(lang, id)`; `lemma`, `normalized`, `ipa`, `audio_url`, `part_of_speech text[]`, `source`, `origin`, `metadata` jsonb. Унік. індекс `(lang, normalized)`.
 - **`lexicon_phrases`** — PARTITION BY LIST (`lang`); PK `(lang, id)`; `text`, `normalized`, `source`, `origin`, `metadata`. Унік. `(lang, normalized)`.
-- **`lexicon_senses`** — PARTITION BY LIST (`word_lang`); PK `(word_lang, id)`; `word_id`, nullable stable V2 `sense_key` (partial unique разом із word identity), `definition`, `part_of_speech`, `tags text[]`, `position`, `source`, `origin`, `metadata`.
+- **`lexicon_senses`** — PARTITION BY LIST (`word_lang`); PK `(word_lang, id)`; `word_id`, nullable stable V2 `sense_key`. Після `0020`: keyed V2 identity partial-unique по `(word_lang, word_id, sense_key) WHERE sense_key IS NOT NULL`; definition-унікальність діє лише для legacy rows із `sense_key IS NULL`, тому однаковий gloss із різними POS/canonical keys більше не конфліктує. `definition`, `part_of_speech`, `tags text[]`, `position`, `source`, `origin`, `metadata`.
 - **`translation_senses`** — V2 many-to-many bridge; PK `(translation_id, sense_word_lang, sense_id)`, cascade-delete від translation. `translations.sense_id` збережено як перший/legacy compatibility link.
-- **`lexicon_relations`** — PARTITION BY LIST (`word_lang`); PK `(word_lang, id)`; `word_id`, `sense_id?`, `kind` (`synonym`\|`antonym`\|`related`), `related_text`, `tags text[]`. Полиморфні зв'язки.
+- **`lexicon_relations`** — PARTITION BY LIST (`word_lang`); PK `(word_lang, id)`; `word_id`, `sense_id?`, `kind` (`synonym`\|`antonym`\|`related`), `related_text`, `tags text[]`. Після `0021` має окрему case-insensitive partial uniqueness для word-level (`sense_id IS NULL`) і sense-level (`sense_id IS NOT NULL`) звʼязків; однаковий synonym/antonym може коректно існувати у двох senses.
 - **`lexicon_word_forms`** — PARTITION BY LIST (`word_lang`); PK `(word_lang, id)`; `word_id`, `form_text`, `tags text[]`. Інфлекції.
 - **`lexicon_examples`** — звичайна (не партиціонована) таблиця; `word_lang`+`word_id` (без FK, бо батько партиціонований), `sense_id?`, `text`, `translation_text?`, `translation_lang?`. Індекси за `(word_lang, word_id)` і `(word_lang, word_id, sense_id)`.
 - **`translations`** — напрямний міст `source_lang/source_word_id` → `target_lang/target_word_id?` + `target_text`, `confidence`, `source`, `origin`, **`provider_tier` varchar(32)**, `is_primary`, `metadata`, `deleted_at?`. Active partial index виключає tombstones; reverse mirror не створюється.
@@ -922,8 +961,9 @@ protected plans — два, protected system consumers — два, system key co
 | `0017_lexicon_translation_senses_v2.sql` | Додає `lexicon_senses.sense_key`, many-to-many `translation_senses` та backfill усіх наявних non-null `translations.sense_id`; стару колонку не видаляє. |
 | `0018_dictionary_translation_uploader.sql` | Додає fixed-id protected `translation-uploader` на `system-unlimited` лише зі scope `dictionary:lexicon:write`; key row/raw key не створює, оператор генерує one-time key в адмінці. |
 | `0019_translation_senses_sense_fk.sql` | Композитний FK `translation_senses (sense_word_lang, sense_id) → lexicon_senses (word_lang, id)` з `ON DELETE CASCADE`; перед додаванням прибирає orphan-рядки. |
-| `0020_training_fields.sql` **[НОВЕ, ще не створена]** | Майбутня наступна вільна міграція після наявної `0019`; `topic_words`: `times_correct`, `times_wrong`, `box_level` (def 0), `last_reviewed_at`, `due_at` (**D10**). |
-| `0018_dictionary_translation_uploader.sql` | Додає fixed-id protected `translation-uploader` на `system-unlimited` лише зі scope `dictionary:lexicon:write`; key row/raw key не створює, оператор генерує one-time key в адмінці. |
+| `0020_lexicon_sense_identity.sql` | Прибирає legacy full uniqueness definition для keyed senses; V2 rows ідентифікуються stable `sense_key`, а definition-унікальність лишається тільки для `sense_key IS NULL`. |
+| `0021_lexicon_relation_sense_scope.sql` | Розділяє case-insensitive uniqueness relations на word-level і sense-level, щоб однаковий relation text міг належати різним senses. |
+| `0022_training_fields.sql` **[НОВЕ, ще не створена]** | Майбутня наступна вільна міграція; `topic_words`: `times_correct`, `times_wrong`, `box_level` (def 0), `last_reviewed_at`, `due_at` (**D10**). |
 
 ---
 
@@ -943,8 +983,11 @@ protected plans — два, protected system consumers — два, system key co
 | `deletedTopicIds` | `string[]` | soft-deleted топіки (за `deleted_at > since`) |
 | `deletedWordIds` | `string[]` | soft-deleted слова |
 | `serverTime` | `string` (ISO8601) | мітка курсора для наступного `since` |
+| `lexiconSchemaVersion` | integer | Поточна additive schema server-owned lexical snapshot; mobile default = 1 для rolling deploy |
 
-Клієнт зберігає `serverTime` як новий `since`; `deleted*` → застосовує локально (purge або `PendingDelete`-чистка).
+Клієнт зберігає `serverTime` як новий per-user `since`; `deleted*` → застосовує локально
+(purge або `PendingDelete`-чистка). Applied lexical schema також per-user і фіксується
+лише після успішної повної заміни Room snapshot.
 
 ### 4.2 Push + повний снапшот — `POST /v1/topics/sync/apply`
 
@@ -952,13 +995,14 @@ protected plans — два, protected system consumers — два, system key co
 
 | Поле | Тип | Нотатка |
 |---|---|---|
+| `expectedUserId?` | UUID | Captured auth user для цього payload; mismatch із JWT → `403` до будь-яких topic/word writes. Optional лише для backward compatibility; поточний mobile завжди надсилає. |
 | `topics?` | `ClientTopicSyncDto[]` | локальні словники (вкл. tombstones) |
 | `words?` | `ClientTopicWordSyncDto[]` | локальні слова |
 | `replaceServerState?` | boolean (def false) | true → серверні рядки, відсутні в payload, soft-видаляються (режим «затерти серверне», **D9**) |
 
 **`ClientTopicSyncDto`**: `id` (UUID), `name` (1..120), `color` (≤16), `icon?` (≤32), `sourceLang`/`targetLang` (IsIn), `position?` (≥0), `createdAt?`, `updatedAt?` (ISO8601), `deleted?` (bool — tombstone).
 
-**`ClientTopicWordSyncDto`**: `id` (UUID), `topicId` (UUID), `wordText` (1..200), `translationText` (1..200), `ipa?` (≤120), `source` (IsIn `ENTRY_SOURCES`), `origin` (≤80), `metadata?` (object), `knowledgePercent?` (0..100), `addedAt?`, `updatedAt?` (ISO8601), `deleted?` (bool).
+**`ClientTopicWordSyncDto`**: `id` (UUID), `topicId` (UUID), `wordText` (1..200), `translationText` (1..200), `ipa?` (≤120), `source` (IsIn `ENTRY_SOURCES`), `origin` (≤80), `metadata?` (object), `knowledgePercent?` (0..100), `addedAt?`, `updatedAt?` (ISO8601), `deleted?` (bool). Mobile projection розділяє `metadata.details` (видимий `WordDetails` без control fields) і `metadata.lexiconSnapshot` (`translationId`, `lexiconSchemaVersion`, `lexiconRevision`).
 
 > Клієнтські дефолти (`SyncDtos.kt:55`): `source="translator"`, `origin="vocabee-mobile"`, `metadata={}`, `knowledgePercent=0`, `deleted=false`. Серверні DTO позиційно вимагають `source`/`origin` (без дефолтів) — клієнт завжди надсилає.
 
@@ -981,7 +1025,7 @@ protected plans — два, protected system consumers — два, system key co
 **[ЗАРАЗ]** Обидві сторони звітують в особисту Sentry-org `vocabee` (регіон DE):
 
 - **Клієнт (Android)** — проєкт `android`. `io.sentry:sentry-android` ініціалізується вручну у `VocabeeApplication` (auto-init вимкнено в маніфесті). DSN — з `BuildConfig.VOCABEE_SENTRY_DSN` (ланцюжок `local.properties: vocabee.sentry.dsn` → env `VOCABEE_SENTRY_DSN` → дефолт у `app/build.gradle.kts`); порожній DSN повністю вимикає SDK. `environment`: debug → `development`, release → `production`; діагностичні логи SDK (`isDebug`) — лише в debug-збірках. З коробки: крєші/ANR, сесії (Release Health), breadcrumbs; PII не збирається (дефолт `sendDefaultPii=false`).
-- **Бекенд** — проєкт `node-nestjs`, спільний для client- і dictionary-gateway (`src/instrument.ts` читає `SENTRY_DSN`; статуси ≥500 → `captureException` в `ApiExceptionFilter`; Sentry Logs пошуку — doc 13). У Coolify (Dockerfile build pack) `SENTRY_DSN`/`SENTRY_ENVIRONMENT` задано напряму на кожному застосунку; compose-маппінг `SENTRY_CLIENT_DSN`/`SENTRY_DICTIONARY_DSN` діє лише в локальному docker-compose.
+- **Бекенд** — проєкт `node-nestjs`, спільний для client- і dictionary-gateway (`src/instrument.ts` читає `SENTRY_DSN`; статуси ≥500 → `captureException` в `ApiExceptionFilter`; Sentry Logs пошуку — doc 13). Runtime fallback logs/events не передають raw query/lemma — діагностика привʼязана до `lexicon_word_id`; curated regeneration coordinates походять із reviewed batch, а не user input. У Coolify (Dockerfile build pack) `SENTRY_DSN`/`SENTRY_ENVIRONMENT` задано напряму на кожному застосунку; compose-маппінг `SENTRY_CLIENT_DSN`/`SENTRY_DICTIONARY_DSN` діє лише в локальному docker-compose.
 
 ---
 
@@ -990,7 +1034,8 @@ protected plans — два, protected system consumers — два, system key co
 1. Немає `/auth/anonymous` — анонімність реалізована як відсутність JWT (**D2**, міграція 0002). **[ЗАРАЗ]**
 2. Маршрут застосування sync — `/v1/topics/sync/apply`, не `/topics/sync`. **[ЗАРАЗ]**
 3. `rewarded-ad` не верифікований/не ідемпотентний; економіка ще не сервер-авторитетна в `applySync`/topics — **[НОВЕ]** за D1.
-4. Поля знань D10 (`timesCorrect/timesWrong/boxLevel/lastReviewedAt/dueAt`) відсутні і в клієнті, і в Postgres/Room — є лише `knowledgePercent`. **[НОВЕ]** (майбутня `0020_training_fields.sql`, ще не створена, + bump Room до v5).
+4. Поля знань D10 (`timesCorrect/timesWrong/boxLevel/lastReviewedAt/dueAt`) відсутні і в клієнті, і в Postgres/Room — є лише `knowledgePercent`. **[НОВЕ]** (майбутня `0022_training_fields.sql`, ще не створена, + bump Room до v5).
 5. `TOPIC_ICONS` у коді — 11 ключів; набір D7 ширший. **[НОВЕ]**
-6. `UpdateTopicDto` дозволяє змінювати `sourceLang/targetLang`, що суперечить D6 «існуючі незмінні». **[НОВЕ]** (уточнити).
+6. `UpdateTopicDto` ще містить `sourceLang/targetLang` для сумісності, але service
+   відхиляє фактичну зміну пари з `400`; семантика D6 «існуючі незмінні» виконується.
 7. Promo API (`/v1/promos*`) ще не існує — **[НОВЕ]** за D4 (doc 05).

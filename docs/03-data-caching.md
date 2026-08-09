@@ -51,7 +51,7 @@
 | `source` | `source` | `String` | ні | Слово-джерело. |
 | `translation` | `translation` | `String` | ні | Переклад. Деякі операції (видалення, дедуп) ключуються по `LOWER(translation)`, бо UI не тримає id слова (`VocabularyDao.kt:208`, `:233`). |
 | `ipa` | `ipa` | `String?` | так | Транскрипція IPA. |
-| `details_json` | `detailsJson` | `String?` | так | Серіалізований `WordDetails` (значення/синоніми/антоніми/форми) одним JSON-стовпцем, щоб не плодити дочірні таблиці для read-only збагачення, яке сервер може віддати знову (`WordEntity.kt:41`). Кодек: лояльний `Json` (`ignoreUnknownKeys`, `isLenient`), помилка декоду → `null` (`RoomVocabularyRepository.kt:378`). |
+| `details_json` | `detailsJson` | `String?` | так | Серіалізований `WordDetails` одним JSON-стовпцем: видимі lexical details + opaque `translationId`/`lexiconSchemaVersion`/`lexiconRevision`. Це офлайн-кеш серверного snapshot (D15), який повністю замінюється успішним sync; `contextGlossary` лишається user-owned частиною. Кодек лояльний (`ignoreUnknownKeys`, `isLenient`), помилка декоду → `null`. |
 | `knowledge_percent` | `knowledgePercent` | `Int` (0..100) | ні (default 0) | Прогрес знання слова. Завжди `coerceIn(0,100)`. Дельта застосовується в `adjustWordKnowledgePercent` (`RoomVocabularyRepository.kt:235`). |
 | `added_at_epoch_millis` | `addedAtEpochMillis` | `Long` | ні | Час додавання. Сортування слів — `ORDER BY added_at_epoch_millis DESC` (`VocabularyDao.kt:61`). |
 | `updated_at_epoch_millis` | `updatedAtEpochMillis` | `Long` | ні | Час останньої зміни слова. |
@@ -116,8 +116,9 @@
 | `bee_balance` | `beeBalance` | `Int` / `50` (`DEFAULT_BEE_BALANCE`) | Локальний баланс монеток. `set` робить `coerceAtLeast(0)`. Див. §6.7 і §7. |
 | `current_user_id` | `currentUserId` | `String?` / `null` | Id поточного авторизованого юзера. Джерело `currentUserKey`. `null` = анонім/вийшов. |
 | `last_authenticated_user_id` | `lastAuthenticatedUserId` | `String?` / `null` | Id останнього юзера, що входив (НЕ обнуляється при вийти-зберегти-стан). Див. §6.2. |
-| `last_sync_at` | `lastSyncAt` | `String?` / `null` | Серверний час останнього успішного синку (курсор). Ставиться в `markCurrentVocabularySynced`. |
-| `local_revision_epoch_millis` | `localRevisionEpochMillis` | `Long` / `0` | Локальний «dirty»-лічильник ревізій. Інкрементиться при локальних змінах (`touchLocalRevision`), скидається в `0` після синку. Див. §6.3. |
+| `last_sync_at_<userKey>` | `lastSyncAt(userKey)` | `String?` / `null` | Per-user серверний курсор останнього успішного синку. Новий/мігрований акаунт без свого ключа навмисно робить full pull. |
+| `local_revision_epoch_millis_<userKey>` | `localRevisionEpochMillis(userKey)` | `Long` / `0` | Per-user монотонний «dirty»-лічильник. Інкрементиться при локальних змінах і скидається лише успішною відповіддю того самого користувача. Див. §6.3. |
+| `applied_lexicon_schema_version_<userKey>` | `appliedLexiconSchemaVersion(userKey)` | `Int` / `0` | Остання версія lexical-details schema, яку успішно застосовано до Room-снапшотів саме цього користувача. Якщо менша за client-supported version, startup робить повний pull навіть за порожньої vocabulary delta (D15). |
 | `access_token` | `accessToken` | `String?` / `null` | Bearer-токен (фізично теж у prefs, але доступ — лише через `AuthTokenStore`). |
 | `refresh_token` | `refreshToken` | `String?` / `null` | Refresh-токен (аналогічно). |
 
@@ -125,7 +126,12 @@
 
 ### 3.3. AuthTokenStore — токени сесії
 
-`AuthTokenStore` (`AuthTokenStore.kt:13`) — єдине джерело істини для bearer-токена, але **фізично пише в ті самі prefs** (`accessToken`/`refreshToken`). Тримає реактивний `StateFlow<String?>`, щоб мережевий шар читав поточний токен. `current()` звіряється з prefs (якщо хтось змінив поза стором). `set(AuthTokensResponse)` кладе обидва токени; `clear()` стирає обидва й обнуляє state.
+`AuthTokenStore` — єдине джерело істини для bearer-сесії, але **фізично пише в ті
+самі prefs** (`accessToken`/`refreshToken`). Він атомарно тримає обидва токени та
+runtime generation: `replaceSession()`/`clear()` змінюють покоління власника, а
+`rotateSession(..., expectedGeneration)` не дає старому in-flight refresh
+перезаписати токени після logout або входу в інший акаунт. `token: StateFlow` лишається
+реактивним access-потоком; зовнішня пряма мутація prefs у production не використовується.
 
 > Розмежування ролей: токени фізично живуть у `vocabee_prefs`, але код працює з ними через `AuthTokenStore`, а не напряму через `PreferencesManager` — щоб мати один реактивний потік токена для HTTP-шару.
 
@@ -135,17 +141,17 @@
 
 | Сутність | Анонім (`'local-user'`) | Авторизований (`currentUserId`) |
 |---|---|---|
-| Словники/слова (Room) | Кешуються локально. **Hard-delete** при видаленні (`userKey == DEFAULT_LOCAL_USER_KEY` → `deleteTopic`/`deleteWordByTranslation`, `RoomVocabularyRepository.kt:95`, `:177`). НЕ синкаються. | Кешуються локально + **синкаються** із сервером. Видалення — **soft-delete** (`PendingDelete`), синк підхоплює. |
+| Словники/слова (Room) | Кешуються локально. **Hard-delete** при видаленні (`userKey == DEFAULT_LOCAL_USER_KEY` → `deleteTopic`/`deleteWordByTranslation`, `RoomVocabularyRepository.kt:95`, `:177`). НЕ синкаються, тому lexical snapshot оновиться лише після входу. | Кешуються локально + **синкаються** із сервером. Видалення — **soft-delete** (`PendingDelete`); canonical texts/IPA/details версійно refresh-яться через той самий sync (D15). |
 | `beeBalance` | [ЗАРАЗ] поле існує, але економіки немає: `addBees`/`spendBees` роблять early-return при `!isAuthenticated` (D2). Анонім «бачить» дефолт 50, але монетки не списуються/не нараховуються. | Синхронізується з сервера: перезаписується в `applyAuthenticatedAccount` і при кожній серверній відповіді (D1). |
 | Мови (`userLanguageCode`/`learningLanguageCode`) | Локально в prefs, обираються в онбордингу й зберігаються (D5). | Тягнуться з сервера при вході (`applyAuthenticatedAccount`), пишуться в prefs. |
 | Тема (`darkThemeEnabled`) | Локально в prefs. | Перезаписується з сервера в `applyAuthenticatedAccount`. |
 | `hasCompletedOnboarding` | Device-global, спільний (§6.1). | Device-global, спільний (§6.1). |
-| `lastSyncAt` / `localRevisionEpochMillis` | Технічно ростуть (`localRevisionEpochMillis` інкрементиться й для аноніма), але **синку немає**, тож фактично не використовуються (§6.3). | Активні курсори синку: revision росте на змінах, обнуляється після `markSynced`; `lastSyncAt` = серверний час. |
+| `lastSyncAt(userKey)` / `localRevisionEpochMillis(userKey)` | Ревізія ведеться окремо для `local-user`, але **синку немає**, тож використовується лише при майбутньому переносі даних у акаунт (§6.3). | Курсор і dirty-ревізія ізольовані по user id: синк B не може очистити незалиті зміни або пересунути курсор A. |
 | Токени (`AuthTokenStore`) | Відсутні (`null`). | Зберігаються; чистяться на logout. |
 
 Що скидається коли:
 - **Вхід (анонім→авторизований):** локальні дані аноніма переносяться під ключ юзера (`moveUserVocabulary`), баланс/мови/тема перезаписуються з сервера (§5).
-- **`replaceSyncSnapshot`:** повне затирання — видаляє всі рядки `userKey` і вставляє серверні як `Synced` (`RoomVocabularyRepository.kt:293`). Використовується для варіантів «затерти серверне локальним» / «відкинути локальне» (D9).
+- **`replaceSyncSnapshot`:** повне затирання — видаляє всі рядки `userKey` і вставляє серверні як `Synced` (`RoomVocabularyRepository.kt:293`). Окрім D9-гілок, це точка застосування server-authoritative lexical snapshot: старий `details_json` замінюється, а не merge-иться (D15).
 - **`markSynced`:** чистить `PendingDelete`-рядки (`purgePendingDeleted*`) і переводить решту в `Synced` (`RoomVocabularyRepository.kt:342`).
 - **Logout (`signOutKeepLastUserState`):** обнуляє лише `currentUserId`; Room-дані юзера лишаються в базі під його ключем, але стають недосяжними (§6.2).
 
@@ -186,8 +192,13 @@
 - При повторному вході тим самим id (`currentUserId` знову встановлюється) дані «повертаються».
 - `lastAuthenticatedUserId` зберігає, хто це був (для UX «увійти знову як …»), але сам по собі ключем доступу до Room НЕ є.
 
-### 6.3. `localRevisionEpochMillis` росте і для аноніма
-[ЗАРАЗ] `touchLocalRevision` інкрементить лічильник при будь-якій локальній зміні (`VocabeeStore.kt:457`), у т.ч. для аноніма. Але анонім НЕ синкається, тож для нього лічильник просто росте й ніколи не обнуляється (обнуляється лише `markCurrentVocabularySynced`, `VocabeeStore.kt:199`). Практично для аноніма це мертве значення; стає змістовним лише після входу.
+### 6.3. `localRevisionEpochMillis(userKey)` ізольований по користувачу
+[ЗАРАЗ] `touchLocalRevision(userKey)` інкрементить окремий лічильник namespace,
+у якому сталася зміна, включно з `local-user`. Анонім не синкається, тому його
+лічильник не очищається серверною відповіддю. Після входу перенесені Room-рядки мають
+`Pending*`-статус, а новий auth user отримує власну revision; startup перевіряє обидва
+сигнали, тому перехід зі старих device-global prefs не може перетворити незалитий
+стан на «чистий». Успішний sync B ніколи не очищає revision A або `local-user`.
 
 ### 6.4. Видалення: anonymous=hard, authenticated=soft
 [ЗАРАЗ] Гілка видалення обирається по `userKey == DEFAULT_LOCAL_USER_KEY` (`RoomVocabularyRepository.kt:95`, `:177`): анонім — фізичний `DELETE`; авторизований — `sync_status = PendingDelete` (щоб сервер підхопив). Списки скрізь фільтрують `sync_status != 'PendingDelete'`.
@@ -204,6 +215,17 @@
 
 ### 6.8. `id` генерується клієнтом
 [ЗАРАЗ] І словники, і слова отримують клієнтський `UUID` як PK ще до синку (`RoomVocabularyRepository.kt:73`, `:135`). Сервер має приймати ці id (або мапити), щоб soft-delete/update по id залишались узгодженими після синку.
+
+### 6.9. Lexical snapshot не є client-owned metadata (D15)
+
+Mobile все ще передає backward-compatible `metadata.details`, щоб нове/offline слово
+не втратило миттєвий snapshot до першої відповіді. Але для вже linked слова gateway
+не приймає цей blob як істину: з клієнта merge-иться лише валідний
+`details.contextGlossary`, а texts/IPA/senses/examples/relations/forms і невідомі
+майбутні поля зберігає/перебудовує сервер. Це принципово через `ignoreUnknownKeys`:
+старий binary може не зрозуміти нове поле, але його наступний push не має стерти це
+поле на сервері. `lexiconRevision` — SHA-256 повної канонічної проєкції; рівна
+revision не bump-ить timestamps, змінена потрапляє у звичайний delta-sync.
 
 ---
 

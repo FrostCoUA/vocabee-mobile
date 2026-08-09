@@ -172,7 +172,7 @@ isClearDictionaryConfirmed(input) = input.trim() == ClearDictionaryConfirmationP
 Після успішного очищення топік отримує свіжий `updated_at` і статус
 `PendingUpdate` (або лишається `PendingCreate`, якщо ще не доїхав на сервер) —
 через уже наявний `updateTopicAfterWordInsert`. Порожній або неіснуючий словник —
-**no-op**: стан не перечитується, `localRevisionEpochMillis` не рухається.
+**no-op**: стан не перечитується, `localRevisionEpochMillis(userKey)` не рухається.
 
 #### Синхронізація
 

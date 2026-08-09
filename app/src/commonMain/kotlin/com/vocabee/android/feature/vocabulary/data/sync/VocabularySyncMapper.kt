@@ -11,6 +11,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.TopicUpdatedLabel
 import com.vocabee.android.feature.vocabulary.domain.model.VocabularySyncSnapshot
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -19,6 +20,19 @@ import kotlinx.serialization.json.encodeToJsonElement
 
 private const val CoverColorPrefix = "cover-"
 private const val DetailsMetadataKey = "details"
+private const val LexiconSnapshotMetadataKey = "lexiconSnapshot"
+
+@Serializable
+private data class LexiconSnapshotMetadata(
+    val translationId: String? = null,
+    val lexiconSchemaVersion: Int? = null,
+    val lexiconRevision: String? = null,
+) {
+    val hasContent: Boolean
+        get() = !translationId.isNullOrBlank() ||
+            lexiconSchemaVersion != null ||
+            !lexiconRevision.isNullOrBlank()
+}
 
 private val syncJson = Json {
     ignoreUnknownKeys = true
@@ -27,9 +41,11 @@ private val syncJson = Json {
 }
 
 fun VocabularySyncSnapshot.toApplySyncRequest(
+    expectedUserId: String,
     replaceServerState: Boolean,
 ): ApplySyncRequest {
     return ApplySyncRequest(
+        expectedUserId = expectedUserId,
         topics = topics.map { topic ->
             ClientTopicSync(
                 id = topic.id,
@@ -100,17 +116,53 @@ fun SyncResponse.toVocabularySyncSnapshot(
 
 private fun WordDetails?.toMetadata(): JsonObject {
     val details = this ?: return JsonObject(emptyMap())
-    if (details.isEmpty) return JsonObject(emptyMap())
+    if (!details.shouldPersist) return JsonObject(emptyMap())
+    val lexiconSnapshot = LexiconSnapshotMetadata(
+        translationId = details.translationId,
+        lexiconSchemaVersion = details.lexiconSchemaVersion,
+        lexiconRevision = details.lexiconRevision,
+    )
     return buildJsonObject {
-        put(DetailsMetadataKey, syncJson.encodeToJsonElement(details))
+        if (!details.isEmpty) {
+            put(
+                DetailsMetadataKey,
+                syncJson.encodeToJsonElement(
+                    details.copy(
+                        translationId = null,
+                        lexiconSchemaVersion = null,
+                        lexiconRevision = null,
+                    ),
+                ),
+            )
+        }
+        if (lexiconSnapshot.hasContent) {
+            put(
+                LexiconSnapshotMetadataKey,
+                syncJson.encodeToJsonElement(lexiconSnapshot),
+            )
+        }
     }
 }
 
 private fun JsonObject.toWordDetails(): WordDetails? {
-    val raw = this[DetailsMetadataKey] ?: return null
-    return runCatching {
-        syncJson.decodeFromJsonElement<WordDetails>(raw)
-    }.getOrNull()
+    val visibleDetails = this[DetailsMetadataKey]?.let { raw ->
+        runCatching {
+            syncJson.decodeFromJsonElement<WordDetails>(raw)
+        }.getOrNull()
+    }
+    val lexiconSnapshot = this[LexiconSnapshotMetadataKey]?.let { raw ->
+        runCatching {
+            syncJson.decodeFromJsonElement<LexiconSnapshotMetadata>(raw)
+        }.getOrNull()
+    }
+    val combined = (visibleDetails ?: WordDetails()).copy(
+        translationId = lexiconSnapshot?.translationId ?: visibleDetails?.translationId,
+        lexiconSchemaVersion = lexiconSnapshot?.lexiconSchemaVersion
+            ?: visibleDetails?.lexiconSchemaVersion,
+        lexiconRevision = lexiconSnapshot?.lexiconRevision
+            ?: visibleDetails?.lexiconRevision,
+    )
+    return combined.takeIf { it.shouldPersist }
 }
 
 private fun List<LanguageOption>.languageFor(code: String): LanguageOption {

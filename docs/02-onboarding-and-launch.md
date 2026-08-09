@@ -70,9 +70,12 @@ var flow by remember { mutableStateOf(AppFlow.Splash) }
    userId, displayName/email, `speakLang`/`learnLang`, `notificationsEnabled`, `darkThemeEnabled`, `beeBalance`.
    Окремого стартового `refreshSession` немає **[ЗАРАЗ]**: прострочений access відновлює сам API-шар
    (401 → renew під мьютексом → повтор запиту, див. `docs/16` §16.5).
-3. **Розвилка дельта-синку**:
-   - якщо є незалиті локальні зміни (`localRevisionEpochMillis > 0L`) → `syncVocabularyNow()` (push+merge через `applySync`);
-   - інакше дельта-синк: `backend.syncTopics(since = lastSyncAt)`; якщо є зміни → `applyServerSnapshot(...)`.
+3. **Розвилка per-user синку** виконується під одним vocabulary sync lease:
+   - якщо `localRevisionEpochMillis(user.id) > 0L` **або** в Room є `Pending*`-рядки → push+merge через `applySync`;
+   - інакше дельта-синк від `lastSyncAt(user.id)`; якщо локально ще не застосована
+     підтримувана lexical schema, замість delta виконується один full pull (D15);
+   - перед заміною Room повторно перевіряються user id і captured revision, тому
+     account switch чи локальна правка під час запиту відкидають stale відповідь.
 4. Будь-яка помилка ковтається (`catch { }`) → застосунок лишається локальним/офлайн.
 
 > **Важливо [ЗАРАЗ]:** `runStartupSync` запускається **після** того, як користувач опинився в `Main`.
@@ -208,8 +211,10 @@ val serverHasVocabulary = serverSnapshot.topics.isNotEmpty() ||
 | `beeBalance` | `UserResponse.beeBalance` (coerce ≥ 0) | `state` + `PreferencesManager.beeBalance` |
 | `topics` | `loadUserTopicsUseCase()` | перезавантажуються під нового userId |
 
-Далі для гілки (а) поверх цього лягає **контент** через `applyServerSnapshot(serverSnapshot)`
-(`App.kt:377–382` → `replaceCurrentSyncSnapshot` + `markCurrentVocabularySynced(serverTime)`).
+Далі для гілки (а) поверх цього лягає **контент** через
+`applyServerSnapshot(userKey, serverSnapshot)`: store робить явні
+`replaceSyncSnapshot(userKey, ...)` + `markVocabularySynced(userKey, serverTime, schemaVersion)`
+лише всередині успішного account/revision lease.
 
 > **[НОВЕ] Тема застосовується одразу:** оскільки `darkThemeEnabled` керує `VocabeeTheme`
 > (`App.kt:292`), при вході з гілки (а) тема перемикається на серверну ще на переході в `Main`.
