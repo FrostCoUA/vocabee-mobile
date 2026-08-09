@@ -92,11 +92,22 @@ Swagger UI обох gateway **[ЗАРАЗ]** брендований під «Voc
 - **public** — unguarded endpoint без серверного auth-суб'єкта; `Authorization` не інтерпретується (health, auth credential exchange, languages).
 - **Optional JWT** — `/search` і `/support`: без властивості `Authorization` guard ставить `user=null`; якщо заголовок передано, credential мусить бути валідним і належати `active` user, інакше 401 (empty/malformed/expired/inactive не деградують до аноніма).
 - **JWT** — обов'язковий `Authorization: Bearer <accessToken>`, гард `JwtAccessGuard`; access і refresh runtime-валідують object payload, UUID `sub` і `kind='user'` до DB lookup, а strategy потім звіряє `users.account_status='active'`; `@CurrentUser()` дає `{ id }`.
-- **Admin JWT** — окремий short-lived RS256 bearer: issuer
+- **Admin JWT** — окремий RS256 bearer: issuer
   `vocabee-client-gateway`, audience `vocabee-admin`, `typ='admin'`, pinned `kid`,
   opaque `sub`, fixed role і role-bounded scopes. Він не є mobile JWT, не містить
   email і не має refresh-flow. `AdminAccessGuard` перевіряє credential, потім
   `AdminScopesGuard` — точний scope операції.
+  > **[НОВЕ] Довгоживуча адмін-сесія.** Оскільки refresh-flow немає, TTL токена і
+  > є тривалістю сесії. `ADMIN_JWT_TTL` за замовчуванням **`365d`** (стеля, яку
+  > приймає браузерний клієнт: `expiresIn ≤ 31 536 000`), а сама сесія
+  > зберігається у `localStorage` під ключем `vocabee.admin.session.v1.<apiOrigin>`,
+  > щоб перезавантаження сторінки не вимагало повторного входу через Google.
+  > **Свідомий компроміс власника**, а не недогляд: адмін-bearer із правами на
+  > запис лежить у сховищі origin і читається будь-яким XSS на цьому домені,
+  > протягом до року. Ослаблення прийнято для персональної адмінки з єдиним
+  > адміністратором. Скидається при `signOut` і при першій же 401-відповіді.
+  > Якщо адмінка колись стане багатокористувацькою — потрібен серверний
+  > відкликуваний refresh-flow з HttpOnly-кукою замість цього.
 - **Dictionary consumer key** — opaque `X-API-Key` з allowlisted consumer scopes.
   Звичайні search keys не авторизують `/admin`; єдина виняткова машинна route
   `POST /v1/admin/lexicon/import-v2` вимагає одночасно scope
@@ -198,7 +209,7 @@ credential domain, не розширення mobile user JWT.
 
 | Метод | Шлях | Суб'єкт / scope | Код | Призначення |
 |---|---|---|---|---|
-| POST | `/v1/admin/auth/google` | public Google exchange | 200 | Google ID token → short-lived RS256 admin bearer, лише для env/DB allowlist |
+| POST | `/v1/admin/auth/google` | public Google exchange | 200 | Google ID token → RS256 admin bearer (TTL = ADMIN_JWT_TTL, деф. 365d), лише для env/DB allowlist |
 | GET | `/v1/admin/auth/jwks.json` | public | 200 | RS256 public JWK; private key не виходить із `client-gateway` |
 | GET | `/v1/admin/me` | Admin JWT | 200 | `{issuer,subject,role,scopes}` без email |
 | GET | `/v1/admin/dashboard` | `client:dashboard:read` | 200 | Агрегати users/status/premium/topics/words/reward events; **[НОВЕ D14]** headline wallet balances/spend |
