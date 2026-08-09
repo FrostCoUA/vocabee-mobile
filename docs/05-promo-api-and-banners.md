@@ -569,3 +569,23 @@ PromoConfig {
 | `one_time` | Ніколи (фіксується `claimedAt`). |
 
 > **Звʼязок з D1 (сервер авторитетний).** Усі лічильники й видачі живуть **тільки** на сервері. Клієнт показує оптимістичне просування для UX, але остаточні значення завжди беруться з відповідей `GET /v1/promos`, `POST /v1/wallet/rewarded-ad`, `POST /v1/promos/{id}/claim`.
+
+---
+
+## 9. Керування через client-admin-web `[НОВЕ D13]`
+
+Усі promo reward, умови, вікна, reset rules, priority й CTA редагуються через
+розділ **«Економіка»** у `client-admin-web`, а не в mobile і не прямим
+редагуванням БД.
+
+- кампанія входить у versioned economy policy;
+- admin працює з draft, validation і diff;
+- publish/schedule створює immutable version та audit event;
+- claim зберігає `policyVersion`, campaign version і фактичний `reward.bees`;
+- зміна reward не перераховує вже видані або списані суми;
+- mobile отримує тільки активні promo з безпечним presentation config.
+
+Registration bonus, rewarded-ad base reward і referral reward показуються
+поруч, щоб адміністратор бачив сумарну економіку й не створив випадкове
+подвійне welcome-нарахування. Повний admin-контракт —
+[20-client-admin-economy-config.md](20-client-admin-economy-config.md).

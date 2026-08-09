@@ -17,7 +17,7 @@
 | `WordForm` | `data class` (mobile) | `VocabularyModels.kt:18` — одна словоформа. |
 | `TranslationOption` | `data class` (mobile) | `VocabularyModels.kt:101` — варіант перекладу в Add-Word; несе `details`. |
 | `WordEntry.details` | `WordDetails?` | `VocabularyModels.kt:67` — збагачення збереженого слова (nullable). |
-| `lexicon_senses` | таблиця (gateway) | `lexicon.ts:126`, `0005_senses_and_relations.sql:23`. |
+| `lexicon_senses` | таблиця (gateway) | Значення слова; V2 додає stable nullable `sense_key`, унікальний у межах lexeme. |
 | `lexicon_relations` | таблиця (gateway) | `lexicon.ts:155`, `0005:45` — синоніми/антоніми (`kind`). |
 | `lexicon_word_forms` | таблиця (gateway) | `lexicon.ts:186`, `0005:68` — словоформи. |
 | `lexicon_examples` | таблиця (gateway) | `lexicon.ts:98` — приклади (можуть линкуватись до sense). |
@@ -34,6 +34,7 @@
 
 ```kotlin
 data class WordDetails(
+    val senseKeys: List<String> = emptyList(),
     val senses: List<WordSense> = emptyList(),
     val synonyms: List<String> = emptyList(),   // word-level
     val antonyms: List<String> = emptyList(),   // word-level
@@ -80,6 +81,7 @@ data class WordDetails(
 
 | Поле | Тип | Значення | Серверне джерело |
 |---|---|---|---|
+| `senseKey` | `String?` | Stable V2 identity значення; null тільки у старому локальному snapshot | `lexicon_senses.sense_key` |
 | `definition` | `String` | Текст означення (обов'язкове) | `lexicon_senses.definition` (`lexicon.ts:132`) |
 | `partOfSpeech` | `String?` | Частина мови саме цього значення | `lexicon_senses.part_of_speech` (`lexicon.ts:133`) |
 | `tags` | `List<String>` | Грам./стильові мітки значення | `lexicon_senses.tags` (`lexicon.ts:134`) |
@@ -114,12 +116,15 @@ data class WordForm(val text: String, val tags: List<String> = emptyList())
 | Таблиця | Що дає | Ключові поля |
 |---|---|---|
 | `lexicon_words` | головне слово | `ipa`, `audio_url`, `part_of_speech[]`, `lemma`, `normalized` (`lexicon.ts:38-65`) |
-| `lexicon_senses` | значення | `definition`, `part_of_speech`, `tags[]`, `position` (ordering), `source` (`lexicon.ts:126`) |
+| `lexicon_senses` | значення | `sense_key?` (stable V2 identity), `definition`, `part_of_speech`, `tags[]`, `position` (лише ordering), `source` |
+| `translation_senses` | зв'язки V2 | many-to-many `translation_id → (sense_word_lang, sense_id)`; один переклад може відповідати кільком значенням |
 | `lexicon_relations` | синоніми + антоніми (одна полі-таблиця) | `kind` ∈ `synonym\|antonym\|related`, `related_text`, `sense_id?` (`lexicon.ts:155`, `RELATION_KINDS` `:265`) |
 | `lexicon_word_forms` | словоформи | `form_text`, `tags[]` (граматика) (`lexicon.ts:186`) |
 | `lexicon_examples` | приклади | `text`, `translation_text?`, `sense_id?` (NULL = на все слово) (`lexicon.ts:98`) |
 
 - **Походження даних:** Free Dictionary API (`GET .../entries/{lang}/{word}`) — джерело форми схеми (`0005:3-6`); також provider'и `dictionary`/`translator`/`ai` і curated seed `seed` (`ENTRY_SOURCES` `lexicon.ts:24`). `source='ai'` — LLM-збагачення (напр. `openai-dictionary.provider.ts`); `source='seed'` — reviewed/imported seed data з `origin` на кшталт `vocabee-translate/...`.
+- **Curated seed є авторитетним:** V2 `seed-import` переносить reviewed IPA, якщо Kaikki має однозначну вимову, stable sense keys, examples і повну translation↔senses атрибуцію. Відсутній IPA допустимий і не запускає AI. Звичайний пошук не дописує до такого слова IPA/приклади/значення через dictionary або sense AI; прогалину виправляють у V2 batch і повторно імпортують. V1 імпорт збережений як legacy-сумісність.
+- **Runtime також V2:** dictionary senses отримують той самий детермінований key-контракт; OpenAI sense attribution повертає `senseKeys[]` і може прив'язати один переклад до кількох значень. Для старих provider-cache rows exact search робить одноразовий lazy upgrade з `sense_id` до `translation_senses`.
 - **Партиціонування:** усі lexicon-таблиці партиціоновані `LIST (word_lang)` — по партиції на мову (`uk,en,de,es,fr,pl,it`, `0005:90`). PK включає `word_lang`, бо Postgres вимагає ключ партиції в PK (`lexicon.ts:36`).
 - **Без FK до партиціонованого батька:** `lexicon_examples` і relations тримають `(word_lang, word_id)` як «м'який» лінк — цілісність на рівні застосунку, бо FK до партиціонованих таблиць обмежені (`lexicon.ts:93-97`).
 - **`sense_id` опційний** усюди (examples/relations): NULL → застосовується до слова в цілому; не-NULL → до конкретного значення (`lexicon.ts:104`, `0005:49`).
@@ -188,12 +193,12 @@ details = WordDetails(
 
 1. **Тип + регістр** — чипи «Фраза» / «Вислів» / «Абревіатура» та «Сленг» / «Неформальне» тощо; нижче — наявні «Що означає», «Розшифровка», «Розшифровка перекладу», «Дослівно», приклад і його переклад.
 2. **Контекстний приклад** — exact `contextGlossary.sentence` показується одним цілісним реченням із клікабельними span-ами, як у тренуванні. Тап по залежному слову відкриває popup із його конкретним контекстним перекладом; `+` одразу додає пару до поточного словника за 1 монетку, а вже наявна пара показує `✓` і не дублюється. Усі входження слова, яке вивчається, виділені, але не мають підказки чи дії. Окремого технічного списку `surface — translation` немає.
-3. **Senses** — `details.senses.take(3)` → `WordSenseBlock` на кожен. **Ліміт 3 значення.**
-4. **Синоніми** — `WordChipsRow("Синоніми", synonyms.take(12), accent)`. **Ліміт 12.**
-5. **Антоніми** — `WordChipsRow("Антоніми", antonyms.take(12), accent=Orange)`. **Ліміт 12, помаранчевий акцент.**
+3. **Senses** — backend V2 зберігає всі зв'язки перекладу через `translation_senses` і повертає `senses[].senseKey` + `variant.senseKeys[]`; перший зв'язок також проєктується в legacy `senseIndex`. Клієнт конкретного варіанта показує всі й лише linked senses; legacy/unattributed рядок відступає до `details.senses.take(3)`. Групова картка кількох збережених перекладів свідомо показує до 3 спільних значень.
+4. **Синоніми** — для V2-атрибутованого варіанта показується union синонімів лише його linked senses; без атрибуції або у груповій картці — word-level `synonyms.take(12)`. **Ліміт 12.**
+5. **Антоніми** — симетрично: union `antonyms` linked senses для конкретного перекладу, word-level fallback для legacy/group. **Ліміт 12, помаранчевий акцент.**
 6. **Форми** — `WordChipsRow("Форми", forms.map{it.text}.distinct().take(10), accent=Muted)`. **Ліміт 10, дедуп по тексту.**
 
-> Word-level `synonyms`/`antonyms`/`forms` рендеряться. **Sense-level** synonyms/antonyms (поля `WordSense.synonyms/antonyms`) **зараз у блоці значення не показуються** — `WordSenseBlock` рендерить лише номер, partOfSpeech, definition, examples.
+> `WordSenseBlock` рендерить номер, partOfSpeech, definition та examples. Sense-level synonyms/antonyms конкретного атрибутованого перекладу показуються нижче окремими `WordChipsRow`; word-level списки лишаються fallback для legacy та групових карток. Форми завжди word-level.
 
 ### 3.3 `WordSenseBlock` — одне значення
 

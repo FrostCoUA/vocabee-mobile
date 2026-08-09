@@ -22,3 +22,7 @@ local.properties
 /.worktrees/
 # Stray empty clone
 /vocabee/
+
+# Local IDE and Xcode user state
+.idea/deviceManager.xml
+**/xcuserdata/

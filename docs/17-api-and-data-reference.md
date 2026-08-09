@@ -19,7 +19,7 @@
 |---|---|---|
 | `client-gateway` | mobile API, users/auth, wallet, rewarded ads, premium, topics, saved words, sync, compatibility search facade і захищений client-admin API | lookup receipts, feedback outbox, D11 save-time economy |
 | `dictionary-gateway` | app-neutral directional search, lexicon, translation generation/cache, DB-backed consumer keys/quotas, consumer/key lifecycle, dashboard/lexicon/provider-status/usage/audit admin API, soft-delete/restore останньої ревізії, reviewed JSONL import із дедуплікацією, quality feedback із пороговою AI-регенерацією | повна immutable історія всіх ревізій, provider-secret write API, optional MCP |
-| `client-admin-web` | Реалізований у source: users/premium/sessions/admin accounts/audit через `client-gateway`, server-side фільтр словників за парою мов, без прямого DB-доступу | **[НОВЕ]** independent container, Compose wiring і deployed-browser verification |
+| `client-admin-web` | Реалізований у source: users/premium/sessions/admin accounts/audit через `client-gateway`, server-side фільтр словників за парою мов, без прямого DB-доступу | **[НОВЕ]** розділ «Економіка» з versioned spend/reward/market policy (D13); independent container, Compose wiring і deployed-browser verification |
 | `dictionary-admin-web` | dashboard, active/deleted/all translations, language/provenance dropdown-фільтри, повна lexical detail, soft-delete/restore з причиною, provider status, consumers+keys/usage/audit, reviewed JSONL import із послідовною чергою файлів через `dictionary-gateway` (черга сортується за номером батчу, окремі файли можна видалити до аплоаду; поточний файл і результат/помилка показуються над чергою), quality score і admin dislike з коментарем | **[МАЙБУТНЄ]** provider-secret/full-revision-history/feedback export/MCP UI |
 
 **[ЗАРАЗ]** Мобільний застосунок викликає **лише `client-gateway`**.
@@ -97,9 +97,11 @@ Swagger UI обох gateway **[ЗАРАЗ]** брендований під «Voc
   opaque `sub`, fixed role і role-bounded scopes. Він не є mobile JWT, не містить
   email і не має refresh-flow. `AdminAccessGuard` перевіряє credential, потім
   `AdminScopesGuard` — точний scope операції.
-- **Dictionary consumer key** — opaque `X-API-Key` для app-neutral search. Він має
-  лише allowlisted consumer scopes і не може авторизувати `/admin`; Admin JWT, навпаки,
-  не може авторизувати ordinary Dictionary search.
+- **Dictionary consumer key** — opaque `X-API-Key` з allowlisted consumer scopes.
+  Звичайні search keys не авторизують `/admin`; єдина виняткова машинна route
+  `POST /v1/admin/lexicon/import-v2` вимагає одночасно scope
+  `dictionary:lexicon:write` і fixed identity захищеного `translation-uploader`.
+  Admin JWT, навпаки, не авторизує ordinary Dictionary search або цю upload route.
 
 Внутрішні auth exceptions (`Invalid credentials`, `Account is not active`,
 `Invalid refresh token`, bare `Unauthorized`) не є wire-контрактом. Глобальний
@@ -199,7 +201,7 @@ credential domain, не розширення mobile user JWT.
 | POST | `/v1/admin/auth/google` | public Google exchange | 200 | Google ID token → short-lived RS256 admin bearer, лише для env/DB allowlist |
 | GET | `/v1/admin/auth/jwks.json` | public | 200 | RS256 public JWK; private key не виходить із `client-gateway` |
 | GET | `/v1/admin/me` | Admin JWT | 200 | `{issuer,subject,role,scopes}` без email |
-| GET | `/v1/admin/dashboard` | `client:dashboard:read` | 200 | Агрегати users/status/premium/topics/words/reward events |
+| GET | `/v1/admin/dashboard` | `client:dashboard:read` | 200 | Агрегати users/status/premium/topics/words/reward events; **[НОВЕ D14]** headline wallet balances/spend |
 | GET | `/v1/admin/users` | `client:users:read` | 200 | Cursor-list; `q?`, `status?`, `premium?`, `limit?`, `cursor?` |
 | GET | `/v1/admin/users/:userId` | `client:users:read` | 200 | Allowlisted user summary |
 | GET | `/v1/admin/users/:userId/topics` | `client:users:read` | 200 | Словники власника; optional validated `sourceLang?`/`targetLang?` застосовуються в DB до cursor pagination |
@@ -208,6 +210,14 @@ credential domain, не розширення mobile user JWT.
 | GET | `/v1/admin/users/:userId/sessions` | `client:users:read` | 200 | Session id/timestamps та UA/IP, якщо є; без token hash |
 | GET | `/v1/admin/admin-accounts` | `admin:manage` | 200 | Immutable env context + окремо cursor-page DB admins |
 | GET | `/v1/admin/audit-events` | `client:audit:read` | 200 | Append-only журнал адмін-мутацій |
+| GET | `/v1/admin/economy/policies/active` | `client:economy:read` | 200 | Активна versioned economy policy **[НОВЕ D13]** |
+| GET | `/v1/admin/economy/policies` | `client:economy:read` | 200 | Cursor-list draft/scheduled/active/archived policy **[НОВЕ D13]** |
+| GET | `/v1/admin/economy/policies/:id` | `client:economy:read` | 200 | Sanitized config, validation і publish metadata **[НОВЕ D13]** |
+| GET | `/v1/admin/wallet/summary` | `client:wallet:read` | 200 | Outstanding balance, credits, gross/net spend, refunds, admin bonuses **[НОВЕ D14]** |
+| GET | `/v1/admin/wallet/ledger` | `client:wallet:read` | 200 | Cursor-list глобального append-only ledger **[НОВЕ D14]** |
+| GET | `/v1/admin/users/:userId/wallet/summary` | `client:wallet:read` | 200 | Баланс і lifetime/complete-from flow metrics користувача **[НОВЕ D14]** |
+| GET | `/v1/admin/users/:userId/wallet/ledger` | `client:wallet:read` | 200 | Cursor-list ledger користувача **[НОВЕ D14]** |
+| GET | `/v1/admin/wallet/bonus-jobs` | `client:wallet:read` | 200 | Bulk bonus job history/status **[НОВЕ D14]** |
 
 Усі cursor-list мають default `limit=50`, max `100`, читають `limit+1` для
 `nextCursor`; opaque cursor кодує строгий `(createdAt,id)` boundary. Nested-resource
@@ -228,6 +238,15 @@ projection: password/token hashes, raw credentials, OAuth provider ids, metadata
 | POST | `/v1/admin/admin-accounts` | `admin:manage` | `{email,role,reason}` | Normalized DB admin; duplicate env/DB email→409 |
 | POST | `/v1/admin/admin-accounts/:adminId/enable` | `admin:manage` | `{reason}` | DB admin only; wrong/final state→409 |
 | POST | `/v1/admin/admin-accounts/:adminId/disable` | `admin:manage` | `{reason}` | DB admin only; env/self-disable protected→409 |
+| POST | `/v1/admin/economy/policies` | `client:economy:write` | `{baseVersion?}` | Створити draft із active/вибраної version **[НОВЕ D13]** |
+| PATCH | `/v1/admin/economy/policies/:id` | `client:economy:write` | versioned config patch | Змінити лише draft; active/scheduled/archived read-only **[НОВЕ D13]** |
+| POST | `/v1/admin/economy/policies/:id/validate` | `client:economy:write` | — | Errors/warnings без publish **[НОВЕ D13]** |
+| POST | `/v1/admin/economy/policies/:id/publish` | `client:economy:publish` | `{effectiveAt?,reason}` | Publish now/schedule після stale-base check **[НОВЕ D13]** |
+| POST | `/v1/admin/economy/policies/:id/archive` | `client:economy:publish` | `{reason}` | Архівувати draft/scheduled; active не редагується **[НОВЕ D13]** |
+| POST | `/v1/admin/users/:userId/wallet/bonus` | `client:wallet:grant` | `{amountBees,reason,message?}` + `Idempotency-Key` | Атомарний positive bonus + ledger + audit **[НОВЕ D14]** |
+| POST | `/v1/admin/wallet/bonuses/preview` | `client:wallet:grant` | audience + amount + reason | Resolve immutable recipients і total, без credit **[НОВЕ D14]** |
+| POST | `/v1/admin/wallet/bonuses` | `client:wallet:grant` | `{previewToken,...}` + `Idempotency-Key` | Створити idempotent bulk bonus job **[НОВЕ D14]** |
+| POST | `/v1/admin/wallet/bonus-jobs/:jobId/retry` | `client:wallet:grant` | — | Retry лише failed recipients **[НОВЕ D14]** |
 
 `reason` після trim обов'язково 3..500. User moderation — reversible status, **не
 hard delete**. `ban/deactivate` атомарно revoke refresh rows, а mobile access strategy
@@ -248,6 +267,27 @@ Bootstrap env admin list (`BOOTSTRAP_ADMIN_EMAILS`, початково
 RS256, default 15 хв, issuer `vocabee-client-gateway`, audience `vocabee-admin`,
 `typ=admin`, pinned `kid`, role/scopes, без email і без refresh.
 
+**[НОВЕ D13] Economy administration.** У `client-admin-web` додається
+навігаційний розділ «Економіка». Нові scopes:
+`client:economy:read`, `client:economy:write`,
+`client:economy:publish`; початково `client_admin` має read/write для
+чернеток, а publish — лише `super_admin`. Конфіг охоплює topic/word costs,
+refund window, starting/registration rewards, rewarded ad, referral
+inviter/invitee, Promo API та default/pair-override ціни market pack.
+Published version immutable; rollback створює нову version; усі charge/reward
+зберігають actual amount + `policyVersion`. Повний контракт —
+[20-client-admin-economy-config.md](20-client-admin-economy-config.md).
+
+**[НОВЕ D14] Wallet administration.** Overview і
+`Економіка → Гаманці` показують суму поточних балансів, gross spent, refunds,
+net spent та admin bonuses; user detail — summary + ledger. Нові scopes:
+`client:wallet:read` і `client:wallet:grant`; початково client admin має
+read, а grant — лише super admin. Bonus завжди позитивний, потребує reason та
+idempotency; direct balance edit відсутній. Bulk grant проходить
+server-resolved preview перед job execution. Через неповну legacy-історію
+current balance точний одразу, а spend має `completeFrom`. Повний контракт —
+[21-client-admin-wallet-operations.md](21-client-admin-wallet-operations.md).
+
 `client-admin-web` **[ЗАРАЗ]** реалізований у source; API і Swagger також реалізовані.
 Independent container/Compose deployment і browser E2E ще **[НОВЕ]**. Mobile app ці
 routes не викликає.
@@ -255,9 +295,12 @@ routes не викликає.
 ### 1.3.2 Dictionary administration + API consumers (`dictionary-gateway /v1/admin`)
 
 `vocabee-gateway/src/dictionary-admin/*`, `src/dictionary-access/*`. **[ЗАРАЗ]**
-Dictionary admin приймає лише окремий RS256 `admin-access-token`; consumer
-`X-API-Key` не є адмінським credential. `super_admin`/`dictionary_admin` отримують
-рівно ці scopes:
+Dictionary admin UI та звичайні admin routes приймають окремий RS256
+`admin-access-token`; consumer `X-API-Key` не дає доступу до них. Єдина
+машинна виняткова route — `POST /v1/admin/lexicon/import-v2`: вона приймає
+тільки ключ захищеного `translation-uploader` зі scope
+`dictionary:lexicon:write`, а admin bearer її не авторизує.
+`super_admin`/`dictionary_admin` отримують рівно ці admin scopes:
 
 `dictionary:lexicon:read`, `dictionary:lexicon:write`, `dictionary:consumers:read`,
 `dictionary:consumers:write`, `dictionary:keys:write`, `dictionary:usage:read`,
@@ -270,7 +313,8 @@ Dictionary admin приймає лише окремий RS256 `admin-access-toke
 | GET | `/v1/admin/lexicon/translation-filter-options` | `dictionary:lexicon:read` | Sorted distinct non-empty `origins` і `providerTiers`, які реально є в translation rows; без metadata/credentials |
 | GET | `/v1/admin/lexicon/translations/:translationId` | `dictionary:lexicon:read` | Останній active або soft-deleted рядок: source/target lexical entry, IPA, senses/examples, synonyms/antonyms/forms, alternatives, provenance і safe metadata; не повна immutable history |
 | POST | `/v1/admin/lexicon/import` | `dictionary:lexicon:write` | Legacy reviewed `.jsonl`; перевіряє мови, `needsReview`/review status і структуру рядків, додає source/target lexical entries та enrichment, пропускає дублікати за нормалізованою парою слово+переклад |
-| POST | `/v1/admin/lexicon/import-v1` | `dictionary:lexicon:write` | Multipart `file` з canonical `formatVersion: "v1"` JSONL; локально провалідовані `sourceUnit`/`targetUnit` для кожного перекладу, без AI/кредитів, дублікати пропускаються, а зміни lexical metadata оновлюють існуючий exact translation |
+| POST | `/v1/admin/lexicon/import-v1` | `dictionary:lexicon:write` | Multipart `file` з `formatVersion: "v1"` JSONL; звичайне word вимагає reviewed `partOfSpeech`, senses і приклад для кожного sense, а IPA є best-effort і може бути відсутнім; multi-sense translations вимагають `senseIndex`. Імпорт сам не викликає AI/провайдера: однозначний reviewed IPA з Kaikki дозаповнює старе значення, але конфлікт двох seed IPA відхиляється; reviewed `senseIndex` одразу встановлює/виправляє translation→sense. `seed-import` після цього immutable у звичайному search; знайдена прогалина створює personless `lexicon_curated_data_missing` для перегенерації batch, без provider fallback. |
+| POST | `/v1/admin/lexicon/import-v2` | `X-API-Key` · `dictionary:lexicon:write` | Multipart `file` з `formatVersion: "v2"` JSONL. Кожен sense має stable `senseKey`, кожен example — `senseKey`, а кожен translation — непорожній `senseKeys[]`; positional `senseIndex` заборонений. Опційний `X-Content-SHA256` звіряє raw bytes до імпорту; відповідь завжди містить `fileSha256` і `fileSizeBytes`. Імпорт upsert-ить stable keys, атомарно замінює many-to-many `translation_senses` у межах запису, а перший link проєктує у legacy `translations.sense_id`. Один переклад може належати кільком значенням. Повтор того самого reviewed файла безпечний на рівні row upsert; AI/провайдер не викликається. |
 | POST | `/v1/admin/lexicon/quality-feedback` | `dictionary:lexicon:write` | `{targetType: "translation"\|"example", targetId, comment?}`; адмінський dislike не видаляє рядок, додає 100 балів якості один раз для цього адміністратора й повертає поточний бал |
 | POST | `/v1/admin/lexicon/translations/:translationId/delete` | `dictionary:lexicon:write` | `{reason}` 3..500; soft-delete + pending pair repair + audit в одній transaction; repeated state →409 |
 | POST | `/v1/admin/lexicon/translations/:translationId/restore` | `dictionary:lexicon:write` | `{reason}` 3..500; відновлює останній рядок і скасовує pending repair slot, якщо його ще не спожито; audit atomically |
@@ -285,12 +329,62 @@ Dictionary admin приймає лише окремий RS256 `admin-access-toke
 | POST | `/v1/admin/api-keys/:keyId/rotate` | `dictionary:keys:write` | Active successor + one-time raw; predecessor `retiring` на 900 с |
 | POST | `/v1/admin/api-keys/:keyId/revoke` | `dictionary:keys:write` | Незворотний revoke; останній usable system key захищений 409 |
 
-Перед завантаженням V1-пакета exact-parser endpoint можна запустити без БД через
-`npm run db:validate:lexicon-v1 -- <file-or-directory>`; команда має повернути
-`invalid=0`. V1 importer приймає source `entryType="word"` і `entryType="phrase"`:
-фрази зберігаються у `lexicon_phrases`, а source/target phrase unit не маскуються під
-слова. Це робить secondary phrase batches uploadable через той самий admin endpoint;
-пошукове збагачення фраз лишається окремою задачею.
+Новий production gate — exact parser без БД:
+`npm run db:validate:lexicon-v2 -- <file-or-directory> --report <path>`;
+команда має повернути `invalid=0`. V2 generator одразу пише stable keys; міграція
+V1→V2 детерміновано переносить single-sense/reviewed mapping, а відсутні
+multi-sense links і структурні прогалини обов'язково передає у внутрішню
+AI-generation queue leased migration worker-а. Unit не може завершитись, доки
+черга не порожня, `needsReview=false`, conversion report не має
+`unresolved/invalid`, а exact gateway report не має `invalid`. Міграція не
+змінює pair-local `progress.md` або V1 batches: наступний
+`vocabee-primary-translate-auto` продовжує з того самого `Next range` і пише
+лише нові V2 batches. І V2, і legacy V1 importer приймають source
+`entryType="word"` та `entryType="phrase"`: фрази зберігаються у
+`lexicon_phrases`, а source/target phrase unit не маскуються під слова. V1 exact
+parser/endpoint лишаються доступними для старих пакетів, але нові skills V1 не
+генерують.
+
+**[ЗАРАЗ] Resumable V2 upload.** Скіл `vocabee-upload-translations` будує
+inventory заново на кожному `plan/status/run`: immutable baseline бере з
+`translation-v2-migration/completed` та узгоджених conversion/exact-parser
+reports, а нові primary/secondary V2 batches — з живих pair/category checkpoints.
+`primary-matrix-progress.md` і secondary `matrix-progress.md` є лише проєкціями,
+не джерелом discovery. Raw workspace не відправляється: mutating run
+детерміновано формує package лише з `approved/fixed`, виключає `rejected`,
+атомарно публікує package manifest, перевіряє canonical `senseKey` та exact
+gateway parser, а тоді завантажує всі мовні напрями строго послідовно. Для кожної
+чистої відповіді він атомарно пише source+output-checksum-bound receipt у
+`service/translation-upload-state/<profile>/receipts/` і оновлює
+`progress.md`; наступна сесія з тим самим profile/endpoint повторно сканує
+mapping, пропускає попередні receipts і автоматично продовжує з першого нового
+pending batch. Тому колишні 100% можуть знову стати pending після генерації
+нового immutable range. В адмінці оператор відкриває захищений системний
+consumer `translation-uploader`, створює/ротейтить ключ і передає one-time raw
+value агенту. Скіл надсилає його тільки як `X-API-Key`; значення читається через
+stdin і не потрапляє в argv/state/manifests. HTTP 200 сам по собі не є успіхом: receipt дозволений
+лише коли filename/SHA-256/bytes/lines збігаються, `invalid=0`, `failed=0`,
+`errors=[]`, а row accounting повний. 401/403, permanent 4xx, змінений завершений
+source/package або часткове перекриття пакетів зупиняють upload без втрати попередніх
+receipts. Це at-least-once resume з безпечним row replay, а не whole-file
+transaction або server-side exactly-once receipt.
+
+**[ЗАРАЗ] Manual V2 import UI.** На сторінці «Переклади» є окрема V2-панель:
+оператор вставляє one-time `translation-uploader` key, який живе тільки в
+React-state поточної вкладки, і може вибрати або перетягнути цілу папку.
+Folder drop рекурсивно обходить вкладені каталоги (із folder-picker fallback),
+кожен JSONL локально перевіряється по всіх непорожніх рядках, отримує SHA-256,
+напрямок і тип (`primary/abbreviation/slang/phrase`). Точні checksum-дублікати
+пропускаються, змішані напрями, не-V2 файли та конфлікт одного
+`direction+category+range` з різними checksum блокуються до upload. Черга
+сортується `direction → category → range`, показується accordion-картками по
+мовній парі; у header кожної картки є progress і лічильники success/warning/error,
+а батчі мають незалежну пагінацію по 20 рядків. Result/error лишається у рядку
+батча, тому окремого нескінченного полотна результатів немає. Запити йдуть
+ізольованим API-key transport без admin bearer, `X-Content-SHA256` обов'язковий;
+401 від помилкового uploader key не завершує admin-сесію. Є «Пауза після
+поточного батчу»; UI-черга живе лише до reload вкладки, тоді як міжсесійне
+resume лишається відповідальністю skill receipts.
 
 `dictionary-admin-web` **[ЗАРАЗ]** використовує спільну адмін-дизайн-систему
 «Vocabee Redesign» (`@vocabee/admin-ui`) та мобільний знак із трьох сот. Список
@@ -453,9 +547,10 @@ UTF-16 offsets зберігаються в `user_context_glossary_examples` з �
 `VariantDto`: **`translationId`** (durable id рядка `translations`, незмінно проходить
 dictionary → client facade), `knownWord`, `learningWord`, `ipa?`, `audioUrl?`,
 `partOfSpeech[]`, `examples[]` (`{text, translation?}`), `senses[]`
-(`{definition, partOfSpeech?, tags[], examples[], synonyms[], antonyms[]}`),
-`synonyms[]`, `antonyms[]`, `forms[]` (`{text, tags[]}`), `senseIndex?` (індекс
-sense'а, що його рендерить цей переклад; null — не атрибутовано),
+(`{senseKey, definition, partOfSpeech?, tags[], examples[], synonyms[], antonyms[]}`),
+`synonyms[]`, `antonyms[]`, `forms[]` (`{text, tags[]}`), `senseKeys[]` (усі stable
+значення, які рендерить переклад), `senseIndex?` (перша compatibility-проєкція
+для старих клієнтів; null — не атрибутовано),
 `lexicalUnitKind` (`word|phrase|expression|abbreviation`), `registerTags[]`
 (`slang|informal|formal|technical|offensive|humorous|internet`), `expansion?`,
 `translatedExpansion?`, `meaning?`, `literalTranslation?`, `usageExample?`,
@@ -575,6 +670,17 @@ sense'а, що його рендерить цей переклад; null — н�
 зберігає score/event і коментар ідемпотентно. Feedback сам по собі не повертає
 монетки; при `100` балів наступний пошук передає проблему AI на точкову регенерацію.
 
+### 1.11 Economy runtime config (`/v1/economy`) — **[НОВЕ D13]**
+
+| Метод | Шлях | Суб'єкт | Призначення |
+|---|---|---|---|
+| GET | `/v1/economy/config` | Optional JWT | Client-safe active policy: version, costs, refund window і доступні earn options |
+
+Market prices повертає `GET /v1/market/packs`, Promo reward —
+`GET /v1/promos`, а referral presentation — `GET /v1/referral/me`; усі вони
+формуються з тієї самої active `policyVersion`. Mobile не отримує SSV keys,
+anti-fraud signals, provider secrets або повний admin config.
+
 ---
 
 ## 2. Доменні моделі (клієнт)
@@ -629,13 +735,13 @@ sense'а, що його рендерить цей переклад; null — н�
 | `updatedAtEpochMillis` | Long | дефолт = added |
 | `syncStatus` | `SyncStatus` | дефолт `PendingCreate` |
 
-> **[НОВЕ] Поля знань D10** — у поточному `WordEntry` НЕ існують. Гібрид пріоритет+Leitner потребує: `timesCorrect`, `timesWrong`, `boxLevel`, `lastReviewedAt`, `dueAt`. Поточний бекенд/клієнт мають лише `knowledgePercent`. Канон полів — `11-practice-training.md`; план персистенції — §3 (Room) і §3 (Postgres, майбутня `0016_training_fields.sql` **[НОВЕ, ще не створена]**).
+> **[НОВЕ] Поля знань D10** — у поточному `WordEntry` НЕ існують. Гібрид пріоритет+Leitner потребує: `timesCorrect`, `timesWrong`, `boxLevel`, `lastReviewedAt`, `dueAt`. Поточний бекенд/клієнт мають лише `knowledgePercent`. Канон полів — `11-practice-training.md`; план персистенції — §3 (Room) і §3 (Postgres, майбутня `0020_training_fields.sql` **[НОВЕ, ще не створена]**).
 
 ### 2.4 WordDetails / WordSense / WordForm (`VocabularyModels.kt:8-40`)
 
-- **`WordDetails`**: `senseIndex: Int?` (значення пари з бекендової атрибуції), `senses: List<WordSense>`, `synonyms: List<String>`, `antonyms: List<String>`, `forms: List<WordForm>`, `partOfSpeech: List<String>`, lexical metadata та `contextGlossary: ContextGlossary?`; обчислюване `isEmpty`. Read-only на клієнті, серіалізується в Room як один JSON-блоб.
+- **`WordDetails`**: `senseKeys: List<String>` (V2 many-to-many атрибуція), legacy `senseIndex: Int?` (перша проєкція), `senses: List<WordSense>`, `synonyms: List<String>`, `antonyms: List<String>`, `forms: List<WordForm>`, `partOfSpeech: List<String>`, lexical metadata та `contextGlossary: ContextGlossary?`; обчислюване `isEmpty`. Read-only на клієнті, серіалізується в Room як один JSON-блоб.
 - **`ContextGlossary`**: exact `sentence`, `sourceLang`, `targetLang`, `tokens[]`; token містить `surface`, `normalized`, UTF-16 `start/endExclusive`, `translation`, `lemma?`. Окремої Room/Postgres-міграції не треба, бо снапшот їде всередині наявного details/metadata JSON.
-- **`WordSense`**: `definition`, `partOfSpeech?`, `tags[]`, `examples: List<String>`, `synonyms[]`, `antonyms[]`. (Зверни увагу: тут `examples` — плоскі `String`, на відміну від серверного `SenseDto.examples` = `{text, translation?}`.)
+- **`WordSense`**: `senseKey?`, `definition`, `partOfSpeech?`, `tags[]`, `examples: List<String>`, `synonyms[]`, `antonyms[]`. Null key дозволений лише для старого локального snapshot. (Зверни увагу: тут `examples` — плоскі `String`, на відміну від серверного `SenseDto.examples` = `{text, translation?}`.)
 - **`WordForm`**: `text`, `tags: List<String>`.
 
 ### 2.5 LanguageOption (`VocabularyModels.kt:42`)
@@ -742,39 +848,44 @@ Enum: `PendingCreate`, `PendingUpdate`, `Synced`, `PendingDelete`. Зберіг�
 
 **`topic_words`** (`schema/topics.ts`): `id` uuid PK, `topic_id` uuid FK→topics CASCADE, `word_text`/`translation_text` text, `ipa` text, `source_word_lang` varchar(8), `source_word_id` uuid, `source` varchar(16), `origin` text, `device_origin_id` text, `metadata` jsonb def `{}`, **`knowledge_percent` integer NN def 0** (CHECK 0..100), `added_at`/`updated_at` timestamptz, **`deleted_at` timestamptz**, `last_synced_at` timestamptz. Індекси: `topic_id`; `(topic_id, updated_at)`; `(topic_id, last_synced_at)`.
 
-> **[НОВЕ] Поля тренування D10** для `topic_words` (майбутня `0016_training_fields.sql`, ще не створена): `times_correct` int def 0, `times_wrong` int def 0, `box_level` int def 0 (Leitner), `last_reviewed_at` timestamptz, `due_at` timestamptz.
+> **[НОВЕ] Поля тренування D10** для `topic_words` (майбутня `0020_training_fields.sql`, ще не створена): `times_correct` int def 0, `times_wrong` int def 0, `box_level` int def 0 (Leitner), `last_reviewed_at` timestamptz, `due_at` timestamptz.
 
 **`languages`** (`schema/languages.ts`): `code` varchar(8) PK, `name`, `native_name`, `speech_tag`, `flag` — довідник, сидиться з `SUPPORTED_LANGUAGES`.
 
 **Лексикон** (`schema/lexicon.ts`) — джерело перекладів/збагачення; **партиціювання LIST за мовою** (`uk, en, de, es, fr, pl, it, pt, tr, he, ar, lt, cs`), тому PK містить мовний код:
 - **`lexicon_words`** — PARTITION BY LIST (`lang`); PK `(lang, id)`; `lemma`, `normalized`, `ipa`, `audio_url`, `part_of_speech text[]`, `source`, `origin`, `metadata` jsonb. Унік. індекс `(lang, normalized)`.
 - **`lexicon_phrases`** — PARTITION BY LIST (`lang`); PK `(lang, id)`; `text`, `normalized`, `source`, `origin`, `metadata`. Унік. `(lang, normalized)`.
-- **`lexicon_senses`** — PARTITION BY LIST (`word_lang`); PK `(word_lang, id)`; `word_id`, `definition`, `part_of_speech`, `tags text[]`, `position`, `source`, `origin`, `metadata`.
+- **`lexicon_senses`** — PARTITION BY LIST (`word_lang`); PK `(word_lang, id)`; `word_id`, nullable stable V2 `sense_key` (partial unique разом із word identity), `definition`, `part_of_speech`, `tags text[]`, `position`, `source`, `origin`, `metadata`.
+- **`translation_senses`** — V2 many-to-many bridge; PK `(translation_id, sense_word_lang, sense_id)`, cascade-delete від translation. `translations.sense_id` збережено як перший/legacy compatibility link.
 - **`lexicon_relations`** — PARTITION BY LIST (`word_lang`); PK `(word_lang, id)`; `word_id`, `sense_id?`, `kind` (`synonym`\|`antonym`\|`related`), `related_text`, `tags text[]`. Полиморфні зв'язки.
 - **`lexicon_word_forms`** — PARTITION BY LIST (`word_lang`); PK `(word_lang, id)`; `word_id`, `form_text`, `tags text[]`. Інфлекції.
 - **`lexicon_examples`** — звичайна (не партиціонована) таблиця; `word_lang`+`word_id` (без FK, бо батько партиціонований), `sense_id?`, `text`, `translation_text?`, `translation_lang?`. Індекси за `(word_lang, word_id)` і `(word_lang, word_id, sense_id)`.
 - **`translations`** — напрямний міст `source_lang/source_word_id` → `target_lang/target_word_id?` + `target_text`, `confidence`, `source`, `origin`, **`provider_tier` varchar(32)**, `is_primary`, `metadata`, `deleted_at?`. Active partial index виключає tombstones; reverse mirror не створюється.
 - **`translation_pair_repairs`** — pending `missing_variants` для конкретної source/target пари після admin soft-delete; пошук атомарно споживає repair і генерує тільки відсутні нові тексти.
 
-**Dictionary API access (`schema/dictionary-api.ts`, migration 0013):**
+**Dictionary API access (`schema/dictionary-api.ts`, migrations 0013/0018):**
 
 - **`dictionary_api_plans`** — protected `system-unlimited` (`NULL/NULL`) і
   `external-standard` (`60/1000`) minute/day policies;
 - **`dictionary_api_consumers`** — name/kind/status/plan/scopes/protected lifecycle;
-  seed рівно один fixed-id protected `client-gateway` system consumer;
+  fixed-id protected system consumers: `client-gateway` лише з
+  `dictionary:search` і `translation-uploader` лише з
+  `dictionary:lexicon:write`;
 - **`dictionary_api_keys`** — public id/display prefix, HMAC digest, pepper version,
   scopes, active/retiring/revoked timestamps і rotation link; **raw key не зберігається**,
-  а сама migration не створює жодного key row;
+  а самі migrations не створюють жодного key row;
 - **`dictionary_api_quota_counters`** — atomic per-consumer minute/day windows;
 - **`dictionary_api_usage_events`** — append-only safe attribution без search content;
 - **`dictionary_admin_audit_events`** — append-only actor/action/target/reason і
   sanitized before/after; немає FK до client-owned admin identities.
 
-`0013` additive/data-preserving: не змінює `users/topics/topic_words` або lexicon.
+`0013` additive/data-preserving: не змінює `users/topics/topic_words` або lexicon;
+`0018` лише додає захищений `translation-uploader` без raw/digest key material.
 Перед rollout потрібні custom-format backup і запис counts `_migrations`, users,
 topics, topic_words, translations, lexicon_words/phrases; після двох послідовних
 `npm run db:migrate` другий запуск має бути no-op, application/lexicon counts — ті ж,
-protected plans/consumer — по одному, system key count — 0 до явного admin create.
+protected plans — два, protected system consumers — два, system key count — 0 до
+явного admin create.
 Ідемпотентний саме filename-tracking runner; raw SQL напряму двічі не запускається.
 
 ### 3.3 Перелік міграцій (`vocabee-gateway/src/db/migrations`)
@@ -796,7 +907,12 @@ protected plans/consumer — по одному, system key count — 0 до яв
 | `0013_dictionary_api_consumers.sql` | Additive/data-preserving: плани й consumers Dictionary API, digest-only ключі, consumer-level quota counters, append-only usage/audit та protected seeds `system-unlimited`, `external-standard`, `client-gateway`; не створює raw/system key і не змінює users/topics/words/lexicon. |
 | `0014_translation_lifecycle.sql` | Additive/data-preserving: `translations.deleted_at`, active partial index і `translation_pair_repairs`; прибирає лише старі технічні `metadata.cacheRole=reverse_mirror`, не чіпає users/topics/topic_words або прямі переклади. |
 | `0015_user_context_glossary.sql` | Приватні user-scoped пари `word+concrete translation+language direction` та exact sentence occurrences; additive backfill із валідних `topic_words.metadata.details.contextGlossary`. |
-| `0016_training_fields.sql` **[НОВЕ, ще не створена]** | Майбутня наступна міграція після наявної `0015`; `topic_words`: `times_correct`, `times_wrong`, `box_level` (def 0), `last_reviewed_at`, `due_at` (**D10**). |
+| `0016_lexicon_quality_feedback.sql` | Приватний user-scoped фідбек якості прикладів і перекладів; `translations.quality_score` як агрегат для регенерації. |
+| `0017_lexicon_translation_senses_v2.sql` | Додає `lexicon_senses.sense_key`, many-to-many `translation_senses` та backfill усіх наявних non-null `translations.sense_id`; стару колонку не видаляє. |
+| `0018_dictionary_translation_uploader.sql` | Додає fixed-id protected `translation-uploader` на `system-unlimited` лише зі scope `dictionary:lexicon:write`; key row/raw key не створює, оператор генерує one-time key в адмінці. |
+| `0019_translation_senses_sense_fk.sql` | Композитний FK `translation_senses (sense_word_lang, sense_id) → lexicon_senses (word_lang, id)` з `ON DELETE CASCADE`; перед додаванням прибирає orphan-рядки. |
+| `0020_training_fields.sql` **[НОВЕ, ще не створена]** | Майбутня наступна вільна міграція після наявної `0019`; `topic_words`: `times_correct`, `times_wrong`, `box_level` (def 0), `last_reviewed_at`, `due_at` (**D10**). |
+| `0018_dictionary_translation_uploader.sql` | Додає fixed-id protected `translation-uploader` на `system-unlimited` лише зі scope `dictionary:lexicon:write`; key row/raw key не створює, оператор генерує one-time key в адмінці. |
 
 ---
 
@@ -863,7 +979,7 @@ protected plans/consumer — по одному, system key count — 0 до яв
 1. Немає `/auth/anonymous` — анонімність реалізована як відсутність JWT (**D2**, міграція 0002). **[ЗАРАЗ]**
 2. Маршрут застосування sync — `/v1/topics/sync/apply`, не `/topics/sync`. **[ЗАРАЗ]**
 3. `rewarded-ad` не верифікований/не ідемпотентний; економіка ще не сервер-авторитетна в `applySync`/topics — **[НОВЕ]** за D1.
-4. Поля знань D10 (`timesCorrect/timesWrong/boxLevel/lastReviewedAt/dueAt`) відсутні і в клієнті, і в Postgres/Room — є лише `knowledgePercent`. **[НОВЕ]** (майбутня `0016_training_fields.sql`, ще не створена, + bump Room до v5).
+4. Поля знань D10 (`timesCorrect/timesWrong/boxLevel/lastReviewedAt/dueAt`) відсутні і в клієнті, і в Postgres/Room — є лише `knowledgePercent`. **[НОВЕ]** (майбутня `0020_training_fields.sql`, ще не створена, + bump Room до v5).
 5. `TOPIC_ICONS` у коді — 11 ключів; набір D7 ширший. **[НОВЕ]**
 6. `UpdateTopicDto` дозволяє змінювати `sourceLang/targetLang`, що суперечить D6 «існуючі незмінні». **[НОВЕ]** (уточнити).
 7. Promo API (`/v1/promos*`) ще не існує — **[НОВЕ]** за D4 (doc 05).

@@ -211,6 +211,15 @@ cache URI через `FileProvider`).
 **[МАЙБУТНЄ]:** фактичне нарахування +50 обом після першого входу друга (deferred deep-link
 атрибуція).
 
+**[НОВЕ D13]:** сума не лишається константою `REFERRAL_REWARD_BEES`.
+`client-admin-web → Економіка → Інвайти` окремо задає
+`inviterRewardBees`, `inviteeRewardBees`, qualifying event, attribution
+window, caps і active window. `/v1/referral/me` повертає активну presentation
+із versioned policy. Поки attribution/credit не розгорнуті або
+`referral.enabled=false`, UI може дати поділитися лінком, але не обіцяє
+монетки як гарантований спосіб заробітку. Деталі —
+[20](20-client-admin-economy-config.md) §3.4.
+
 **Допомога та підтримка:** чипи теми (bug/idea/billing/other), повідомлення ≥10 символів,
 email — з акаунта автоматично (сервер підставляє з users) або обовʼязкове поле для гостя;
 `POST /v1/support` (optional-auth) → таблиця `support_requests`; успіх = снекбар

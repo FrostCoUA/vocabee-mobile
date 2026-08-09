@@ -2,9 +2,9 @@
 
 > **Єдиний верхньорівневий опис «весь функціонал» Vocabee.** Цей документ — карта-зміст усіх можливостей застосунку, згрупованих за доменами. Він **не дублює** деталі — для кожної функції є посилання на профільний документ `00–17`.
 >
-> Позначки стану в усьому файлі: **[ЗАРАЗ]** — поведінка в поточному коді; **[НОВЕ]** — затверджена зміна (журнал рішень D1–D10); **[МАЙБУТНЄ]** — заплановано пізніше / TBD.
+> Позначки стану в усьому файлі: **[ЗАРАЗ]** — поведінка в поточному коді; **[НОВЕ]** — затверджена зміна (журнал рішень D1–D14); **[МАЙБУТНЄ]** — заплановано пізніше / TBD.
 >
-> Джерело істини рішень — журнал у [00-overview-and-decisions.md](00-overview-and-decisions.md) (формалізовано **D1–D9**). **D10** (гібрид-тренування) у цьому інвентарі та в `13`/`15`/`17` уживається як робочий номер; канон поведінки — [11-practice-training.md](11-practice-training.md), а окремий запис «D10» у журналі `00` ще треба додати (див. лишок наприкінці). Технічний контракт — [17-api-and-data-reference.md](17-api-and-data-reference.md).
+> Джерело істини рішень — журнал **D1–D14** у [00-overview-and-decisions.md](00-overview-and-decisions.md). Деталі кожного домену живуть у профільних документах, а технічні API/дані — у [17-api-and-data-reference.md](17-api-and-data-reference.md) та відповідному профільному розділі.
 
 ---
 
@@ -103,6 +103,8 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Збагачення (dictionary-ланцюг) | `OpenAI → FreeDictionary`: IPA, audio, senses+приклади, синоніми/антоніми, форми. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §11, [14](14-word-details-and-audio.md) §2 |
 | Напрямний кеш без mirror | Upsert source/target lexicon + translation cache лише для `detectedLang → otherLang`; зворотний напрямок генерується окремим запитом. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
 | Остання відновлювана ревізія | Dictionary admin може soft-delete переклад з причиною та відновити той самий рядок; пошук не показує видалені варіанти й дозаповнює тільки відсутній слот. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10, [17](17-api-and-data-reference.md) §1.3/3.2 |
+| V2 curated import | Нові seed packages використовують stable `senseKey`, keyed examples і `translations[].senseKeys[]`; backend зберігає many-to-many links, лишаючи V1 endpoint і перший legacy link сумісними. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.2/3.2 |
+| Runtime V2 attribution | Переклади «на льоту» отримують stable `senseKeys[]`, many-to-many `translation_senses`; старі runtime rows ліниво переатрибутуються, а `senseIndex` лишається compatibility-проєкцією. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10, [14](14-word-details-and-audio.md) §2 |
 | Quality score і AI repair | `translation/example.qualityScore` накопичує user `+1` або admin `+100`; від `100` наступний exact search просить AI новий варіант/приклад, передає comments і rejected texts, після успіху обнуляє score. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.3 |
 | `providerReason` (meta) | `exact_cached / not_a_word / echo / no_provider_data / translated`. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §10 |
 | AI-атрибуція | Футер «Переклади та приклади згенеровано AI» + Sparkle per-row. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §5 |
@@ -135,6 +137,20 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Empty-стан тренування | «Немає слів для повторення» коли немає тренувальних тем. | [ЗАРАЗ] | [01](01-screens.md) §8 |
 | Режим «іспиту» / монетки за тренування | Окрема кнопка «усі слова поспіль»; XP/монетки за тренування. | [МАЙБУТНЄ] | [11](11-practice-training.md) §11 |
 
+### 3.4A Маркет готових наборів
+
+| Функція | Короткий опис | Стан | Док |
+|---|---|---|---|
+| Четверта таба «Маркет» | Новий кореневий таб між «Словники» і «Тренування»; bottom bar має 4 пункти. | [НОВЕ] D12 | [19](19-market-word-packs.md) §1 |
+| Каталог за мовною парою | Набори фільтруються за `learningLang`; `knownLang` визначає мову перекладів. Каталог і ціни повертає сервер. | [НОВЕ] D12 | [19](19-market-word-packs.md) §3 |
+| Стартові набори | Топ 100/500/1000/2000 слів; топ 100 сленгу; топ 100 абревіатур; топ 100/200/300 популярних фраз. | [НОВЕ] D12 | [19](19-market-word-packs.md) §4 |
+| Два прапорці у top bar | Окремі чипи «Я знаю» / «Я вивчаю» відкривають мовні шторки. | [НОВЕ] D12 | [19](19-market-word-packs.md) §2 |
+| Swap першим рядком | У кожній мовній шторці перший рядок міняє мови місцями; далі — інші мови без поточної пари. | [НОВЕ] D12 | [19](19-market-word-packs.md) §2.1 |
+| Покупка готового словника | Одна атомарна server-authoritative покупка: ціна включає словник і всі слова; повертає topic + підтверджений баланс. | [НОВЕ] D1/D12 | [19](19-market-word-packs.md) §6 |
+| Entitlement / повторне встановлення | Придбання зберігається по користувачу й мовній парі; видалений словник додається знову без повторної оплати. | [НОВЕ] D12 | [19](19-market-word-packs.md) §6.2 |
+| Недостатньо монеток | Шторка показує ціну, баланс, дефіцит і доступні способи заробітку: реклама, активні промо, активний реферал. | [НОВЕ] D12 | [19](19-market-word-packs.md) §7 |
+| Гостьовий перегляд | Анонім бачить каталог і ціни, але «Купити» відкриває gate входу; реклами/промо/реферала немає. | [НОВЕ] D2/D12 | [19](19-market-word-packs.md) §8 |
+
 ### 3.5 Економіка монеток (beecoins)
 
 | Функція | Короткий опис | Стан | Док |
@@ -152,6 +168,13 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Стан «0 монеток» | Блокування платних дій; шторка NeedBees / 402 `not_enough_bees`. | [ЗАРАЗ] | [04](04-coins-economy.md) §6, [10](10-edge-cases-and-open-items.md) #15 |
 | Баланс не йде в мінус | `coerceAtLeast(0)` на клієнті; guard `gte` на сервері. | [ЗАРАЗ] | [04](04-coins-economy.md) §6 |
 | Бейдж/банер балансу | `BeeBalanceBadge` (Sparkle/стільники); `BeeWalletBanner`. | [ЗАРАЗ] | [01](01-screens.md) §5 |
+| Покупка маркет-набору | Окремий `market_purchase` charge на `priceBees`; не комбінується з topic/word-charge за склад набору. | [НОВЕ] D12 | [19](19-market-word-packs.md) §6.1 |
+| Варіанти заробітку при дефіциті | NeedBees для Маркету показує лише реально доступні rewarded ad, промо та referral reward. | [НОВЕ] D4/D12 | [19](19-market-word-packs.md) §7 |
+| Economy policy в client admin | Усі витрати й винагороди редагуються як versioned draft і публікуються через `client-admin-web`. | [НОВЕ] D13 | [20](20-client-admin-economy-config.md) |
+| Charge/reward snapshot | Кожна операція зберігає фактичну суму й `policyVersion`; нова policy не змінює історію. | [НОВЕ] D11/D13 | [20](20-client-admin-economy-config.md) §9 |
+| Wallet ledger | Append-only credit/debit/refund із balance before/after; джерело точних admin-метрик після rollout. | [НОВЕ] D14 | [21](21-client-admin-wallet-operations.md) §3 |
+| Сумарні баланси й витрати | Client admin показує outstanding balances, gross spent, refunds, net spent і completeness date. | [НОВЕ] D14 | [21](21-client-admin-wallet-operations.md) §1–§2 |
+| Admin bonus | Позитивне individual/bulk нарахування з preview, reason, idempotency, ledger та audit. | [НОВЕ] D14 | [21](21-client-admin-wallet-operations.md) §4–§6 |
 
 ### 3.6 Промо / винагороди (Promo API)
 
@@ -171,6 +194,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Серверні лічильники промо | `adsTotal/adsToday/streakDays/adsThisWeek` + стан видачі (нова підсистема). | [НОВЕ] D4 | [05](05-promo-api-and-banners.md) §8 |
 | Анонім промо не бачить | `GET /promos` для аноніма → `promos: []`; натомість банер гостьового режиму. | [НОВЕ] D2/D4 | [05](05-promo-api-and-banners.md) §3 |
 | «Запросити друзів» / реферал | Персональна лінка й QR; Android Share передає текст+PNG; швидкі кнопки месенджерів (Telegram/WhatsApp/Viber — лише встановлені) + «Ще»; advertised bonus +50 з `/referral/me`. Фактична атрибуція/credit — майбутнє. | [ЗАРАЗ]/[МАЙБУТНЄ] | [15](15-profile-and-settings.md) §5 |
+| Admin-config винагород | Реєстрація, rewarded ad, inviter/invitee referral і promo reward керуються в розділі «Економіка». | [НОВЕ] D13 | [20](20-client-admin-economy-config.md) §3 |
 
 ### 3.7 Авторизація / акаунт
 
@@ -231,6 +255,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Бекенд `lang-detect` | Визначення мови вводу між двома мовами (скрипт + franc-min). | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §5 |
 | Підтримувані мови (13) | `uk, en, de, es, fr, pl, it, pt, tr, he, ar, lt, cs` — `GET /v1/languages`. | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §0, [17](17-api-and-data-reference.md) §1.7 |
 | `speechTag` (BCP-47) | `uk-UA`, `en-US` для STT/TTS; ≠ ISO-код. | [ЗАРАЗ] | [08](08-languages-speech-themes.md) §7 |
+| Мовна пара Маркету | Два незалежні прапорці змінюють профільні `userLanguage`/`learningLanguage`; swap завжди перший у шторці. | [НОВЕ] D6/D12 | [08](08-languages-speech-themes.md) §1.4, [19](19-market-word-packs.md) §2 |
 
 ### 3.10 Персоналізація (теми / налаштування)
 
@@ -282,6 +307,13 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Topics-ендпоінти | `/v1/topics`, `/sync`, `/sync/apply`, `:id/words` (CRUD + sync). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.6 |
 | Languages-ендпоінт | `GET /v1/languages` (13 мов). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.7 |
 | Client admin: фільтр словників | `sourceLang?`/`targetLang?` фільтрують словники користувача на сервері; web default `en → uk`, кожен dropdown має `Усі`. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.1 |
+| Client admin: «Економіка» | Окрема сторінка для spend/reward/market config; draft/validate/diff/publish/schedule/history. | [НОВЕ] D13 | [20](20-client-admin-economy-config.md) §2–§5 |
+| Economy admin scopes | `client:economy:read/write/publish`; publish початково лише для super admin. | [НОВЕ] D13 | [20](20-client-admin-economy-config.md) §7 |
+| Economy admin API | `/v1/admin/economy/policies*`; active config versioned, immutable й audit-logged. | [НОВЕ] D13 | [20](20-client-admin-economy-config.md) §8 |
+| Client admin: «Гаманці» | Aggregate/user metrics, ledger table, individual bonus і previewed bulk bonus jobs. | [НОВЕ] D14 | [21](21-client-admin-wallet-operations.md) §1 |
+| Wallet admin scopes/API | `client:wallet:read/grant`; `/v1/admin/wallet/*` і user wallet endpoints. | [НОВЕ] D14 | [21](21-client-admin-wallet-operations.md) §6–§7 |
+| Resumable live-mapped V2 lexicon upload | `POST /v1/admin/lexicon/import-v2` приймає окремий `X-API-Key` захищеного `translation-uploader`, звіряє SHA-256 і повертає checksum/bytes; скіл на кожному запуску об'єднує migration baseline із живими primary/secondary checkpoints, пакує лише approved/fixed, пише source+output-bound receipt і в наступній сесії підхоплює тільки нові batches. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.2 |
+| Dictionary admin: V2 folder import | Рекурсивний folder picker/drop; локальна перевірка V2+SHA, групи за напрямком із progress, незалежна пагінація батчів по 20, inline results і пауза після поточного батчу. Uploader key лише в пам'яті вкладки; запит не змішується з admin bearer. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.2 |
 | Dictionary admin: фільтри перекладів | Мови — dropdown-и з canonical language API; Origin/model — динамічні dropdown-и з БД у «Розширених фільтрах». | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.2 |
 | Dictionary admin: dislike | У таблиці видно `qualityScore/100`; кнопка «Дізлайк +100» відкриває підтвердження та коментар, не видаляє переклад. | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.3.3 |
 | Promo-ендпоінти | `/v1/promos`, `/{id}/claim`, `/leaderboard/ad-watchers`. | [НОВЕ] D4 | [17](17-api-and-data-reference.md) §1.8, [05](05-promo-api-and-banners.md) §7 |
@@ -309,13 +341,13 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Морф додавання слова | Морф-оверлей із пігулки (tween ~420ms) — узгодити зі spring-набором. | [ЗАРАЗ]/[НОВЕ] | [12](12-motion-and-interaction-brief.md) §F |
 | Перемикач напрямку (swap-флип) | Горизонтальний swap двох мовних пігулок + мікро-haptic. | [НОВЕ] ціль | [12](12-motion-and-interaction-brief.md) §F |
 | Claimable-промо (пульсація) | Пульсація бейджа винагороди + світіння рамки. | [НОВЕ] ціль | [12](12-motion-and-interaction-brief.md) §F |
-| Каскад BackHandler / навігація | 3 таби, single-activity NavDisplay; пріоритет Back: шторка→стек→Exit. | [ЗАРАЗ] | [01](01-screens.md) Навігація |
+| Каскад BackHandler / навігація | [ЗАРАЗ] 3 таби; [НОВЕ D12] 4 таби з Маркетом. Single-activity NavDisplay; пріоритет Back: шторка→стек→Exit. | [ЗАРАЗ]/[НОВЕ] | [01](01-screens.md) Навігація |
 
 ---
 
 ## 4. Нове / заплановане (backlog)
 
-### 4.1 [НОВЕ] — затверджені зміни (D1–D10)
+### 4.1 [НОВЕ] — затверджені зміни (D1–D14)
 
 | # | Зміна | Рішення | Док |
 |---|---|---|---|
@@ -337,6 +369,9 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | N16 | Унікальний email-індекс; явне лінкування Google за email | — / уточнити | [10](10-edge-cases-and-open-items.md) #12 |
 | N17 | Error/empty-стани (офлайн-пошук, «не знайдено», TTS/STT/мікрофон) | — | [10](10-edge-cases-and-open-items.md) §1 |
 | N18 | Прибрати `sourceLang/targetLang` з `UpdateTopicDto` (D6 «існуючі незмінні») | D6 | [17](17-api-and-data-reference.md) §1.6 |
+| N19 | 4-та таба «Маркет»: серверний каталог готових словників, покупка, entitlement, мовні шторки й insufficient-funds | D12 | [19](19-market-word-packs.md) |
+| N20 | Розділ «Економіка» в client-admin-web: усі ціни/винагороди, market offers, versioned draft/publish, scopes і audit | D13 | [20](20-client-admin-economy-config.md) |
+| N21 | Client-admin wallet: сумарні баланси/витрати, append-only ledger, individual/bulk бонусні монетки | D14 | [21](21-client-admin-wallet-operations.md) |
 
 ### 4.2 [МАЙБУТНЄ] — відкладено / TBD
 
@@ -373,6 +408,8 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Озвучення (TTS) | ✓ | ✓ | ≈ |
 | Голосовий ввід (STT) | ✓ | ✓ | ≈ |
 | Тренування | ✓ | ✓ | ≈ |
+| Перегляд Маркету | ✓ `[Н]` D12 | ✓ `[Н]` D12 | ≈ |
+| Купівля готових наборів | ✗ (gate входу) | ✓ `[Н]` D12 | ≈ |
 | Монетки (beecoins) | ✗ | ✓ (старт 50) | ≈ |
 | Реклама (rewarded ad) | ✗ | ✓ (+10) | ≈ |
 | Промо / акції | ✗ | ✓ | ≈ |
@@ -393,7 +430,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 
 | # | Док | Домени |
 |---|---|---|
-| 00 | [Огляд і рішення](00-overview-and-decisions.md) | Призначення, стани, глосарій, константи, D1–D9 |
+| 00 | [Огляд і рішення](00-overview-and-decisions.md) | Призначення, стани, глосарій, константи, D1–D14 |
 | 01 | [Екрани](01-screens.md) | Усі екрани + bottom sheets + навігація |
 | 02 | [Онбординг і запуск](02-onboarding-and-launch.md) | Launch tree, розвилка D5, повторні запуски |
 | 03 | [Дані й кешування](03-data-caching.md) | Room, per-user партиціювання, кеш |
@@ -411,3 +448,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | 15 | [Профіль і налаштування](15-profile-and-settings.md) | Акаунт, мови, тогли, статистика, вихід |
 | 16 | [Авторизація і життєвий цикл](16-auth-and-account-lifecycle.md) | JWT, Google, refresh, анонім→акаунт |
 | 17 | [Довідник API та даних](17-api-and-data-reference.md) | Ендпоінти, моделі, схема, sync-контракт |
+| 18 | [Продуктова аналітика](18-analytics.md) | PostHog-події, data source, identify, конфігурація |
+| 19 | [Маркет готових наборів](19-market-word-packs.md) | 4-та таба, мовна пара, каталог, покупка, entitlement, insufficient-funds |
+| 20 | [Економіка в client admin](20-client-admin-economy-config.md) | Усі ціни/винагороди, market offers, versioning, publish, scopes, audit |
+| 21 | [Гаманці в client admin](21-client-admin-wallet-operations.md) | Aggregate/user balances, spend/refund, ledger, individual/bulk bonus |

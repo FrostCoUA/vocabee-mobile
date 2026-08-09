@@ -163,8 +163,11 @@ internal fun WordEntry.contextSentence(): String? {
     details.contextGlossary?.sentence?.takeIf { it.isNotBlank() }?.let { return it.trim() }
     // Спершу — приклад ВЛАСНОГО значення пари (бекендова атрибуція): саме він
     // робить картку чесною, коли інші переклади слова живуть в інших sense'ах.
-    val ownSense = details.senseIndex?.let { details.senses.getOrNull(it) }
-    val ownExample = ownSense?.examples?.firstOrNull { it.isNotBlank() }
+    val ownExample = details.attributedSenseIndexes()
+        .asSequence()
+        .mapNotNull { details.senses.getOrNull(it) }
+        .flatMap { it.examples.asSequence() }
+        .firstOrNull { it.isNotBlank() }
     if (ownExample != null) return ownExample.trim()
     details.usageExample?.takeIf { it.isNotBlank() }?.let { return it.trim() }
     return details.senses
@@ -194,17 +197,17 @@ private fun uniqueSentenceMembers(group: List<WordEntry>): List<Pair<WordEntry, 
  */
 private fun senseRepresentatives(group: List<WordEntry>): List<Pair<WordEntry, String>> {
     val attributed = group.mapNotNull { member ->
-        val senseIndex = member.details?.senseIndex ?: return@mapNotNull null
+        val attribution = member.details?.attributionSignature() ?: return@mapNotNull null
         val sentence = member.contextSentence() ?: return@mapNotNull null
-        Triple(member, senseIndex, sentence)
+        Triple(member, attribution, sentence)
     }
     val representatives = attributed
-        .groupBy { (_, senseIndex, _) -> senseIndex }
+        .groupBy { (_, attribution, _) -> attribution }
         .values
         .filter { cluster -> cluster.size == 1 }
         .map { cluster -> cluster.single().let { (member, _, sentence) -> member to sentence } }
     val legacy = uniqueSentenceMembers(
-        group.filter { it.details?.senseIndex == null },
+        group.filter { it.details?.attributionSignature() == null },
     )
     val combined = representatives + legacy
     val counts = combined.groupingBy { it.second.trim().lowercase() }.eachCount()

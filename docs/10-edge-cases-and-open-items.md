@@ -1,7 +1,7 @@
 # 10. Крайові випадки і відкриті питання
 
 > Реєстр error-станів, граничних умов, відкритих припущень і backlog для дизайну.
-> Кожна поведінка позначена: **[ЗАРАЗ]** — як працює в поточному коді, **[НОВЕ]** — затверджена зміна (журнал рішень D1–D9 у [00-overview-and-decisions.md](00-overview-and-decisions.md)).
+> Кожна поведінка позначена: **[ЗАРАЗ]** — як працює в поточному коді, **[НОВЕ]** — затверджена зміна (журнал рішень D1–D14 у [00-overview-and-decisions.md](00-overview-and-decisions.md)).
 > Де є посилання на код — формат `file:рядок`.
 
 ---
@@ -46,6 +46,10 @@
 | O6 | **Лідерборд: cadence і час скидання** | D4 описує кампанію `leaderboard` «щотижневий топ-10 за переглядами реклами → +50, скидання щотижня», але **серверного Promo API ще немає** в коді (`wallet`/`topics` модулі без promo). | Уточнити: точний час скидання (UTC vs таймзона юзера), межі тижня (Пн 00:00?), тай-брейки при рівних переглядах, видача нагороди (авто vs клейм). Власник — продукт + бекенд. |
 | O7 | **Точні суми промо (20 vs 50)** | D4 наводить приклади: milestone +20, daily_streak +50, one_time реєстрація +50, leaderboard +50. Суми **конфігурабельні** (config-driven, клієнт лише рендерить). | Зафіксувати фінальні значення й вікна скидання для першого релізу промо. Базові **+10 за рекламу лишаються** (`REWARDED_AD_BEE_AMOUNT`, `wallet.constants.ts`), промо — бонус зверху. |
 | O8 | **Напрямок STT зберігається по словнику (D8)** | Перемикач напрямку розпізнавання — у `remember { mutableStateOf }` всередині `AddWordOverlay` (in-memory, `AddWordOverlay.kt:146+`), **скидається при кожному відкритті шторки**. По словнику не зберігається. | **[НОВЕ] D8:** зберігати вибраний напрямок **по словнику** (Room-поле на `TopicEntity` + sync). Уточнити: дефолт напрямку для нового словника (за парою мов D6?). |
+| O9 | **Стартові ціни маркет-наборів** | Маркет і purchase API ще не реалізовані; D12/D13 фіксують server-driven `priceBees` і редагування через client admin. | Визначити launch-ціни для 9 наборів і default vs pair override. Після рішення значення публікуються через «Економіку», а не хардкодяться. |
+| O10 | **Апгрейд кумулятивних наборів** | Top 100/500/1000/2000 і top 100/200/300 фраз потенційно перекриваються. | Чи включає більший рівень менший; чи зараховувати попередню покупку в upgrade price; чи створювати один словник, оновлювати його або окремі словники. |
+| O11 | **Оновлення придбаного контенту** | D12 фіксує revision/entitlement, але не правило переходу між ревізіями. | Власник старої ревізії отримує виправлення/нові елементи автоматично чи зберігає immutable snapshot? Як не перетерти його власний прогрес і редагування. |
+| O12 | **Реферал як реальний спосіб заробітку** | `InviteFriendsScreen` і advertised +50 вже є, але deferred deep-link attribution/credit ще [МАЙБУТНЄ]. D13 додає admin-поля, але сама конфігурація не замінює attribution. | Визначити qualifying event і anti-fraud; суми обом сторонам далі змінюються через client admin. До реалізації credit `referral.enabled=false`, а `MarketNeedBees` не обіцяє монетки. |
 
 ---
 
@@ -65,6 +69,9 @@
 | B8 | **Undo-снекбар (видалення)** | Снекбар ~5–10с для слів і словників; стан «відновлено»; без повернення монеток за платний словник (D3). | D3 → [07-deletion.md](07-deletion.md) |
 | B9 | **Стан «0 монеток»** | Банер/ботомшит при нульовому балансі (CTA «Дивитись рекламу» +10); попередження при `CriticalBeeThreshold = 3`; помилка 402 `not_enough_bees` при спробі дії без коштів. | D1, D4 → [04-coins-economy.md](04-coins-economy.md) |
 | B10 | **Error/empty-стани (з таблиці §1)** | Офлайн-стан пошуку з «Повторити» (#1); empty «Переклад не знайдено» (#6); TTS «голос не встановлено» (#10); STT «не вдалося розпізнати» (#5); «дозволь мікрофон» (#4); колізія email — діалог обʼєднання (#12). | §1 цього документа |
+| B11 | **Маркет готових наборів** | 4-та таба; top bar із двома прапорцями; мовна шторка зі swap першим; 3 секції каталогу; картки `available/purchasing/installed/owned_not_installed/unavailable`; guest gate; loading/empty/offline/error; success snackbar; MarketNeedBees із балансом/ціною/дефіцитом і earn options. | D12 → [19-market-word-packs.md](19-market-word-packs.md) |
+| B12 | **Client admin → Економіка** | Active policy summary; вкладки витрат/винагород/маркету/версій; draft edit; validation errors/warnings; default + pair override prices; registration total preview; diff; publish now/schedule confirmation; stale 409; rollback draft; access denied для scope. | D13 → [20-client-admin-economy-config.md](20-client-admin-economy-config.md) |
+| B13 | **Client admin → Гаманці й бонуси** | Overview cards total balance/gross spent/refunds/net spent/admin bonuses; date/status filters; incomplete-history notice; user wallet summary+ledger; individual bonus modal; high-value confirmation; bulk audience preview/total/exclusions; queued/running/partial-failed jobs; retry failed; access denied. | D14 → [21-client-admin-wallet-operations.md](21-client-admin-wallet-operations.md) |
 
 ---
 

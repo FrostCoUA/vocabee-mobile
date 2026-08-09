@@ -26,6 +26,8 @@ enum class LexicalRegisterTag {
 
 @Serializable
 data class WordSense(
+    /** Stable backend identity; null only for snapshots saved before V2. */
+    val senseKey: String? = null,
     val definition: String,
     val partOfSpeech: String? = null,
     val tags: List<String> = emptyList(),
@@ -69,6 +71,8 @@ data class ContextGlossary(
  */
 @Serializable
 data class WordDetails(
+    /** Stable V2 meanings rendered by this translation. */
+    val senseKeys: List<String> = emptyList(),
     /**
      * Індекс sense'а (в [senses]), який рендерить переклад цієї пари — з
      * бекендової атрибуції. Null — ще не атрибутовано (старі збереження);

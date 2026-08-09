@@ -157,6 +157,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.TopicUpdatedLabel
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import com.vocabee.android.feature.vocabulary.domain.model.WordSense
 import com.vocabee.android.feature.vocabulary.domain.usecase.ContextGlossaryUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
 import com.vocabee.android.feature.vocabulary.presentation.navigation.AppTab
@@ -235,14 +236,18 @@ private suspend fun backfillContextSenseDetails(
             .filter { group -> group.size >= 2 }
         for (group in groups) {
             val hasAmbiguousSense = group
-                .mapNotNull { member -> member.details?.senseIndex }
+                .mapNotNull { member -> member.details?.attributionSignature() }
                 .groupingBy { it }
                 .eachCount()
                 .any { (_, count) -> count > 1 }
             val needsEnrichment = group.any { member ->
                 val details = member.details
-                val ownSense = details?.senseIndex?.let { details.senses.getOrNull(it) }
-                ownSense?.examples?.none { it.isNotBlank() } ?: true
+                val ownSenses = details
+                    ?.attributedSenseIndexes()
+                    .orEmpty()
+                    .mapNotNull { details?.senses?.getOrNull(it) }
+                ownSenses.isEmpty() ||
+                    ownSenses.all { sense -> sense.examples.none { it.isNotBlank() } }
             } || hasAmbiguousSense
             if (!needsEnrichment) continue
             val result = useCase(
@@ -256,7 +261,7 @@ private suspend fun backfillContextSenseDetails(
                     it.value.trim().lowercase() == member.translation.trim().lowercase()
                 } ?: continue
                 val newDetails = option.details ?: continue
-                if (newDetails.senseIndex == null && member.details != null) continue
+                if (newDetails.attributedSenseIndexes().isEmpty() && member.details != null) continue
                 updateWord(topic.id, member.id, option.ipa, newDetails)
                 updatedAny = true
             }
@@ -4024,6 +4029,7 @@ private fun WordGroupRow(
                     WordDetailsBlock(
                         details = details,
                         accent = accent,
+                        scopeToAttributedSense = false,
                         targetWord = group.sourceWord,
                         savedContextKeys = savedContextKeys,
                         onAddContextWord = onAddContextWord,
@@ -4190,10 +4196,12 @@ internal fun WordDetailsBlock(
     details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails,
     accent: Color,
     modifier: Modifier = Modifier,
+    scopeToAttributedSense: Boolean = true,
     targetWord: String? = null,
     savedContextKeys: Set<String> = emptySet(),
     onAddContextWord: ((glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit)? = null,
 ) {
+    val displayContent = details.displayContent(scopeToAttributedSense)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -4218,16 +4226,24 @@ internal fun WordDetailsBlock(
                 onAddContextWord = onAddContextWord,
             )
         }
-        if (details.senses.isNotEmpty()) {
-            details.senses.take(3).forEachIndexed { index, sense ->
-                WordSenseBlock(index = index, sense = sense, accent = accent)
+        if (displayContent.senses.isNotEmpty()) {
+            displayContent.senses.forEach { indexedSense ->
+                WordSenseBlock(
+                    index = indexedSense.index,
+                    sense = indexedSense.value,
+                    accent = accent,
+                )
             }
         }
-        if (details.synonyms.isNotEmpty()) {
-            WordChipsRow(label = "Синоніми", values = details.synonyms.take(12), accent = accent)
+        if (displayContent.synonyms.isNotEmpty()) {
+            WordChipsRow(label = "Синоніми", values = displayContent.synonyms.take(12), accent = accent)
         }
-        if (details.antonyms.isNotEmpty()) {
-            WordChipsRow(label = "Антоніми", values = details.antonyms.take(12), accent = PrototypeColor.OrangeText)
+        if (displayContent.antonyms.isNotEmpty()) {
+            WordChipsRow(
+                label = "Антоніми",
+                values = displayContent.antonyms.take(12),
+                accent = PrototypeColor.OrangeText,
+            )
         }
         if (details.forms.isNotEmpty()) {
             WordChipsRow(
@@ -4237,6 +4253,66 @@ internal fun WordDetailsBlock(
             )
         }
     }
+}
+
+internal data class WordDetailsDisplayContent(
+    val senses: List<IndexedValue<WordSense>>,
+    val synonyms: List<String>,
+    val antonyms: List<String>,
+)
+
+/**
+ * A translation option represents one or more attributed meanings of a lexeme.
+ * Show only those senses and their relations when the backend supplied V2
+ * senseKeys. The legacy senseIndex remains a fallback for old snapshots.
+ * Grouped saved-word cards deliberately opt out because they represent several
+ * translations at once. Legacy/unattributed rows keep the previous all-senses view.
+ */
+internal fun WordDetails.displayContent(
+    scopeToAttributedSense: Boolean = true,
+): WordDetailsDisplayContent {
+    val attributedSenses = attributedSenseIndexes()
+        .takeIf { scopeToAttributedSense }
+        .orEmpty()
+        .mapNotNull { index -> senses.getOrNull(index)?.let { index to it } }
+
+    return if (attributedSenses.isNotEmpty()) {
+        // Relations exist at two levels on the backend: scoped to a sense, and
+        // whole-word ones the provider returned without a sense. `details`
+        // carries their union. Scoping to the attributed senses must not drop
+        // the whole-word set entirely — a word whose provider gave only
+        // entry-level synonyms would otherwise render no chips at all.
+        val senseSynonyms = attributedSenses.flatMap { (_, sense) -> sense.synonyms }.distinct()
+        val senseAntonyms = attributedSenses.flatMap { (_, sense) -> sense.antonyms }.distinct()
+        WordDetailsDisplayContent(
+            senses = attributedSenses.map { (index, sense) -> IndexedValue(index, sense) },
+            synonyms = senseSynonyms.ifEmpty { synonyms.distinct() },
+            antonyms = senseAntonyms.ifEmpty { antonyms.distinct() },
+        )
+    } else {
+        WordDetailsDisplayContent(
+            senses = senses.take(3).mapIndexed(::IndexedValue),
+            synonyms = synonyms.distinct(),
+            antonyms = antonyms.distinct(),
+        )
+    }
+}
+
+internal fun WordDetails.attributedSenseIndexes(): List<Int> {
+    val byStableKey = senseKeys
+        .distinct()
+        .mapNotNull { key ->
+            senses.indexOfFirst { sense -> sense.senseKey == key }
+                .takeIf { it >= 0 }
+        }
+    if (byStableKey.isNotEmpty()) return byStableKey
+    return listOfNotNull(senseIndex?.takeIf { it in senses.indices })
+}
+
+internal fun WordDetails.attributionSignature(): String? {
+    val stableKeys = senseKeys.filter(String::isNotBlank).distinct().sorted()
+    if (stableKeys.isNotEmpty()) return stableKeys.joinToString(separator = "\u0000")
+    return senseIndex?.takeIf { it in senses.indices }?.let { "legacy:$it" }
 }
 
 @Composable

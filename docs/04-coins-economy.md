@@ -3,7 +3,7 @@
 > «Монетки» = **beecoins** (бджолина тематика, іконка Sparkle / стільники).
 > Для кожної поведінки явно позначено: **[ЗАРАЗ]** — як працює в поточному коді, **[НОВЕ]** — затверджена зміна.
 > Джерела істини поточного legacy v1: `wallet.constants.ts`, `VocabeeStore.kt:23-29`.
-> Цільовий стан визначає **D11**: версійна політика у `client-gateway`, керування через `client-admin-web`.
+> Цільовий стан визначають **D11/D13/D14**: версійна політика у `client-gateway`, усі ціни й винагороди керуються через «Економіку» в `client-admin-web`, а рухи монеток потрапляють в append-only wallet ledger для балансів, витрат і admin bonus.
 
 ---
 
@@ -33,6 +33,7 @@
 | Стартовий баланс при створенні акаунта | **+50** | authenticated | [ЗАРАЗ] |
 | Перегляд реклами (база) | **+10** | authenticated | [ЗАРАЗ] |
 | Промо-бонуси (milestone / daily_streak / one_time / leaderboard) | конфігурабельні (напр. +20 / +50 / +50 / +50) | authenticated | **[НОВЕ]** — деталі у файлі **05-promo** |
+| Бонус адміністратора | **+N** | authenticated active user | **[НОВЕ D14]** — individual/bulk, reason + idempotency + audit |
 
 - **Стартові 50 [ЗАРАЗ].** На клієнті дефолт `beeBalance = InitialBeeBalance` у `VocabeeState` (`VocabeeStore.kt:41`) і відновлюється з prefs у `initialState()` (`VocabeeStore.kt:266`). На сервері — `INITIAL_BEE_BALANCE` нараховується при реєстрації користувача (значення в колонці `users.beeBalance`).
 - **+10 за рекламу (база) [ЗАРАЗ].** Сервер: `POST /wallet/rewarded-ad` → `addBees(userId, REWARDED_AD_BEE_AMOUNT)` (`wallet.controller.ts:28-31`). Клієнт: подія `VocabeeEvent.AddBees(amount = RewardBeeAmount)` → `addBees()` (`VocabeeStore.kt:354-360`).
@@ -44,6 +45,7 @@
 |---|---|---|---|
 | Створення словника понад 2 безкоштовні (3-й+) | **−10** | authenticated | [ЗАРАЗ] |
 | Пошук перекладу (1 запит) | **−1** | authenticated | [ЗАРАЗ, legacy v1]; superseded by D11 у v2 |
+| Покупка готового набору в Маркеті | **−`priceBees`** | authenticated | **[НОВЕ D12]** — ціна з серверного каталогу |
 
 - **[ЗАРАЗ, legacy] Видалення словника не повертає монетки** (історична цінова деталь D3, superseded by D11), але цільова механіка Undo/soft-delete зберігається. Деталі — `07-deletion.md`.
 
@@ -61,12 +63,16 @@
 | Перегляд реклами | +10 | **недоступно** | +10 | `POST /wallet/rewarded-ad` `wallet.controller.ts:25-31` | **SSV/nonce + ідемпотентність**; заразом просуває ad-промо лічильники (**D4**) |
 | Промо-бонус | +N (конфіг) | **недоступно** | +N | — (немає) | Promo API, бонус зверху бази (**D4**, файл 05) |
 | Видалити платний словник | 0 (без повернення) | — | 0 (Undo) | soft-delete `topics.service.ts:146-161` | **Legacy rollout only**; правило без повернення superseded by D11, Undo/soft-delete лишаються |
+| Купити готовий набір | `−priceBees` із каталогу | **заборонено** (gate входу) | одна атомарна покупка | — | один `market_purchase` charge; ціна включає словник і всі слова, без додаткових topic/word-charge (**D12**) |
 
 > **Ключове за D1:** єдине **достеменне** місце списання — **сервер**. Клієнт списує **оптимістично** для миттєвого UX і **звіряє** баланс із сервером при кожній відповіді/синхронізації. `applySync` МУСИТЬ валідувати квоти і списувати, відхиляючи/обрізаючи понадлімітне.
 
 ### 2.1 [НОВЕ за D11] Версійна політика і цільова економіка v2
 
-Власник політики — **`client-gateway`**; змінює та активує її **`client-admin-web`** із журналом змін. `dictionary-gateway` не знає про користувачів, баланс або ціни й не списує монетки. Початкові значення:
+Власник політики — **`client-gateway`**; адміністратор створює draft і
+публікує її через **`client-admin-web`** із diff, причиною та журналом змін.
+`dictionary-gateway` не знає про користувачів, баланс або ціни й не списує
+монетки. Початкові значення:
 
 | Поле політики | Початкове значення | Значення |
 |---|---:|---|
@@ -86,6 +92,42 @@
 | Видалити словник в межах правил | **+eligible topic-charge + усі eligible word-charge** | кожна придатність рахується окремо за часом власного charge |
 
 Ідентичність повернення — immutable початковий **`chargeId`**, а не поточна ціна, текст перекладу чи повторно обчислена вартість. Зміна політики не діє ретроактивно: charge зберігає `policyVersion` і фактичний `amount`. Безкоштовний словник не має topic-charge; legacy-запис без історичного charge не повертається.
+
+### 2.2 [НОВЕ за D13] Єдина конфігурація витрат і винагород
+
+Розділ **«Економіка»** у `client-admin-web` керує:
+
+- `freeTopicLimit`, `topicCreationCost`, `wordAdditionCost`, `searchCost` і
+  `refundWindowSeconds`;
+- стартовим балансом та окремою одноразовою винагородою за реєстрацію;
+- базовою винагородою rewarded ad і її лімітами;
+- окремими сумами для inviter/invitee, eligibility та вікном referral;
+- reward і умовами Promo API кампаній;
+- default ціною кожного маркет-набору та override для конкретної мовної пари.
+
+Активну policy не редагують in-place:
+`draft → validate → diff/preview → publish now/schedule`. Кожна charge/reward
+операція зберігає `policyVersion`, `ruleKey` і фактичну суму. Повна специфікація
+UI, API, scopes, валідації та міграції констант —
+[20-client-admin-economy-config.md](20-client-admin-economy-config.md).
+
+### 2.3 [НОВЕ за D14] Wallet ledger, сумарні витрати й admin bonus
+
+- Кожен credit/debit/refund створює append-only ledger entry в тій самій
+  транзакції, що й зміна `users.beeBalance`.
+- `client-admin-web` показує суму поточних балансів, gross spent, refunds,
+  net spent та admin bonuses.
+- На user detail видно wallet summary і cursor-history.
+- Адміністратор може лише **додати** позитивний бонус; прямого встановлення
+  балансу або негативного bonus немає.
+- Individual grant вимагає amount, reason, `Idempotency-Key` і scope.
+- Bulk grant проходить preview immutable audience + total amount перед
+  execute.
+- Legacy rollout створює `opening_balance`: поточні balances точні одразу, а
+  flow totals чесно позначають `completeFrom`.
+
+Повний контракт —
+[21-client-admin-wallet-operations.md](21-client-admin-wallet-operations.md).
 
 ---
 
@@ -214,6 +256,24 @@ async claimRewardedAd(@CurrentUser() user) {
 
 > **[НОВЕ]:** після переходу на серверний авторитет (D1) критичний/порожній стан клієнт малює за **підтвердженим** балансом (після `SetBeeBalance`), а не лише за оптимістичним.
 
+### 6.1 Недостатньо монеток на маркет-набір `[НОВЕ D12]`
+
+- Попередня локальна перевірка покращує UX, але сервер повторно перевіряє
+  активну ціну й баланс у транзакції.
+- `402 not_enough_bees` повертає `beeBalance`, `priceBees` та `missingBees`;
+  клієнт звіряє баланс і відкриває `MarketNeedBees`.
+- Шторка показує точний дефіцит і лише доступні способи заробітку:
+  верифіковану rewarded ad, активні Promo API кампанії та реферал лише після
+  ввімкнення реального attribution/credit.
+- Після поповнення покупка не виконується автоматично: користувач ще раз
+  підтверджує CTA `Купити набір за N`.
+- `priceBees` — повна ціна готового словника. `topicCreationCost` і
+  `wordAdditionCost` за його склад не додаються.
+- Повторне встановлення придбаного entitlement коштує 0 і не відкриває
+  `MarketNeedBees`.
+
+Деталі — [19-market-word-packs.md](19-market-word-packs.md) §6–§7.
+
 ---
 
 ## 7. Стани балансу і де вони показуються
@@ -223,6 +283,7 @@ async claimRewardedAd(@CurrentUser() user) {
 | Поточний баланс | badge монеток (іконка Sparkle/стільники) | `state.beeBalance` (`VocabeeStore.kt:41`) | [ЗАРАЗ] |
 | Критичний (≤3) | CriticalBeeBanner на не-домашніх екранах + badge у банері | `beeBalance <= CriticalBeeThreshold` | банери — файл 05 |
 | Недостатньо для дії | шторка **NeedBees** (поповнити рекламою/промо) | гейт повернув `false` / сервер 402 | [ЗАРАЗ] гейти; **[НОВЕ]** 402 від сервера |
+| Недостатньо на готовий набір | **MarketNeedBees**: ціна, баланс, дефіцит, доступні earn options | серверний 402 + підтверджений баланс | **[НОВЕ D12]** |
 | Порожній (0) | блокування платних дій, NeedBees при спробі | `beeBalance == 0` | [ЗАРАЗ] |
 
 **Потік оновлення балансу в UI:**
@@ -245,3 +306,5 @@ async claimRewardedAd(@CurrentUser() user) {
 | 5 | Немає поля підтвердженого балансу у create/sync DTO | D1 | Додати у `TopicResponseDto`/`SyncResponseDto` |
 | 6 | Промо-логіки немає взагалі | D4 | Config-driven Promo API (файл 05) |
 | 7 | Немає версійної політики та immutable charge/refund ledger | D11 | Додати policy/word-charge/topic-charge; керування через `client-admin-web` |
+| 8 | Суми registration/ad/referral/market розкидані між constants і майбутніми конфігами | D13 | Єдина versioned economy policy + сторінка «Економіка» в client-admin-web |
+| 9 | Немає загального wallet ledger, lifetime spend і безпечного admin bonus | D14 | Append-only ledger, admin metrics, individual/bulk grant із preview/idempotency/audit |

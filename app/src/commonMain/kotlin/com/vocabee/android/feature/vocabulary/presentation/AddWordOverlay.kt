@@ -90,9 +90,9 @@ internal data class AddWordOrigin(
 internal enum class AddWordMode { Idle, Recording, Results }
 
 /**
- * Same English source word, multiple Ukrainian translations. The dictionary
- * details (IPA, senses, examples, synonyms…) live on the source word and are
- * identical across all entries in the group, so we surface them once.
+ * Same English source word, multiple Ukrainian translations. Lexeme-level
+ * details live on the source word, while senseIndex may differ per translation.
+ * The grouped card therefore surfaces the shared all-senses view once.
  *
  * `entries` keeps the original WordEntry rows so existing per-row actions
  * (remove, highlight on recent add) still work — the UI just renders them

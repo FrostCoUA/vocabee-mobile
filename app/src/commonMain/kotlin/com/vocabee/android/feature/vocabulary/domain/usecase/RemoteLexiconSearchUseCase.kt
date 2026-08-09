@@ -177,9 +177,11 @@ internal fun SearchVariant.toOption(existingTranslations: Set<String>): Translat
         learningWord = learningWord,
         ipa = ipa,
         details = WordDetails(
+            senseKeys = senseKeys.distinct(),
             senseIndex = senseIndex,
             senses = senses.map { sense ->
                 WordSense(
+                    senseKey = sense.senseKey,
                     definition = sense.definition,
                     partOfSpeech = sense.partOfSpeech,
                     tags = sense.tags,

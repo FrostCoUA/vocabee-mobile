@@ -30,6 +30,8 @@ data class SearchVariant(
     val synonyms: List<String> = emptyList(),
     val antonyms: List<String> = emptyList(),
     val forms: List<SearchForm> = emptyList(),
+    /** Stable V2 identities of every meaning rendered by this translation. */
+    val senseKeys: List<String> = emptyList(),
     /** Індекс sense'а (в [senses]), який рендерить цей переклад; null — не атрибутовано. */
     val senseIndex: Int? = null,
     val lexicalUnitKind: String = "word",
@@ -55,6 +57,7 @@ data class SearchExample(
 
 @Serializable
 data class SearchSense(
+    val senseKey: String? = null,
     val definition: String,
     val partOfSpeech: String? = null,
     val tags: List<String> = emptyList(),
