@@ -251,6 +251,164 @@ class VocabeeStoreTest {
         assertEquals(1, store.topicForTest(topic.id).words.size)
     }
 
+    /**
+     * (а) Один запис на (слово, сенс): другий переклад УЖЕ збереженого сенсу не
+     * додається, а стор емить снекбар-повідомлення. Кандидат приходить із
+     * розширеною атрибуцією `[k1, k2]` — перевірка мусить іти по ПЕРЕТИНУ
+     * ключів, а не по рівності підпису (ревізія лексикону дописує сенси).
+     */
+    @Test
+    fun addWordRejectsAnotherTranslationOfAnAlreadySavedSense() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "run",
+                translation = "бігти",
+                details = senseDetailsForTest("k1"),
+            ),
+        )
+
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "run",
+                translation = "гнати",
+                details = senseDetailsForTest("k1", "k2"),
+            ),
+        )
+
+        val words = store.topicForTest(topic.id).words
+        assertEquals(listOf("бігти"), words.map { it.translation })
+        assertEquals(SenseAlreadySavedMessage, store.state.pendingMessage)
+        // Повідомлення одноразове: показали — і воно зникло зі стану.
+        store.consumePendingMessage()
+        assertNull(store.state.pendingMessage)
+    }
+
+    /** (б) Інший сенс того самого слова — законний окремий запис. */
+    @Test
+    fun addWordSavesAnotherSenseOfTheSameWord() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "run",
+                translation = "бігти",
+                details = senseDetailsForTest("k1"),
+            ),
+        )
+
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "run",
+                translation = "пробіжка",
+                details = senseDetailsForTest("k2"),
+            ),
+        )
+
+        val words = store.topicForTest(topic.id).words
+        assertEquals(setOf("бігти", "пробіжка"), words.map { it.translation }.toSet())
+        assertNull(store.state.pendingMessage)
+    }
+
+    /**
+     * (в) Легасі-опція без атрибуції: сенсів немає, тож дедуп лишається таким,
+     * як був — по ПАРІ (слово, переклад). Різні переклади одного слова досі
+     * зберігаються обидва, повторна пара тихо відкидається репозиторієм.
+     */
+    @Test
+    fun legacyOptionsWithoutSenseKeysKeepThePairLevelDedup() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+
+        store.onEvent(VocabeeEvent.AddWord(topicId = topic.id, source = "run", translation = "бігти"))
+        store.onEvent(VocabeeEvent.AddWord(topicId = topic.id, source = "run", translation = "гнати"))
+        store.onEvent(VocabeeEvent.AddWord(topicId = topic.id, source = "run", translation = " Бігти "))
+
+        val words = store.topicForTest(topic.id).words
+        assertEquals(setOf("бігти", "гнати"), words.map { it.translation }.toSet())
+        // Тихий рубіж пари — не привід для снекбара «цей сенс уже у словнику».
+        assertNull(store.state.pendingMessage)
+    }
+
+    /**
+     * Легасі-запис і атрибутований кандидат — РІЗНІ сенси (атрибуції в записі
+     * немає), тож сенс-гейт їх не змішує: на повторній парі спрацьовує тихий
+     * рубіж (слово, переклад), а новий сенс того самого слова зберігається.
+     */
+    @Test
+    fun attributedOptionIsNotBlockedByALegacyEntryOfTheSameWord() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+        store.onEvent(VocabeeEvent.AddWord(topicId = topic.id, source = "run", translation = "бігти"))
+
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "run",
+                translation = "бігти",
+                details = senseDetailsForTest("k1"),
+            ),
+        )
+        assertEquals(1, store.topicForTest(topic.id).words.size)
+        assertNull(store.state.pendingMessage)
+
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "run",
+                translation = "гнати",
+                details = senseDetailsForTest("k1"),
+            ),
+        )
+
+        val words = store.topicForTest(topic.id).words
+        assertEquals(setOf("бігти", "гнати"), words.map { it.translation }.toSet())
+        assertNull(store.state.pendingMessage)
+    }
+
+    /** Той самий senseKey в ІНШОГО слова — окремий сенс, збереження проходить. */
+    @Test
+    fun sameSenseKeyOfAnotherWordIsSavedSeparately() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "run",
+                translation = "бігти",
+                details = senseDetailsForTest("k1"),
+            ),
+        )
+
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = topic.id,
+                source = "sprint",
+                translation = "мчати",
+                details = senseDetailsForTest("k1"),
+            ),
+        )
+
+        assertEquals(2, store.topicForTest(topic.id).words.size)
+        assertNull(store.state.pendingMessage)
+    }
+
+    /**
+     * Зліпок мусить пережити `shouldPersist` (тому і `senses`, і
+     * `translationId`) — інакше збережений запис лишився б БЕЗ атрибуції, і
+     * сенс-гейт його не побачив би (див. §Концерни звіту).
+     */
+    private fun senseDetailsForTest(vararg senseKeys: String): WordDetails = WordDetails(
+        translationId = "translation-${senseKeys.joinToString(separator = "-")}",
+        senseKeys = senseKeys.toList(),
+        senses = senseKeys.map { key -> WordSense(senseKey = key, definition = "значення $key") },
+    )
+
     private fun searchVariantForTest(
         learningWord: String,
         knownWord: String,

@@ -307,7 +307,8 @@ internal fun prototypeTopicTheme(coverIndex: Int): PrototypeTopicTheme {
 
 /**
  * The redesign icon set — one entry per key of `PATHS` in `vocabee-design/redesign/rd-base.js`,
- * except `phone` (its `d` in the source is a duplicate of `star`). Geometry lives in
+ * except `phone` (its `d` in the source is a duplicate of `star`) and [Flag], which the source
+ * has no counterpart for (see its own doc). Geometry lives in
  * [prototypeIconShapes]; [PrototypeLineIcon] renders it.
  */
 internal enum class PrototypeIcon {
@@ -337,6 +338,13 @@ internal enum class PrototypeIcon {
     Help,
     Invite,
     Flame,
+
+    /**
+     * Прапорець скарги («Поскаржитись на переклад»). Єдина іконка набору БЕЗ
+     * прообразу в `rd-base.js`: у редизайні цієї дії ще не було, а Material
+     * Icons проєкт не тягне — геометрія написана під цей набір.
+     */
+    Flag,
     Bookmark,
     Star,
     ArrowRight,
@@ -603,6 +611,11 @@ internal fun prototypeIconShapes(icon: PrototypeIcon): List<PrototypeIconShape> 
             strokePath("M12 3c1 3-1.5 4-1.5 6.5 0 1.4 1.1 2 1.5 2 .4 0 1.5-.6 1.5-2" +
                 "C13.5 8 16 9 16 13a4 4 0 0 1-8 0c0-2 1-3 1-4 0 0-2.5.5-2.5 3.5" +
                 "A6 6 0 0 0 18 13c0-6-6-6-6-10Z"),
+        )
+        // Древко + вимпел із «ластівчиним хвостом» — без прообразу в rd-base.js.
+        PrototypeIcon.Flag -> listOf(
+            strokePath("M6 21V3.5"),
+            strokePath("M6 4.5h11l-2.2 3.5 2.2 3.5H6"),
         )
         PrototypeIcon.Bookmark -> listOf(strokePath("M6 4h12v16l-6-4-6 4V4Z"))
         PrototypeIcon.Star -> listOf(

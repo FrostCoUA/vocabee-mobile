@@ -1158,16 +1158,34 @@ private fun AddWordResultRow(
                 onRemove = onRemoveAlternative,
             )
         }
+        // Скарга — ЯВНА дія, а не «вирок» перекладу: прапорець + дієслівна
+        // мітка у стилі вторинної кнопки. Колбек той самий, фідбек-флоу за ним
+        // не змінився.
         if (option.translationId.isNotBlank()) {
-            Text(
-                text = "Неякісний переклад",
+            Row(
                 modifier = Modifier
                     .align(Alignment.End)
-                    .clickable(onClick = onDislike),
-                color = PrototypeColor.Muted2,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 11.5.sp,
-            )
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(PrototypeColor.NeutralSurface)
+                    .border(BorderStroke(1.dp, PrototypeColor.Line2), RoundedCornerShape(12.dp))
+                    .clickable(onClick = onDislike)
+                    .padding(horizontal = 11.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                PrototypeLineIcon(
+                    icon = PrototypeIcon.Flag,
+                    modifier = Modifier.size(13.dp),
+                    color = PrototypeColor.Muted2,
+                    strokeWidth = 1.8f,
+                )
+                Text(
+                    text = "Поскаржитись на переклад",
+                    color = PrototypeColor.Muted2,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.5.sp,
+                )
+            }
         }
     }
 }

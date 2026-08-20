@@ -19,6 +19,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.DEFAULT_LOCAL_USER_KE
 import com.vocabee.android.feature.vocabulary.domain.model.LanguageOption
 import com.vocabee.android.feature.vocabulary.domain.model.SyncStatus
 import com.vocabee.android.feature.vocabulary.domain.model.VocabularySyncSnapshot
+import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
 import com.vocabee.android.feature.vocabulary.domain.usecase.AdjustWordKnowledgeUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.AddWordUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.ClearTopicWordsUseCase
@@ -39,6 +40,12 @@ internal const val DictionaryCreationBeeCost = 10
 internal const val TranslationSearchBeeCost = 1
 internal const val CriticalBeeThreshold = 3
 
+/**
+ * Снекбар відмови зберегти ще один переклад уже збереженого сенсу. Живе поруч
+ * зі стором, бо саме він емить це повідомлення (UI лише показує).
+ */
+internal const val SenseAlreadySavedMessage = "Цей сенс уже у словнику"
+
 data class VocabeeState(
     val supportedLanguages: List<LanguageOption>,
     val userLanguage: LanguageOption,
@@ -52,6 +59,14 @@ data class VocabeeState(
     val beeBalance: Int = InitialBeeBalance,
     val streakDays: Int = 0,
     val practiceRounds: Int = 0,
+    /**
+     * Одноразове повідомлення для снекбара (наприклад, відмова зберегти другий
+     * переклад того самого сенсу). UI показує його і одразу гасить через
+     * [VocabeeStore.consumePendingMessage] — інакше той самий текст спливав би
+     * повторно, а наступна така сама відмова, навпаки, не спливла б узагалі
+     * (стан не змінився б).
+     */
+    val pendingMessage: String? = null,
 )
 
 /**
@@ -569,6 +584,10 @@ class VocabeeStore(
         val cleanedTranslation = translation.trim()
         if (cleanedSource.isBlank() || cleanedTranslation.isBlank()) return
         if (!canAddWordToDictionary()) return
+        if (isSenseAlreadySaved(topicId, cleanedSource, details)) {
+            state = state.copy(pendingMessage = SenseAlreadySavedMessage)
+            return
+        }
 
         val word = addWordUseCase(
             topicId = topicId,
@@ -593,6 +612,40 @@ class VocabeeStore(
             ),
         )
         touchLocalRevision()
+    }
+
+    /**
+     * Інваріант «у словнику не більше одного запису на (слово, сенс-група)»:
+     * другий переклад уже збереженого сенсу — це дубль тієї самої картки, тож
+     * зберігати його ми відмовляємось (і кажемо про це снекбаром).
+     *
+     * Перевіряємо ПЕРЕТИН множин сенсів кожного збереженого запису з сенсами
+     * кандидата ([overlapsSenseGroup]), а не рівність підписів: збережений
+     * `[k1]` після ревізії лексикону зустріне кандидата `[k1, k2]` — ключі
+     * різні, сенс той самий. З тієї ж причини йдемо по ВСІХ `topic.words`, а не
+     * по представниках груп: запис-місток інакше лишився б непоміченим.
+     *
+     * Кандидат БЕЗ атрибуції (легасі-видача, `details == null` або без ключів)
+     * сюди не потрапляє свідомо: сенсу в нього немає, і його дедуп лишається
+     * парою (слово, переклад) на рівні репозиторію — як було до сенс-груп.
+     * Інакше друге значення легасі-слова (`run→бігти` + `run→гнати`) стало б
+     * незберіганим.
+     */
+    private fun isSenseAlreadySaved(
+        topicId: String,
+        source: String,
+        details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?,
+    ): Boolean {
+        if (details.senseMergeKeys().isEmpty()) return false
+        val topic = state.topics.firstOrNull { it.id == topicId } ?: return false
+        return topic.words.any { word -> word.overlapsSenseGroup(source, details) }
+    }
+
+    /** Знімає показане повідомлення, щоб той самий текст міг спливти ще раз. */
+    fun consumePendingMessage() {
+        if (state.pendingMessage != null) {
+            state = state.copy(pendingMessage = null)
+        }
     }
 
     private fun removeWord(topicId: String, source: String, translation: String) {

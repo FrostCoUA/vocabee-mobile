@@ -568,6 +568,16 @@ private fun MainApp(
     var practiceBottomPanelVisible by remember { mutableStateOf(false) }
     val appSnackbarHostState = remember { SnackbarHostState() }
 
+    // Повідомлення стора (наприклад, «цей сенс уже у словнику»). Гасимо його
+    // ПІСЛЯ показу: споживання змінює ключ ефекту, тож зроблене раніше воно
+    // скасувало б власний снекбар тією ж рекомпозицією. Після споживання стан
+    // порожній, і та сама відмова наступного разу спливе знову.
+    LaunchedEffect(state.pendingMessage) {
+        val message = state.pendingMessage ?: return@LaunchedEffect
+        appSnackbarHostState.showVocabeeSnackbar(message)
+        store.consumePendingMessage()
+    }
+
     // Сесію не вдалося поновити — пропонуємо вхід, але з акаунта не викидаємо:
     // вийти можна лише кнопкою «Вийти» в профілі.
     LaunchedEffect(api) {
