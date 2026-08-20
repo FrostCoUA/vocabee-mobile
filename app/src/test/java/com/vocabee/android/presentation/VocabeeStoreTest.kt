@@ -731,6 +731,50 @@ class VocabeeStoreTest {
         assertEquals(2, topic.contextPairCount())
     }
 
+    /**
+     * I3 — «той самий сенс» усюди визначає ПЕРЕТИН ключів (як `groupBySense`), а
+     * не рівність підпису. Ревізія лексикону дописала другому перекладу ще один
+     * senseKey, спільний `k1` лишився: у словнику це одна картка, тож і
+     * контекстне тренування мусить бачити один кластер. Інакше нерозрізнювані
+     * переклади проходили б повз захист від неоднозначних відповідей.
+     */
+    @Test
+    fun contextPracticeTreatsRevisedSenseKeysAsOneCluster() {
+        val fastSense = WordSense(
+            senseKey = "k1",
+            definition = "to move fast on foot",
+            examples = listOf("He can run fast."),
+        )
+        val topic = testTopic(
+            words = listOf(
+                testWord(
+                    id = "run-fast",
+                    source = "run",
+                    translation = "бігти",
+                    details = WordDetails(senseKeys = listOf("k1"), senses = listOf(fastSense)),
+                ),
+                testWord(
+                    id = "run-rush",
+                    source = "run",
+                    translation = "мчати",
+                    details = WordDetails(
+                        senseKeys = listOf("k1", "k2"),
+                        senses = listOf(
+                            fastSense.copy(examples = listOf("She runs every morning.")),
+                            WordSense(
+                                senseKey = "k2",
+                                definition = "to operate on a schedule",
+                                examples = listOf("Trains run hourly."),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(0, topic.contextPairCount())
+    }
+
     @Test
     fun topicsAreGroupedWithWorkingLanguagePairFirst() {
         val store = VocabeeStore()

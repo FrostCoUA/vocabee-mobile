@@ -162,7 +162,6 @@ import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
-import com.vocabee.android.feature.vocabulary.domain.model.attributionSignature
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKeys
 import com.vocabee.android.feature.vocabulary.domain.usecase.ContextGlossaryUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
@@ -275,11 +274,15 @@ private suspend fun backfillContextSenseDetails(
             .values
             .filter { group -> group.size >= 2 }
         for (group in groups) {
-            val hasAmbiguousSense = group
-                .mapNotNull { member -> member.details?.attributionSignature() }
-                .groupingBy { it }
-                .eachCount()
-                .any { (_, count) -> count > 1 }
+            // «Той самий сенс» тут — та сама семантика, що й у групуванні
+            // словника: ПЕРЕТИН sense-ключів ([groupBySense]), а не рівність
+            // підпису. Збережений `[k1]` і ревізований `[k1, k2]` — один сенс,
+            // тож два його переклади неоднозначні й вимагають збагачення.
+            // Легасі-записи (без атрибуції) під це правило не підпадають:
+            // спільна відсутність підпису не робить їх нерозрізнюваними.
+            val hasAmbiguousSense = group.groupBySense().any { sense ->
+                sense.entries.count { member -> member.senseMergeKeys().isNotEmpty() } > 1
+            }
             val needsEnrichment = group.any { member ->
                 val details = member.details
                 val ownSenses = details
@@ -5177,30 +5180,19 @@ private fun PracticeScreen(
     }
 
     val selectedTopics = trainableTopics.filter { topic -> topic.id in selectedTopicIds }
-    val availableCards = selectedTopics.flatMap { topic ->
-        topic.words.map { word ->
-            val key = "${topic.id}:${word.id}"
-            key to PracticeDeckCard(
-                word = word,
-                topicId = topic.id,
-                topicTitle = topic.title,
-                sourceLanguageTag = topic.sourceLanguage.speechTag,
-                accent = prototypeTopicTheme(topic.coverIndex).color,
-            )
-        }
-    }
-    val availableCardKeys = availableCards.map { it.first }
+    val availableCards = buildPracticeDeckCards(selectedTopics)
+    val availableCardKeys = availableCards.map { card -> card.key }
     // Freeze membership for the active round: saving a bookmark into one of the
     // selected dictionaries must not rebuild the deck or reset the done screen.
     val availableCardIdentity = remember { availableCardKeys.toSet() }
     var shuffleSeed by remember(availableCardIdentity) { mutableIntStateOf(Random.nextInt()) }
     val deckKeys = remember(availableCardIdentity, shuffleSeed) {
         buildPracticeDeckKeys(
-            candidates = availableCards.map { (key, card) -> key to card.word.knowledgePercent },
+            candidates = availableCards.map { card -> card.key to card.knowledgePercent },
             seed = shuffleSeed,
         )
     }
-    val cardsByKey = availableCards.toMap()
+    val cardsByKey = availableCards.associateBy { card -> card.key }
     val deck = deckKeys.mapNotNull { key -> cardsByKey[key] }
     val pagerState = rememberPagerState(pageCount = { deck.size })
     val coroutineScope = rememberCoroutineScope()
@@ -5267,11 +5259,7 @@ private fun PracticeScreen(
         val card = deck.getOrNull(index) ?: return
         val cardState = cardStates.getOrNull(index) ?: return
         if (cardState.answer != null) return
-        onAnswerWord(
-            card.topicId,
-            card.word.id,
-            KnowledgeStepPercent,
-        )
+        applyPracticeAnswer(card, KnowledgeStepPercent, onAnswerWord)
         cardState.answer = PracticeCardAnswer.Known
         correctAnswers += 1
         moveNext()
@@ -5281,11 +5269,7 @@ private fun PracticeScreen(
         val card = deck.getOrNull(page) ?: return
         val cardState = cardStates.getOrNull(page) ?: return
         if (cardState.answer != null) return
-        onAnswerWord(
-            card.topicId,
-            card.word.id,
-            -KnowledgeStepPercent,
-        )
+        applyPracticeAnswer(card, -KnowledgeStepPercent, onAnswerWord)
         cardState.answer = PracticeCardAnswer.Unknown
     }
 
@@ -5869,13 +5853,90 @@ private fun PracticeTopicPickerRow(
     }
 }
 
-private data class PracticeDeckCard(
+/**
+ * Одиниця колоди — СЕНС-ГРУПА словника, а не рядок: три збережені переклади
+ * одного значення дають ОДНУ картку, інакше раунд тричі поспіль питає те саме.
+ *
+ * [word] — представник групи (його пару, IPA й контекстне речення показує
+ * фронт), [knowledgePercent] — знання найслабшого члена, [memberWordIds] — усі
+ * записи групи (між ними ділиться дельта відповіді), [extraTranslations] —
+ * решта збережених перекладів сенсу для рядка «також» на звороті.
+ */
+internal data class PracticeDeckCard(
+    /** `topicId` + [WordGroup.stableKey] — ідентичність СЕНСУ, а не рядка. */
+    val key: String,
     val word: WordEntry,
     val topicId: String,
     val topicTitle: String,
     val sourceLanguageTag: String,
     val accent: Color,
+    val knowledgePercent: Int,
+    val memberWordIds: List<String>,
+    val extraTranslations: List<String>,
 )
+
+/**
+ * Кандидати раунду: по картці на кожен збережений сенс вибраних словників
+ * ([groupBySense]) — відбір [buildPracticeDeckKeys] уже працює з ними.
+ *
+ * Знання групи — МІНІМУМ по її записах: сенс не вважається вивченим, доки бодай
+ * один його переклад «не знаю», тож слабкий синонім не ховається за сильним.
+ *
+ * Ключ навмисно тримається на [WordGroup.stableKey], а не на id запису:
+ * видалений переклад не повинен перебудовувати колоду сенсу, який нікуди не
+ * дівся (`anyId` з'їхав би на наступний запис).
+ */
+internal fun buildPracticeDeckCards(topics: List<DictionaryTopic>): List<PracticeDeckCard> {
+    return topics.flatMap { topic ->
+        val accent = prototypeTopicTheme(topic.coverIndex).color
+        topic.words.groupBySense().map { group ->
+            val representative = group.representative
+            PracticeDeckCard(
+                key = "${topic.id}:${group.stableKey}",
+                word = representative,
+                topicId = topic.id,
+                topicTitle = topic.title,
+                sourceLanguageTag = topic.sourceLanguage.speechTag,
+                accent = accent,
+                knowledgePercent = group.minKnowledgePercent,
+                memberWordIds = group.entries.map { entry -> entry.id },
+                extraTranslations = group.practiceExtraTranslations(),
+            )
+        }
+    }
+}
+
+/**
+ * Решта перекладів сенсу для звороту — лише ЗБЕРЕЖЕНІ записи групи, без
+ * перекладу представника. Підказка `senseGroupTranslations` сюди свідомо не
+ * йде (на відміну від картки словника): на звороті тренування показуємо те, за
+ * що роздаємо дельту знань, а підказка зі знімка пошуку в словнику не лежить.
+ */
+private fun WordGroup.practiceExtraTranslations(): List<String> {
+    val seen = mutableSetOf(representative.translation.trim().lowercase())
+    return entries.mapNotNull { entry ->
+        entry.translation.trim().takeIf { it.isNotEmpty() && seen.add(it.lowercase()) }
+    }
+}
+
+/**
+ * Дельта знань за відповідь дістається УСІМ записам сенс-групи: на звороті юзер
+ * бачив усі її переклади, тож оцінка стосується значення, а не одного рядка.
+ * Подія лишається по-рядковою — по одній на члена.
+ */
+internal fun applyPracticeAnswer(
+    card: PracticeDeckCard,
+    deltaPercent: Int,
+    onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
+) {
+    card.memberWordIds.forEach { wordId -> onAnswerWord(card.topicId, wordId, deltaPercent) }
+}
+
+/** Рядок «також …» на звороті; null — коли інших перекладів сенсу немає. */
+internal fun practiceAlsoTranslationsLabel(extraTranslations: List<String>): String? =
+    extraTranslations
+        .takeIf { it.isNotEmpty() }
+        ?.joinToString(prefix = "також: ", separator = ", ")
 
 internal fun buildPracticeDeckKeys(
     candidates: List<Pair<String, Int>>,
@@ -5992,7 +6053,9 @@ private fun PracticeFlipCard(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             KnowledgeBackgroundFill(
-                percent = card.word.knowledgePercent,
+                // Прогрес картки — знання СЕНСУ (найслабший переклад групи), той
+                // самий відсоток, за яким картку відібрано в раунд.
+                percent = card.knowledgePercent,
                 color = if (showBack) {
                     // Зворот: той самий progressFill (чорний 13%) в обох темах.
                     PrototypeColor.ProgressFill
@@ -6016,6 +6079,21 @@ private fun PracticeFlipCard(
                             color = Color.White,
                             baseFontSize = 32,
                         )
+                        // Решта перекладів сенсу — юзер має побачити, за що саме
+                        // йому зараховують (чи знімають) знання всієї групи.
+                        practiceAlsoTranslationsLabel(card.extraTranslations)?.let { alsoLine ->
+                            Text(
+                                text = alsoLine,
+                                modifier = Modifier.padding(top = 10.dp),
+                                color = Color.White.copy(alpha = 0.82f),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                                lineHeight = 20.sp,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                         PracticeCardBackMetadata(
                             details = card.word.details,
                             modifier = Modifier.padding(top = 24.dp),
@@ -6095,7 +6173,7 @@ private fun PracticeFlipCard(
                             )
                         }
                         PracticeKnowledgeLevel(
-                            percent = card.word.knowledgePercent,
+                            percent = card.knowledgePercent,
                             accent = card.accent,
                             modifier = Modifier.padding(top = 18.dp),
                         )

@@ -63,7 +63,6 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.prototypeTopicTheme
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
-import com.vocabee.android.feature.vocabulary.domain.model.attributionSignature
 import kotlin.random.Random
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -195,20 +194,25 @@ private fun uniqueSentenceMembers(group: List<WordEntry>): List<Pair<WordEntry, 
  * від іншого; такий кластер лишається класиці до повторної атрибуції.
  * Легасі-члени без атрибуції йдуть старим правилом унікального речення;
  * фінальний дедуп страхує від збігу речень між значеннями.
+ *
+ * Кластер — це рівно [groupBySense]: «той самий сенс» визначає ПЕРЕТИН
+ * sense-ключів, а не рівність підпису. Інакше збережені `run→бігти [k1]` і
+ * `run→мчати [k1, k2]` (ревізія лексикону дописала другому ще один ключ) були б
+ * однією карткою словника, але двома «різними» кластерами тренування — і
+ * нерозрізнювані переклади пройшли б повз цей захист.
  */
 private fun senseRepresentatives(group: List<WordEntry>): List<Pair<WordEntry, String>> {
-    val attributed = group.mapNotNull { member ->
-        val attribution = member.details?.attributionSignature() ?: return@mapNotNull null
-        val sentence = member.contextSentence() ?: return@mapNotNull null
-        Triple(member, attribution, sentence)
+    val attributed = group.filter { member ->
+        member.senseMergeKeys().isNotEmpty() && member.contextSentence() != null
     }
-    val representatives = attributed
-        .groupBy { (_, attribution, _) -> attribution }
-        .values
-        .filter { cluster -> cluster.size == 1 }
-        .map { cluster -> cluster.single().let { (member, _, sentence) -> member to sentence } }
+    val representatives = attributed.groupBySense()
+        .filter { sense -> sense.entries.size == 1 }
+        .mapNotNull { sense ->
+            val member = sense.entries.single()
+            member.contextSentence()?.let { sentence -> member to sentence }
+        }
     val legacy = uniqueSentenceMembers(
-        group.filter { it.details?.attributionSignature() == null },
+        group.filter { member -> member.senseMergeKeys().isEmpty() },
     )
     val combined = representatives + legacy
     val counts = combined.groupingBy { it.second.trim().lowercase() }.eachCount()
