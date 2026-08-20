@@ -153,20 +153,24 @@ debug-конфігурація використовує `https://dev-api.vocabee
 
 ## 6. Виявлення дубліката (`+` ↔ `✓`)
 
-Дубль детектиться **двома шляхами**, обидва зведені в один `Set` нормалізованих перекладів — toggle миттєвий:
+Дубль детектиться **двома шляхами**, обидва зведені в один `Set` ключів **пари
+(слово, переклад)** — toggle миттєвий:
 
 ```
-isAdded = option.alreadyAdded                                   // сервер позначив на момент пошуку
-       || existingTranslations.contains(option.value.lower())  // або щойно додано в цій сесії
+isAdded = option.alreadyAdded                                    // сервер позначив на момент пошуку
+       || savedWordKeys.contains(savedWordKey(learningWord, value))  // або щойно додано в цій сесії
 ```
-`AddWordOverlay.kt:744-755`.
+`AddWordOverlay.isSavedIn`.
+
+Ключ — саме пара, а не самий переклад: збережений `run→серія` не сміє позначати
+✓ на варіанті `series→серія` (і навпаки).
 
 | Шлях | Деталі | Код |
 |---|---|---|
-| Серверний `alreadyAdded` | `searchRemotely` віддає `existing = topic.words.map { translation }` в use-case; `SearchVariant.toOption` ставить `alreadyAdded` + note `AlreadyAdded` | `App.kt:173`, `RemoteLexiconSearchUseCase.kt:82-95` |
-| Живий локальний `Set` | `existingTranslations = topic.words.map { translation.trim().lowercase() }.toSet()`, перераховується на кожен recompose `topic.words` | `AddWordOverlay.kt:154-156` |
-| Toggle | `isAdded` → клік `onRemove` (фіолетова `✓`); інакше `onAdd` (акцент `+`). Хост перерендерює оверлей зі свіжим `topic` після стор-апдейту | `AddWordOverlay.kt:898-903`, `:319-330` |
-| Нормалізація | `.trim().lowercase()` з обох боків при порівнянні | `AddWordOverlay.kt:155`, `:755` |
+| Серверний `alreadyAdded` | `searchRemotely` віддає `saved = topic.words.savedWordKeys()` в use-case; `SearchVariant.toOption` звіряє `savedWordKey(learningWord, knownWord)` і ставить `alreadyAdded` + note `AlreadyAdded` | `App.kt` (`searchRemotely`), `RemoteLexiconSearchUseCase.toOption` |
+| Живий локальний `Set` | `savedWordKeys = topic.words.savedWordKeys()`, перераховується на кожен recompose `topic.words` | `AddWordOverlay.kt`, `App.kt` (`DictionaryDetailScreen`) |
+| Toggle | `isAdded` → клік `onRemove(learningWord, value)` (фіолетова `✓`); інакше `onAdd` (акцент `+`). Хост перерендерює оверлей зі свіжим `topic` після стор-апдейту | `AddWordOverlay.kt` |
+| Нормалізація | `savedWordKey` робить `.trim().lowercase()` з обох боків пари | `VocabularyModels.kt` (`savedWordKey`) |
 
 ### 6.1 [ЗАРАЗ] Фоновий словничок контекстного речення
 
@@ -493,7 +497,7 @@ GET /v1/search ─► LexiconService:
 RemoteLexiconSearchUseCase.toOption → List<TranslationOption>
    ▼
 AddWordResultsList (слово+IPA+переклад+Sparkle, розгортання деталей, +/✓)
-   │   дубль: alreadyAdded(сервер) ∨ existingTranslations(локально)
+   │   дубль: alreadyAdded(сервер) ∨ savedWordKeys(локально, пара слово+переклад)
    ▼
 onAdd → canAddWordToDictionary() → AddWord (learningWord, value, ipa, details + translationId) → sync
    │   auth sync: Dictionary target-scoped projector → schema+SHA-256 revision

@@ -71,7 +71,7 @@ Vocabee розрізняє **два стани**: `anonymous` (без акаун
 | Морф-оверлей «Додати слово» | `AddWordOverlay` морфиться з пігулки «+» у повний екран (tween ~420ms). | [ЗАРАЗ] | [01](01-screens.md) §7, [13](13-add-word-and-ai-search.md) §1 |
 | Список результатів із `+`/`✓` | Кожен рядок: канонічне слово, IPA, переклад, Sparkle (AI), toggle add/remove. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §5 |
 | Скарга на неякісний переклад | Авторизований юзер бачить «Неякісний переклад» у результаті; надсилається opaque `translationId`, без видалення рядка, один раз на target (`+1`). | [ЗАРАЗ] | [17](17-api-and-data-reference.md) §1.10 |
-| Виявлення дубліката | `alreadyAdded` (сервер) ∨ локальний `Set` перекладів → миттєвий toggle `+`↔`✓`. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §6 |
+| Виявлення дубліката | `alreadyAdded` (сервер) ∨ локальний `Set` ключів пари (слово, переклад) → миттєвий toggle `+`↔`✓`. | [ЗАРАЗ] | [13](13-add-word-and-ai-search.md) §6 |
 | Групування слів | Однакові source-слова схлопуються в одну картку `WordGroupRow`. | [ЗАРАЗ] | [01](01-screens.md) §6 |
 | Розгортувані деталі слова | Тап розкриває тип/регістр, значення/розшифровку/дослівний переклад/приклад, далі senses, синоніми, антоніми й форми. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §3 |
 | Типи lexical unit | `Word / Phrase / Expression / Abbreviation`; регістр окремо (`Slang`, `Informal`, `Internet` тощо), тому `LOL` = abbreviation+slang. | [ЗАРАЗ] | [14](14-word-details-and-audio.md) §1.2 |

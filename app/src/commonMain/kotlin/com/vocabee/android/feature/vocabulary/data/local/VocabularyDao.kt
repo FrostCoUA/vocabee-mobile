@@ -231,23 +231,26 @@ interface VocabularyDao {
     )
 
     /**
-     * Hard-delete by translation. We use translation rather than id because the
-     * caller (Add Word overlay) keys off `option.value` (= the translation text)
-     * and doesn't otherwise hold a word id. Local-only delete for now; once
-     * topic-word sync is wired, switch to a soft delete with
-     * `sync_status = PendingDelete` so the server picks it up.
+     * Hard-delete by the (source, translation) pair. We key off the text rather
+     * than the id because the caller (Add Word overlay) holds `option.learningWord`
+     * / `option.value`, not a word id. Пара обовʼязкова: у словнику законно
+     * живуть `run→серія` і `series→серія`, і видалення однієї не сміє зачепити
+     * іншу. Локальний hard-delete — для аноніма; авторизований користувач іде
+     * через [markWordDeletedByTranslation], щоб сервер побачив видалення.
      */
     @Query(
         """
         DELETE FROM vocabulary_words
         WHERE user_key = :userKey
             AND topic_id = :topicId
+            AND LOWER(source) = LOWER(:source)
             AND LOWER(translation) = LOWER(:translation)
         """,
     )
     suspend fun deleteWordByTranslation(
         userKey: String,
         topicId: String,
+        source: String,
         translation: String,
     ): Int
 
@@ -258,6 +261,7 @@ interface VocabularyDao {
             updated_at_epoch_millis = :updatedAtEpochMillis
         WHERE user_key = :userKey
             AND topic_id = :topicId
+            AND LOWER(source) = LOWER(:source)
             AND LOWER(translation) = LOWER(:translation)
             AND sync_status != 'PendingDelete'
         """,
@@ -265,6 +269,7 @@ interface VocabularyDao {
     suspend fun markWordDeletedByTranslation(
         userKey: String,
         topicId: String,
+        source: String,
         translation: String,
         updatedAtEpochMillis: Long,
         syncStatus: SyncStatus,

@@ -71,6 +71,8 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.languageFlag
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
+import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
+import com.vocabee.android.feature.vocabulary.domain.model.savedWordKeys
 import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechInputController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -130,6 +132,14 @@ internal fun List<com.vocabee.android.feature.vocabulary.domain.model.WordEntry>
     return grouped.values.map { WordGroup(sourceWord = it.first().source, entries = it) }
 }
 
+/**
+ * Чи збережена САМЕ ця пара (слово, переклад) — від цього залежить ✓ «вже
+ * додано» і те, що ховається за кнопкою (додати проти видалити). Збережений
+ * `run→серія` не робить «доданим» варіант `series→серія`.
+ */
+internal fun TranslationOption.isSavedIn(savedWordKeys: Set<String>): Boolean =
+    alreadyAdded || savedWordKeys.contains(savedWordKey(learningWord, value))
+
 /** Result returned by the async backend search. The overlay drives its loading/error UI off this. */
 internal data class AddWordSearchState(
     val query: String = "",
@@ -148,7 +158,7 @@ internal fun AddWordOverlay(
     speechInputController: SpeechInputController,
     searchRemote: suspend (query: String) -> AddWordSearchState,
     onAddWord: (source: String, translation: String, ipa: String?, details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?) -> Unit,
-    onRemoveWord: (translation: String) -> Unit,
+    onRemoveWord: (source: String, translation: String) -> Unit,
     onDislikeTranslation: (TranslationOption) -> Unit = {},
     onClose: () -> Unit,
 ) {
@@ -157,12 +167,11 @@ internal fun AddWordOverlay(
     var searchState by remember { mutableStateOf(AddWordSearchState()) }
     val addedCount = remember { mutableStateOf(0) }
 
-    // Live set of translations currently in this topic — recomputed on every recompose so
-    // tapping "+" or "✓" flips the per-row state immediately (the host re-renders us with
-    // a fresh `topic` after the store update).
-    val existingTranslations = remember(topic.words) {
-        topic.words.map { it.translation.trim().lowercase() }.toSet()
-    }
+    // Live set of (word, translation) pairs currently in this topic — recomputed on every
+    // recompose so tapping "+" or "✓" flips the per-row state immediately (the host
+    // re-renders us with a fresh `topic` after the store update). Ключ — саме пара:
+    // збережений `run→серія` не сміє позначати «додано» варіант `series→серія`.
+    val savedWordKeys = remember(topic.words) { topic.words.savedWordKeys() }
 
     var partialText by remember { mutableStateOf("") }
     var heardText by remember { mutableStateOf("") }
@@ -324,7 +333,7 @@ internal fun AddWordOverlay(
                             tier = searchState.tier,
                             maxResults = searchState.maxResults,
                             accent = accent,
-                            existingTranslations = existingTranslations,
+                            savedWordKeys = savedWordKeys,
                             onAdd = { option ->
                                 // Save the canonical learning-word from the variant,
                                 // not the user's raw typing. Otherwise a prefix
@@ -334,7 +343,7 @@ internal fun AddWordOverlay(
                                 addedCount.value = addedCount.value + 1
                             },
                             onRemove = { option ->
-                                onRemoveWord(option.value)
+                                onRemoveWord(option.learningWord, option.value)
                             },
                             onDislike = onDislikeTranslation,
                         )
@@ -732,7 +741,7 @@ internal fun AddWordResultsList(
     tier: String?,
     maxResults: Int?,
     accent: Color,
-    existingTranslations: Set<String>,
+    savedWordKeys: Set<String>,
     onAdd: (TranslationOption) -> Unit,
     onRemove: (TranslationOption) -> Unit,
     onDislike: (TranslationOption) -> Unit = {},
@@ -770,12 +779,11 @@ internal fun AddWordResultsList(
     ) {
         items(keyedResults, key = { it.key }) { keyedOption ->
             val option = keyedOption.option
-            // Live "is this translation in the topic right now?" check. Either the
-            // server marked it `alreadyAdded` at search time, OR the user just
-            // tapped "+" on it during this overlay session and the topic state
-            // updated. Both flow through the same set so the toggle is instant.
-            val isAdded = option.alreadyAdded ||
-                existingTranslations.contains(option.value.trim().lowercase())
+            // Live "is this (word, translation) pair in the topic right now?" check.
+            // Either the search marked it `alreadyAdded`, OR the user just tapped "+"
+            // on it during this session and the topic state updated. Both flow through
+            // the same pair key so the toggle is instant and word-scoped.
+            val isAdded = option.isSavedIn(savedWordKeys)
             AddWordResultRow(
                 query = query,
                 option = option,

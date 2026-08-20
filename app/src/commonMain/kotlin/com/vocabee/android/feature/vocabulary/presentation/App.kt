@@ -162,6 +162,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
+import com.vocabee.android.feature.vocabulary.domain.model.savedWordKeys
 import com.vocabee.android.feature.vocabulary.domain.usecase.ContextGlossaryUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
 import com.vocabee.android.feature.vocabulary.presentation.navigation.AppTab
@@ -320,8 +321,10 @@ private suspend fun searchRemotely(
     if (useCase == null) {
         return AddWordSearchState(query = input, isLoading = false, results = emptyList())
     }
-    val existing = topic.words.map { it.translation }.toSet()
-    return when (val result = useCase(input, speakLang, learnLang, existing)) {
+    // Ключі збережених пар (слово, переклад) — «вже додано» звіряє пару, а не
+    // самий переклад: `run→серія` і `series→серія` живуть у словнику разом.
+    val saved = topic.words.savedWordKeys()
+    return when (val result = useCase(input, speakLang, learnLang, saved)) {
         is RemoteLexiconSearchUseCase.Result.Ok -> {
             result.beeBalance?.let(onBeeBalanceChanged)
             AddWordSearchState(
@@ -1111,8 +1114,8 @@ private fun MainApp(
                                         }
                                     }
                                 },
-                                onRemoveWord = { translation ->
-                                    store.onEvent(VocabeeEvent.RemoveWord(topic.id, translation))
+                                onRemoveWord = { source, translation ->
+                                    store.onEvent(VocabeeEvent.RemoveWord(topic.id, source, translation))
                                     syncVocabularyNow()
                                 },
                                 onDislikeTranslation = { option ->
@@ -3157,7 +3160,7 @@ private fun DictionaryDetailScreen(
     searchRemote: suspend (query: String) -> AddWordSearchState,
     onAddWord: (source: String, translation: String, ipa: String?, details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?) -> Unit,
     onAddContextWord: (glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit,
-    onRemoveWord: (translation: String) -> Unit,
+    onRemoveWord: (source: String, translation: String) -> Unit,
     onDislikeTranslation: (TranslationOption) -> Unit = {},
     onSpeak: (text: String, languageTag: String) -> Unit,
 ) {
@@ -3182,9 +3185,9 @@ private fun DictionaryDetailScreen(
     // Compute groups at the screen scope so the `remember` lives in a
     // @Composable context (LazyListScope.else { … } below is not Composable).
     val wordGroups = remember(topic.words) { topic.words.groupBySourceWord() }
-    val existingTranslations = remember(topic.words) {
-        topic.words.map { it.translation.trim().lowercase() }.toSet()
-    }
+    // Пара (слово, переклад) — ключ позначки «вже додано»: збережений
+    // `run→серія` не сміє позначати ✓ на варіанті `series→серія`.
+    val savedWordKeys = remember(topic.words) { topic.words.savedWordKeys() }
     val savedContextKeys = remember(topic.words, topic.sourceLanguage.code, topic.targetLanguage.code) {
         topic.words.mapTo(mutableSetOf()) { word ->
             contextTranslationKey(
@@ -3376,7 +3379,11 @@ private fun DictionaryDetailScreen(
                         onAddContextWord = onAddContextWord,
                         onSpeak = { onSpeak(group.sourceWord, topic.sourceLanguage.speechTag) },
                         onRemove = {
-                            group.translations.forEach(onRemoveWord)
+                            // Видаляємо саме записи цієї групи (пара слово+переклад),
+                            // інакше однаковий переклад іншого слова піде разом з ними.
+                            group.entries.forEach { entry ->
+                                onRemoveWord(entry.source, entry.translation)
+                            }
                         },
                     )
                 }
@@ -3419,14 +3426,14 @@ private fun DictionaryDetailScreen(
                     searchState = searchState,
                     speechError = speechError,
                     accent = accent,
-                    existingTranslations = existingTranslations,
+                    savedWordKeys = savedWordKeys,
                     inputReservedHeight = inputReservedHeight,
                     contentTopPadding = panelContentTopPadding,
                     onAdd = { option ->
                         onAddWord(option.learningWord, option.value, option.ipa, option.details)
                     },
                     onRemove = { option ->
-                        onRemoveWord(option.value)
+                        onRemoveWord(option.learningWord, option.value)
                     },
                     onRetryVoice = ::startListening,
                     onDislike = onDislikeTranslation,
@@ -3681,7 +3688,7 @@ private fun InlineTranslationPanel(
     searchState: AddWordSearchState,
     speechError: String?,
     accent: Color,
-    existingTranslations: Set<String>,
+    savedWordKeys: Set<String>,
     inputReservedHeight: androidx.compose.ui.unit.Dp,
     contentTopPadding: Dp,
     onAdd: (TranslationOption) -> Unit,
@@ -3754,7 +3761,7 @@ private fun InlineTranslationPanel(
                         tier = searchState.tier,
                         maxResults = searchState.maxResults,
                         accent = accent,
-                        existingTranslations = existingTranslations,
+                        savedWordKeys = savedWordKeys,
                         onAdd = onAdd,
                         onRemove = onRemove,
                         onDislike = onDislike,

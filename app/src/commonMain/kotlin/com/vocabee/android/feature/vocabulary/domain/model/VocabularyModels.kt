@@ -158,6 +158,19 @@ data class WordEntry(
     val syncStatus: SyncStatus = SyncStatus.PendingCreate,
 )
 
+/**
+ * Ключ збереженого слова — саме ПАРА (слово, переклад), а не самий переклад.
+ * У словнику законно співіснують `run→серія` і `series→серія`, тож і позначка
+ * «вже додано», і видалення мусять розрізняти їх. Регістр і пробіли по краях
+ * не значущі — так само, як у SQL-запитах DAO (`LOWER(...)`).
+ */
+fun savedWordKey(source: String, translation: String): String =
+    "${source.trim().lowercase()}\u0000${translation.trim().lowercase()}"
+
+/** Набір ключів [savedWordKey] для всіх слів словника. */
+fun List<WordEntry>.savedWordKeys(): Set<String> =
+    mapTo(mutableSetOf()) { savedWordKey(it.source, it.translation) }
+
 data class DictionaryTopic(
     val id: String,
     val userKey: String = DEFAULT_LOCAL_USER_KEY,

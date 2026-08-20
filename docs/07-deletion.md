@@ -29,10 +29,12 @@
 
 ### Локальна поведінка — hard vs soft (залежить від користувача)
 
-Точка входу: `VocabeeStore.removeWord(topicId, translation)` (`VocabeeStore.kt:331`),
-далі `RoomVocabularyRepository.removeWordByTranslation` (`RoomVocabularyRepository.kt:168`).
-Слово ідентифікується **за текстом перекладу** (case-insensitive), бо UI видалення
-(`App.kt:714`) тримає лише `translation`, а не `wordId`.
+Точка входу: `VocabeeStore.removeWord(topicId, source, translation)` (`VocabeeStore.kt`),
+далі `RoomVocabularyRepository.removeWordByTranslation` (`RoomVocabularyRepository.kt`).
+Рядок ідентифікується **за парою (слово, переклад)** — case-insensitive, без
+пробілів по краях — бо UI видалення тримає текст, а не `wordId`. Пара обовʼязкова:
+у словнику законно живуть `run→серія` і `series→серія`, і видалення одного не сміє
+знести інший (SQL: `LOWER(source) = LOWER(:source) AND LOWER(translation) = LOWER(:translation)`).
 
 Видалення розгалужується за `userKey`:
 

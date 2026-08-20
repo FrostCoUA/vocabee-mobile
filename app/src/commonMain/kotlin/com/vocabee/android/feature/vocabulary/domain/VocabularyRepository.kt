@@ -48,13 +48,16 @@ interface VocabularyRepository {
     ): WordEntry?
 
     /**
-     * Remove a word identified by its translation text (case-insensitive). Returns
-     * `true` when something was actually deleted, `false` when the topic had no
-     * matching row.
+     * Remove the word identified by the (source, translation) PAIR
+     * (case-insensitive). Пара, а не самий переклад: `run→серія` і
+     * `series→серія` — різні записи, і видалення одного не сміє знести інший.
+     * Returns `true` when something was actually deleted, `false` when the topic
+     * had no matching row.
      */
     fun removeWordByTranslation(
         userKey: String,
         topicId: String,
+        source: String,
         translation: String,
     ): Boolean
 

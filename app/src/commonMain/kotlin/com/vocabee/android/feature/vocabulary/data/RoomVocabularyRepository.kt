@@ -213,6 +213,7 @@ class RoomVocabularyRepository(
     override fun removeWordByTranslation(
         userKey: String,
         topicId: String,
+        source: String,
         translation: String,
     ): Boolean = runBlocking(Dispatchers.IO) {
         var deleted = false
@@ -223,12 +224,14 @@ class RoomVocabularyRepository(
                 vocabularyDao.deleteWordByTranslation(
                     userKey = userKey,
                     topicId = topicId,
+                    source = source,
                     translation = translation,
                 )
             } else {
                 vocabularyDao.markWordDeletedByTranslation(
                     userKey = userKey,
                     topicId = topicId,
+                    source = source,
                     translation = translation,
                     updatedAtEpochMillis = now,
                     syncStatus = SyncStatus.PendingDelete,

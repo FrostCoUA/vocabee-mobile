@@ -15,6 +15,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.LexicalUnitKind
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordForm
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
+import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
 
 /** Тег для `adb logcat -s VocabeeSearch` — звідки прийшов кожен переклад. */
 internal const val SearchLogTag = "VocabeeSearch"
@@ -27,11 +28,15 @@ class RemoteLexiconSearchUseCase(
     private val api: VocabeeApi,
     private val analytics: AnalyticsTracker = NoAnalyticsTracker,
 ) {
+    /**
+     * @param savedWordKeys ключі [savedWordKey] уже збережених пар (слово,
+     * переклад) поточного словника — з них рахується позначка «вже додано».
+     */
     suspend operator fun invoke(
         query: String,
         speakLang: String,
         learnLang: String,
-        existingTranslations: Set<String>,
+        savedWordKeys: Set<String>,
     ): Result {
         if (query.isBlank()) {
             return Result.Ok(
@@ -50,7 +55,7 @@ class RemoteLexiconSearchUseCase(
                 learnLang = learnLang,
             )
             trackSearchResult(response, currentEpochMillis() - startedAt)
-            val options = response.results.map { variant -> variant.toOption(existingTranslations) }
+            val options = response.results.map { variant -> variant.toOption(savedWordKeys) }
             Result.Ok(
                 query = query,
                 options = options,
@@ -159,11 +164,18 @@ internal fun translationDataSource(response: SearchResponse, primary: SearchVari
 private fun isAiOrigin(origin: String?): Boolean =
     origin?.startsWith("openai-") == true || origin?.startsWith("ai-") == true
 
-internal fun SearchVariant.toOption(existingTranslations: Set<String>): TranslationOption {
+/**
+ * @param savedWordKeys ключі [savedWordKey] збережених пар (слово, переклад).
+ * Позначка «вже додано» звіряє саме пару: збережений `run→серія` не робить
+ * «доданим» варіант `series→серія`.
+ */
+internal fun SearchVariant.toOption(savedWordKeys: Set<String>): TranslationOption {
     val translation = knownWord
+    val alreadySaved = savedWordKeys.contains(
+        savedWordKey(source = learningWord, translation = translation),
+    )
     val note = when {
-        existingTranslations.contains(translation) ->
-            TranslationOptionNote.AlreadyAdded(source = origin)
+        alreadySaved -> TranslationOptionNote.AlreadyAdded(source = origin)
         source == "dictionary" -> TranslationOptionNote.Primary
         source == "translator" -> TranslationOptionNote.Primary
         source == "ai" -> TranslationOptionNote.Additional
@@ -173,7 +185,7 @@ internal fun SearchVariant.toOption(existingTranslations: Set<String>): Translat
         translationId = translationId,
         value = translation,
         note = note,
-        alreadyAdded = existingTranslations.contains(translation),
+        alreadyAdded = alreadySaved,
         learningWord = learningWord,
         ipa = ipa,
         details = WordDetails(

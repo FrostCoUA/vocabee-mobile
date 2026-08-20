@@ -2,6 +2,7 @@ package com.vocabee.android.feature.vocabulary.presentation
 
 import com.vocabee.android.core.analytics.AnalyticsTracker
 import com.vocabee.android.feature.vocabulary.data.FakeVocabularyRepository
+import com.vocabee.android.feature.vocabulary.data.api.SearchVariant
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
 import com.vocabee.android.feature.vocabulary.domain.manager.StaticUserSessionManager
 import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
@@ -14,6 +15,8 @@ import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordForm
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
+import com.vocabee.android.feature.vocabulary.domain.model.savedWordKeys
+import com.vocabee.android.feature.vocabulary.domain.usecase.toOption
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -175,6 +178,61 @@ class VocabeeStoreTest {
         assertEquals(listOf(currentTopic.id), store.state.topics.map { it.id })
         assertEquals(listOf(otherTopic.id), repository.topicsForUser("user-b").map { it.id })
     }
+
+    @Test
+    fun removeWordDeletesOnlyThePairAndKeepsTheSameTranslationOfAnotherWord() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+        store.onEvent(
+            VocabeeEvent.AddWord(topicId = topic.id, source = "run", translation = "серія"),
+        )
+        store.onEvent(
+            VocabeeEvent.AddWord(topicId = topic.id, source = "series", translation = "серія"),
+        )
+
+        store.onEvent(
+            VocabeeEvent.RemoveWord(topicId = topic.id, source = "run", translation = "серія"),
+        )
+
+        val words = store.topicForTest(topic.id).words
+        assertEquals(1, words.size)
+        assertEquals("series", words.single().source)
+        assertEquals("серія", words.single().translation)
+    }
+
+    @Test
+    fun alreadyAddedMarksOnlyTheSavedWordTranslationPair() {
+        val savedRunSeria = listOf(
+            WordEntry(id = "w1", source = "run", translation = "серія"),
+        ).savedWordKeys()
+
+        val otherWordSameTranslation = searchVariantForTest(
+            learningWord = "series",
+            knownWord = "серія",
+        ).toOption(savedRunSeria)
+        val savedPair = searchVariantForTest(
+            learningWord = "Run",
+            knownWord = " Серія ",
+        ).toOption(savedRunSeria)
+
+        assertFalse(otherWordSameTranslation.alreadyAdded)
+        assertTrue(savedPair.alreadyAdded)
+        // Той самий ключ керує ✓ у списку результатів пошуку.
+        assertFalse(otherWordSameTranslation.isSavedIn(savedRunSeria))
+        assertTrue(savedPair.isSavedIn(savedRunSeria))
+    }
+
+    private fun searchVariantForTest(
+        learningWord: String,
+        knownWord: String,
+    ): SearchVariant = SearchVariant(
+        knownWord = knownWord,
+        learningWord = learningWord,
+        source = "dictionary",
+        origin = "test",
+        isPrimary = true,
+        cached = true,
+    )
 
     @Test
     fun removeTopicDeletesDictionaryFromState() {
@@ -732,7 +790,9 @@ class VocabeeStoreTest {
                 translation = "бджола",
             ),
         )
-        store.onEvent(VocabeeEvent.RemoveWord(topicId = topic.id, translation = "бджола"))
+        store.onEvent(
+            VocabeeEvent.RemoveWord(topicId = topic.id, source = "bee", translation = "бджола"),
+        )
 
         assertEquals(
             listOf("dictionary_created", "word_added", "word_deleted"),

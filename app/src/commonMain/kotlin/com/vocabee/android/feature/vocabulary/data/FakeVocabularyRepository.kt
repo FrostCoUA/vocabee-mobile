@@ -7,6 +7,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.SyncStatus
 import com.vocabee.android.feature.vocabulary.domain.model.VocabularySyncSnapshot
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
 
 class FakeVocabularyRepository : VocabularyRepository {
     override val supportedLanguages = listOf(
@@ -138,14 +139,16 @@ class FakeVocabularyRepository : VocabularyRepository {
     override fun removeWordByTranslation(
         userKey: String,
         topicId: String,
+        source: String,
         translation: String,
     ): Boolean {
         val topics = topicsByUser[userKey] ?: return false
         val topicIndex = topics.indexOfFirst { it.id == topicId }
         if (topicIndex == -1) return false
         val topic = topics[topicIndex]
-        val target = translation.trim().lowercase()
-        val remaining = topic.words.filterNot { it.translation.trim().lowercase() == target }
+        // Пара (слово, переклад) — той самий ключ, що й у Room-запитах DAO.
+        val target = savedWordKey(source = source, translation = translation)
+        val remaining = topic.words.filterNot { savedWordKey(it.source, it.translation) == target }
         if (remaining.size == topic.words.size) return false
         val now = nextTimestamp()
         topics[topicIndex] = topic.copy(

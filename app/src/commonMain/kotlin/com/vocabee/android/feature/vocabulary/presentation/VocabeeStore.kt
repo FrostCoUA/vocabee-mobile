@@ -182,6 +182,12 @@ sealed interface VocabeeEvent {
 
     data class RemoveWord(
         val topicId: String,
+        /**
+         * Learning-language word of the row to delete. Разом із [translation]
+         * утворює ключ рядка: у словнику законно живуть `run→серія` і
+         * `series→серія`, тож самого перекладу для видалення НЕ досить.
+         */
+        val source: String,
         /** Translation text — keys the row to delete (case-insensitive). */
         val translation: String,
     ) : VocabeeEvent
@@ -259,7 +265,7 @@ class VocabeeStore(
             is VocabeeEvent.RemoveTopic -> removeTopic(event.topicId)
             is VocabeeEvent.ClearTopicWords -> clearTopicWords(event.topicId)
             is VocabeeEvent.AddWord -> addWord(event.topicId, event.source, event.translation, event.ipa, event.details)
-            is VocabeeEvent.RemoveWord -> removeWord(event.topicId, event.translation)
+            is VocabeeEvent.RemoveWord -> removeWord(event.topicId, event.source, event.translation)
             is VocabeeEvent.AdjustWordKnowledge -> adjustWordKnowledge(event.topicId, event.wordId, event.deltaPercent)
             is VocabeeEvent.SelectSpeakingLanguage -> selectSpeakingLanguage(event.language)
             is VocabeeEvent.SelectLearningLanguage -> selectLearningLanguage(event.language)
@@ -589,10 +595,15 @@ class VocabeeStore(
         touchLocalRevision()
     }
 
-    private fun removeWord(topicId: String, translation: String) {
+    private fun removeWord(topicId: String, source: String, translation: String) {
+        val cleanedSource = source.trim()
         val cleaned = translation.trim()
-        if (cleaned.isBlank()) return
-        val removed = removeWordUseCase(topicId = topicId, translation = cleaned)
+        if (cleanedSource.isBlank() || cleaned.isBlank()) return
+        val removed = removeWordUseCase(
+            topicId = topicId,
+            source = cleanedSource,
+            translation = cleaned,
+        )
         if (!removed) return
         state = state.copy(topics = loadUserTopicsUseCase())
         analytics.track("word_deleted", mapOf("topic_id" to topicId))

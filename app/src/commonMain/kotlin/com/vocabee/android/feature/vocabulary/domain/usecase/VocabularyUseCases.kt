@@ -96,10 +96,11 @@ class RemoveWordUseCase(
     private val repository: VocabularyRepository,
     private val userSessionManager: UserSessionManager,
 ) {
-    operator fun invoke(topicId: String, translation: String): Boolean {
+    operator fun invoke(topicId: String, source: String, translation: String): Boolean {
         return repository.removeWordByTranslation(
             userKey = userSessionManager.currentUserKey,
             topicId = topicId,
+            source = source,
             translation = translation,
         )
     }

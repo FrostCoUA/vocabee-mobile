@@ -220,7 +220,7 @@
 ### Дії та переходи
 - «Назад» → `onBack` → `backStack.removeLastOrNull()`.
 - Додати слово (`+` у результатах) → `onAddWord`; якщо `store.canAddWordToDictionary()` хибне → `AuthRequired(WordLimit)` (`App.kt:706–712`); після успіху — `syncVocabularyNow()`.
-- Прибрати слово (`✓` → remove) → `onRemoveWord` → `RemoveWord` + sync (`App.kt:714–717`).
+- Прибрати слово (`✓` → remove) → `onRemoveWord(learningWord, value)` → `RemoveWord(topicId, source, translation)` + sync (`App.kt`).
 - Тап на пілюлю напрямку → перемикання STT (див. D8).
 - Мовний індикатор у хедері відкриває `LanguageForDictionary` через `onOpenLanguageSheet` (`App.kt:676`) — **наразі заглушка** (див. шторку нижче).
 - Кебаб у хедері → `onEditTopic` / `onClearTopic` / `onDeleteTopic` → відповідні шторки (`CreateDictionary(editTopicId)`, `ClearDictionary`, `DeleteDictionary`).
@@ -247,7 +247,7 @@
 ### Список результатів і рядок «+/✓»
 - Кожен рядок `AddWordResultRow` (`AddWordOverlay.kt:799`): canonical `learningWord` (а не сире введення — навмисно, `AddWordOverlay.kt:838`), IPA, іконка Sparkle (AI), переклад; розкривний блок деталей (`WordDetailsBlock`) якщо є.
 - Toggle-кнопка 44×44 (`AddWordOverlay.kt:898–912`): якщо слово вже в словнику — фіолетовий `✓` (тап = remove); інакше accent `+` (тап = add). Геометрія однакова, щоб рядок не стрибав.
-- «Доданість» рахується наживо: `option.alreadyAdded || existingTranslations.contains(...)` (`AddWordOverlay.kt:754`) — і серверний прапор, і миттєвий локальний апдейт.
+- «Доданість» рахується наживо по **парі (слово, переклад)**: `option.isSavedIn(savedWordKeys)` (`AddWordOverlay.kt`) — і серверний прапор `alreadyAdded`, і миттєвий локальний апдейт. Збережений `run→серія` не позначає ✓ на `series→серія`.
 
 ### AI-атрибуція
 - Футер списку: іконка Sparkle + «Переклади та приклади згенеровано AI» (`footerCaptionFor`, `AddWordOverlay.kt:791`). `[ЗАРАЗ]` Пер-тірні підписи («до N варіантів», «увійди для більше») прибрані — серверні ліміти зняті.
