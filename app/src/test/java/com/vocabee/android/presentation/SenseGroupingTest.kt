@@ -4,8 +4,10 @@ import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -27,6 +29,7 @@ class SenseGroupingTest {
         translation: String,
         senseKeys: List<String> = emptyList(),
         knowledgePercent: Int = 0,
+        addedAt: Long = 0L,
         details: WordDetails? = if (senseKeys.isEmpty()) null else details(senseKeys = senseKeys),
     ) = WordEntry(
         id = id,
@@ -34,6 +37,7 @@ class SenseGroupingTest {
         translation = translation,
         details = details,
         knowledgePercent = knowledgePercent,
+        addedAtEpochMillis = addedAt,
     )
 
     // (а)
@@ -168,6 +172,80 @@ class SenseGroupingTest {
         assertEquals(20, group.minKnowledgePercent)
         assertEquals(50, group.knowledgePercent)
         assertSame(newest, group.representative)
+    }
+
+    // M3 — представник не покладається на порядок входу.
+    @Test
+    fun representativeIsTheNewestEntryRegardlessOfInputOrder() {
+        val older = entry("1", "run", "мчати", senseKeys = listOf("k1"), addedAt = 100L)
+        val newest = entry("2", "run", "бігти", senseKeys = listOf("k1"), addedAt = 900L)
+
+        assertSame(newest, listOf(older, newest).groupBySense().single().representative)
+        assertSame(newest, listOf(newest, older).groupBySense().single().representative)
+    }
+
+    // M4 (а) — атрибутований senseIndex=0 і повна відсутність атрибуції — різні речі.
+    @Test
+    fun legacySenseIndexZeroDoesNotMergeWithUnattributedEntry() {
+        val senses = listOf(WordSense(definition = "to move fast"))
+        val groups = listOf(
+            entry("1", "run", "бігти", details = details(senseIndex = 0, senses = senses)),
+            entry("2", "run", "серія"),
+        ).groupBySense()
+
+        assertEquals(listOf(listOf("бігти"), listOf("серія")), groups.map { it.translations })
+    }
+
+    // M4 (б) — senseIndex поза межами senses: атрибуції фактично немає → легасі-група.
+    @Test
+    fun senseIndexOutOfRangeFallsBackToTheLegacyBucket() {
+        val groups = listOf(
+            entry("1", "run", "серія"),
+            entry("2", "run", "бігти", details = details(senseIndex = 7, senses = listOf(WordSense(definition = "to move fast")))),
+        ).groupBySense()
+
+        assertEquals(1, groups.size)
+        assertEquals(listOf("серія", "бігти"), groups.single().translations)
+    }
+
+    // I1 — дедуп збереження (Task 4) мусить іти через ПЕРЕТИН, не через рівність ключів.
+    @Test
+    fun overlapsSenseGroupMatchesRevisedCandidateWithExtraSenseKey() {
+        val saved = entry("1", "run", "бігти", senseKeys = listOf("k1"))
+        val candidate = details(senseKeys = listOf("k1", "k2"))
+
+        // саме та пастка, від якої страхує хелпер: ключі різні, сенс спільний
+        assertNotEquals(saved.senseGroupKey(), entry("2", "run", "мчати", details = candidate).senseGroupKey())
+        assertTrue(saved.overlapsSenseGroup("run", candidate))
+    }
+
+    @Test
+    fun overlapsSenseGroupSeparatesDifferentSenseKeysAndSourceWords() {
+        val saved = entry("1", "run", "бігти", senseKeys = listOf("k1"))
+
+        assertFalse(saved.overlapsSenseGroup("run", details(senseKeys = listOf("k2"))))
+        assertFalse(saved.overlapsSenseGroup("naturally", details(senseKeys = listOf("k1"))))
+        assertTrue(saved.overlapsSenseGroup(" RUN ", details(senseKeys = listOf("k1"))))
+    }
+
+    @Test
+    fun overlapsSenseGroupKeepsLegacyApartFromAttributedCandidate() {
+        val legacySaved = entry("1", "run", "серія")
+
+        assertFalse(legacySaved.overlapsSenseGroup("run", details(senseKeys = listOf("k1"))))
+        assertFalse(entry("2", "run", "бігти", senseKeys = listOf("k1")).overlapsSenseGroup("run", null))
+        // обидва без атрибуції — той самий легасі-фолбек
+        assertTrue(legacySaved.overlapsSenseGroup("run", null))
+        assertTrue(legacySaved.overlapsSenseGroup("run", details()))
+    }
+
+    @Test
+    fun overlapsSenseGroupUsesTheSameKeysAsGrouping() {
+        val saved = entry("1", "run", "бігти", senseKeys = listOf("k1"))
+
+        assertEquals(setOf("k1"), saved.senseMergeKeys())
+        assertEquals(setOf("k1", "k2"), details(senseKeys = listOf("k1", "k2")).senseMergeKeys())
+        assertEquals(emptySet<String>(), (null as WordDetails?).senseMergeKeys())
     }
 
     @Test
