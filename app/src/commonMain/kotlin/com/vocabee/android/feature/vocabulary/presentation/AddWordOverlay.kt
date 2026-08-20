@@ -141,8 +141,10 @@ internal fun List<com.vocabee.android.feature.vocabulary.domain.model.WordEntry>
  * `TranslationOption.alreadyAdded` навмисно НЕ враховується: він заморожений на
  * момент пошуку (і рахується з того самого набору), тож у суміші робив би
  * toggle однобічним — після видалення рядка ✓ лишалась би назавжди, і додати
- * слово назад без нового пошуку було б неможливо. `alreadyAdded` лишається
- * лише підписом-нотаткою рядка ([TranslationOptionNote.AlreadyAdded]).
+ * слово назад без нового пошуку було б неможливо. Сам `alreadyAdded` (як і
+ * `note`) досі обчислюється в `toOption`, але продакшн-споживача в UI наразі
+ * НЕ має — жодного підпису «додано раніше» на екрані немає; поля лишені для
+ * сумісності й тестів.
  */
 internal fun TranslationOption.isSavedIn(savedWordKeys: Set<String>): Boolean =
     savedWordKeys.contains(savedWordKey(learningWord, value))

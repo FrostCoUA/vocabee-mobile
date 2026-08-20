@@ -167,11 +167,14 @@ isAdded = savedWordKeys.contains(savedWordKey(learningWord, value))
 Прапорець `TranslationOption.alreadyAdded` у цю умову **не входить**: він
 заморожений на момент пошуку і рахується з того самого клієнтського набору, тож
 у суміші робив би toggle однобічним (після видалення рядка ✓ лишалась би
-назавжди). Він живе далі лише як підпис-нотатка рядка (`AlreadyAdded(origin)`).
+назавжди). `alreadyAdded` і `note` досі обчислюються в `toOption`, але
+**продакшн-споживача в UI не мають** — підпису «додано раніше» на екрані немає
+(рендер `TranslationOptionNote` прибрано історично); поля лишаються заради
+сумісності моделі й тестів.
 
 | Шлях | Деталі | Код |
 |---|---|---|
-| Знімок `alreadyAdded` (лише нотатка) | `searchRemotely` віддає `saved = topic.words.savedWordKeys()` в use-case; `SearchVariant.toOption` звіряє `savedWordKey(learningWord, knownWord)` і ставить `alreadyAdded` + note `AlreadyAdded` — це впливає на підпис рядка, не на `+`/`✓` | `App.kt` (`searchRemotely`), `RemoteLexiconSearchUseCase.toOption` |
+| Знімок `alreadyAdded` (без споживача в UI) | `searchRemotely` віддає `saved = topic.words.savedWordKeys()` в use-case; `SearchVariant.toOption` звіряє `savedWordKey(learningWord, knownWord)` і ставить `alreadyAdded` + note `AlreadyAdded`. На екран це наразі не впливає ніяк — ні на `+`/`✓`, ні на підпис | `App.kt` (`searchRemotely`), `RemoteLexiconSearchUseCase.toOption` |
 | Живий локальний `Set` (джерело правди для `+`/`✓`) | `savedWordKeys = topic.words.savedWordKeys()`, перераховується на кожен recompose `topic.words` | `AddWordOverlay.kt`, `App.kt` (`DictionaryDetailScreen`) |
 | Toggle | `isAdded` → клік `onRemove(learningWord, value)` (фіолетова `✓`); інакше `onAdd` (акцент `+`). Хост перерендерює оверлей зі свіжим `topic` після стор-апдейту | `AddWordOverlay.kt` |
 | Нормалізація | `savedWordKey` робить `.trim().lowercase()` з обох боків пари | `VocabularyModels.kt` (`savedWordKey`) |
@@ -501,7 +504,7 @@ GET /v1/search ─► LexiconService:
 RemoteLexiconSearchUseCase.toOption → List<TranslationOption>
    ▼
 AddWordResultsList (слово+IPA+переклад+Sparkle, розгортання деталей, +/✓)
-   │   дубль: живий savedWordKeys (пара слово+переклад); alreadyAdded — лише нотатка
+   │   дубль: живий savedWordKeys (пара слово+переклад); alreadyAdded — без споживача в UI
    ▼
 onAdd → canAddWordToDictionary() → AddWord (learningWord, value, ipa, details + translationId) → sync
    │   auth sync: Dictionary target-scoped projector → schema+SHA-256 revision
