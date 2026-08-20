@@ -108,4 +108,24 @@ class WordDetailsPresentationTest {
         assertEquals(listOf("beacon", "flare"), content.synonyms)
         assertEquals(listOf("concealment"), content.antonyms)
     }
+
+    // Підпис сенсу в рядку пошуку: лише АТРИБУТОВАНИЙ сенс, інакше нічого —
+    // перший сенс легасі-блоба не має стосунку до конкретного перекладу.
+    @Test
+    fun firstSenseLineTakesTheAttributedSenseOrNothing() {
+        val details = WordDetails(
+            senseKeys = listOf("sense_burst"),
+            senses = listOf(signalSense, burstSense),
+        )
+
+        assertEquals("a sudden burst of light", details.firstSenseLine())
+        assertEquals(null, WordDetails(senses = listOf(signalSense, burstSense)).firstSenseLine())
+        assertEquals(
+            "The sky flashed.",
+            WordDetails(
+                senseIndex = 0,
+                senses = listOf(WordSense(definition = "  ", examples = listOf("The sky flashed."))),
+            ).firstSenseLine(),
+        )
+    }
 }

@@ -162,6 +162,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
+import com.vocabee.android.feature.vocabulary.domain.model.attributionSignature
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKeys
 import com.vocabee.android.feature.vocabulary.domain.usecase.ContextGlossaryUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
@@ -4503,12 +4504,6 @@ internal fun WordDetails.attributedSenseIndexes(): List<Int> {
         }
     if (byStableKey.isNotEmpty()) return byStableKey
     return listOfNotNull(senseIndex?.takeIf { it in senses.indices })
-}
-
-internal fun WordDetails.attributionSignature(): String? {
-    val stableKeys = senseKeys.filter(String::isNotBlank).distinct().sorted()
-    if (stableKeys.isNotEmpty()) return stableKeys.joinToString(separator = "\u0000")
-    return senseIndex?.takeIf { it in senses.indices }?.let { "legacy:$it" }
 }
 
 @Composable

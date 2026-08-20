@@ -73,8 +73,10 @@ import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import com.vocabee.android.feature.vocabulary.domain.model.attributionSignature
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKeys
+import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
 import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechInputController
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -174,18 +176,9 @@ internal fun WordEntry.senseGroupKey(): String {
 }
 
 /**
- * Множина сенсів, за якою запис зливається з групою. Стабільні `senseKeys`
- * мають пріоритет; легасі-атрибуція представлена одним псевдоключем
- * `legacy:$senseIndex` (те саме правило, що й у [attributionSignature]).
- * Порожня множина = атрибуції немає взагалі (легасі-запис).
+ * Множина сенсів запису — та сама доменна [senseMergeKeys], що й для варіантів
+ * відповіді пошуку; правило атрибуції живе в домені й тут лише перевикористане.
  */
-internal fun WordDetails?.senseMergeKeys(): Set<String> {
-    val details = this ?: return emptySet()
-    val stableKeys = details.senseKeys.filter(String::isNotBlank).toSet()
-    if (stableKeys.isNotEmpty()) return stableKeys
-    return setOfNotNull(details.attributionSignature())
-}
-
 internal fun WordEntry.senseMergeKeys(): Set<String> = details.senseMergeKeys()
 
 /**
@@ -932,8 +925,13 @@ internal fun AddWordResultsList(
                 option = option,
                 accent = accent,
                 isAdded = isAdded,
+                // «Близькі за значенням» — такі самі опції, тож і ✓, і додавання
+                // йдуть тими самими колбеками, лише з іншим перекладом.
+                isAlternativeAdded = { alternative -> alternative.isSavedIn(savedWordKeys) },
                 onAdd = { onAdd(option) },
                 onRemove = { onRemove(option) },
+                onAddAlternative = onAdd,
+                onRemoveAlternative = onRemove,
                 onDislike = { onDislike(option) },
             )
         }
@@ -990,21 +988,31 @@ private fun footerCaptionFor(tier: String?, maxResults: Int?): String {
     return "Переклади та приклади згенеровано AI"
 }
 
+/**
+ * Рядок одного СЕНСУ: головний переклад згори, «близькі за значенням» —
+ * у розгорнутому стані. Композабл лишається stateless: чи збережена
+ * альтернатива, вирішує [isAlternativeAdded] з живого набору кол-сайту.
+ */
 @Composable
 private fun AddWordResultRow(
     query: String,
     option: TranslationOption,
     accent: Color,
     isAdded: Boolean,
+    isAlternativeAdded: (TranslationOption) -> Boolean,
     onAdd: () -> Unit,
     onRemove: () -> Unit,
+    onAddAlternative: (TranslationOption) -> Unit,
+    onRemoveAlternative: (TranslationOption) -> Unit,
     onDislike: () -> Unit,
 ) {
     val details = option.details
     val hasDetails = details != null && !details.isEmpty
+    val senseLine = details?.firstSenseLine()
     var sourceTextOverflows by remember(option.learningWord) { mutableStateOf(false) }
     var translationTextOverflows by remember(option.value) { mutableStateOf(false) }
-    val canExpand = hasDetails || sourceTextOverflows || translationTextOverflows
+    val canExpand = hasDetails || option.alternatives.isNotEmpty() ||
+        sourceTextOverflows || translationTextOverflows
     var expanded by remember(option.learningWord, option.value) { mutableStateOf(false) }
     val rowBg = if (isAdded) PrototypeColor.NeutralSurface else PrototypeColor.White
     val rowBorder = if (isAdded) PrototypeColor.Line2 else PrototypeColor.Line
@@ -1071,6 +1079,19 @@ private fun AddWordResultRow(
                         if (!expanded) translationTextOverflows = result.hasVisualOverflow
                     },
                 )
+                // Перший рядок сенсу — саме він відрізняє айтеми одного слова
+                // один від одного, коли переклади зібрані у сенс-групи.
+                if (senseLine != null) {
+                    Text(
+                        text = senseLine,
+                        modifier = Modifier.padding(top = 4.dp),
+                        color = PrototypeColor.Muted2,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 12.5.sp,
+                        maxLines = if (expanded) 3 else 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 val lexicalLabels = details?.lexicalLabels().orEmpty()
                 if (lexicalLabels.isNotEmpty()) {
                     Text(
@@ -1119,10 +1140,21 @@ private fun AddWordResultRow(
                 )
             }
         }
-        if (expanded && details != null) {
+        // Деталі без видимого вмісту (лише список групи) не малюємо — блок був
+        // би порожнім; «близькі» рендеряться окремо нижче.
+        if (expanded && details != null && !details.isEmpty) {
             WordDetailsBlock(
                 details = details,
                 accent = accent,
+            )
+        }
+        if (expanded && option.alternatives.isNotEmpty()) {
+            SenseAlternativesBlock(
+                alternatives = option.alternatives,
+                accent = accent,
+                isAdded = isAlternativeAdded,
+                onAdd = onAddAlternative,
+                onRemove = onRemoveAlternative,
             )
         }
         if (option.translationId.isNotBlank()) {
@@ -1137,6 +1169,82 @@ private fun AddWordResultRow(
             )
         }
     }
+}
+
+/**
+ * «Близькі за значенням» — решта перекладів того самого сенсу. У кожного своє
+ * ✓/+: зберігається саме обраний синонім, але з деталями й списком групи, тож
+ * у словнику він лишається тим самим сенсом.
+ */
+@Composable
+private fun SenseAlternativesBlock(
+    alternatives: List<TranslationOption>,
+    accent: Color,
+    isAdded: (TranslationOption) -> Boolean,
+    onAdd: (TranslationOption) -> Unit,
+    onRemove: (TranslationOption) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(
+            text = "Близькі за значенням",
+            color = PrototypeColor.Muted2,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 11.5.sp,
+        )
+        for (alternative in alternatives) {
+            val alternativeAdded = isAdded(alternative)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(PrototypeColor.NeutralSurface)
+                    .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = alternative.value,
+                    modifier = Modifier.weight(1f),
+                    color = PrototypeColor.Ink,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(if (alternativeAdded) PrototypeColor.Purple else accent)
+                        .clickable {
+                            if (alternativeAdded) onRemove(alternative) else onAdd(alternative)
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PrototypeLineIcon(
+                        icon = if (alternativeAdded) PrototypeIcon.Check else PrototypeIcon.Plus,
+                        modifier = Modifier.size(16.dp),
+                        color = Color.White,
+                        strokeWidth = 2.6f,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Перший рядок значення цього рядка результатів: дефініція АТРИБУТОВАНОГО
+ * сенсу, а якщо її немає — його ж перший приклад. Береться саме атрибутований
+ * сенс (`attributedSenseIndexes`), а не `senses.first()`: у неатрибутованого
+ * варіанта перший сенс блоба — випадковий, і підпис брехав би. Немає
+ * атрибуції — немає й рядка (як було до сенс-груп).
+ */
+internal fun WordDetails.firstSenseLine(): String? {
+    val sense = attributedSenseIndexes().firstNotNullOfOrNull { index -> senses.getOrNull(index) }
+        ?: return null
+    return sense.definition.takeIf(String::isNotBlank)
+        ?: sense.examples.firstOrNull(String::isNotBlank)
 }
 
 private fun lerpColor(start: Color, end: Color, t: Float): Color {

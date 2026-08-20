@@ -149,6 +149,28 @@ debug-конфігурація використовує `https://dev-api.vocabee
 
 `TranslationOption.note` (Primary/Additional/Alternative/AlreadyAdded) виводиться з `variant.source` (`dictionary`/`translator`/`ai`) у `RemoteLexiconSearchUseCase.kt:84-91`.
 
+### 5.1 [НОВЕ, фаза 2] Один айтем на сенс: головний переклад + «близькі за значенням»
+
+Варіанти відповіді зливаються в **одну опцію на сенс**
+(`RemoteLexiconSearchUseCase.toSenseGroupedOptions`), тож `бігти` і `гнати` для
+значення «рухатися швидко» більше не займають два рядки.
+
+| Правило | Деталі |
+|---|---|
+| Ключ групи | слово-джерело (`learningWord`, `trim().lowercase()`) + доменні `WordDetails?.senseMergeKeys()` — стабільні `senseKeys`, інакше легасі `legacy:$senseIndex` (лише коли індекс справді вказує на наявний sense). Те саме правило, що й у словнику (`groupBySense`/`overlapsSenseGroup`) — єдина копія живе в `VocabularyModels.kt` |
+| Неатрибутовані варіанти | **не зливаються** навіть між собою: без атрибуції невідомо, чи це той самий сенс, тож кожен лишається окремим рядком (стара поведінка) |
+| Головний у групі | перший за порядком сервера (сервер уже сортує `isPrimary`/`confidence`); дублі перекладу в межах групи згортаються по `trim().lowercase()` |
+| Злиття | за **рівністю** множин ключів (уся відповідь — з однієї ревізії лексикону), на відміну від збережених слів, де `groupBySense` зливає за перетином |
+| `TranslationOption.alternatives` | решта групи повноцінними опціями (свій `translationId`, свої `details`) |
+| `WordDetails.senseGroupTranslations` | усі переклади групи, представник першим — і в головного, і в кожної альтернативи; порожній для одинарної групи. Персиститься в `detailsJson` (`encodeDefaults=false`, старий JSON читається без міграції) і робить `shouldPersist` істинним навіть коли решта деталей порожня |
+
+UI (`AddWordResultRow`):
+
+- під перекладом — **перший рядок сенсу** (`WordDetails.firstSenseLine()`: дефініція, інакше перший приклад); саме він розрізняє два айтеми одного слова;
+- `canExpand` тепер враховує ще й наявність альтернатив;
+- у розгорнутому стані під `WordDetailsBlock` — блок **«Близькі за значенням»** (`SenseAlternativesBlock`): рядок на кожну альтернативу зі своїм `+`/`✓`. Кнопка кладе у словник саме обраний синонім (`onAdd(alternative)`), з тими самими деталями сенсу й списком групи;
+- деталі без видимого вмісту (лише список групи) блоком не малюються.
+
 ---
 
 ## 6. Виявлення дубліката (`+` ↔ `✓`)
@@ -175,6 +197,7 @@ isAdded = savedWordKeys.contains(savedWordKey(learningWord, value))
 | Шлях | Деталі | Код |
 |---|---|---|
 | Знімок `alreadyAdded` (без споживача в UI) | `searchRemotely` віддає `saved = topic.words.savedWordKeys()` в use-case; `SearchVariant.toOption` звіряє `savedWordKey(learningWord, knownWord)` і ставить `alreadyAdded` + note `AlreadyAdded`. На екран це наразі не впливає ніяк — ні на `+`/`✓`, ні на підпис | `App.kt` (`searchRemotely`), `RemoteLexiconSearchUseCase.toOption` |
+| [НОВЕ, фаза 2] `alreadyAdded` на групі | у головної опції прапорець рахується по **всій сенс-групі**: збережений `run→гнати` означає, що сенс уже у словнику, навіть якщо головний переклад — `бігти`. Альтернативи лишають свій власний по-парний прапорець. Живі `+`/`✓` (і головного рядка, і кожної альтернативи) все одно рахуються з `savedWordKeys` по конкретній парі | `RemoteLexiconSearchUseCase.toSenseGroupedOptions`, `AddWordOverlay.isSavedIn` |
 | Живий локальний `Set` (джерело правди для `+`/`✓`) | `savedWordKeys = topic.words.savedWordKeys()`, перераховується на кожен recompose `topic.words` | `AddWordOverlay.kt`, `App.kt` (`DictionaryDetailScreen`) |
 | Toggle | `isAdded` → клік `onRemove(learningWord, value)` (фіолетова `✓`); інакше `onAdd` (акцент `+`). Хост перерендерює оверлей зі свіжим `topic` після стор-апдейту | `AddWordOverlay.kt` |
 | Нормалізація | `savedWordKey` робить `.trim().lowercase()` з обох боків пари | `VocabularyModels.kt` (`savedWordKey`) |

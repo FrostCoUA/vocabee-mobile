@@ -88,6 +88,13 @@ data class WordDetails(
      */
     val senseIndex: Int? = null,
     val senses: List<WordSense> = emptyList(),
+    /**
+     * Усі переклади СЕНС-ГРУПИ, до якої належить ця пара (представник першим) —
+     * знімок із пошуку: `бігти` і `гнати` для сенсу «рухатися швидко». Порожній
+     * для одинарних груп і для збережень до цієї фічі; споживач, що рендерить
+     * «близькі за значенням», сам відкидає власний переклад запису.
+     */
+    val senseGroupTranslations: List<String> = emptyList(),
     val synonyms: List<String> = emptyList(),
     val antonyms: List<String> = emptyList(),
     val forms: List<WordForm> = emptyList(),
@@ -122,8 +129,42 @@ data class WordDetails(
             lexiconSchemaVersion != null ||
             !lexiconRevision.isNullOrBlank()
 
+    /**
+     * [senseGroupTranslations] окремим доданком: перелік «близьких за значенням»
+     * — це вже вміст, вартий збереження, навіть коли решта деталей порожня
+     * (варіант без сенсів і без id). У [isEmpty] він свідомо НЕ входить: той
+     * прапорець керує розгортанням деталей у UI.
+     */
     val shouldPersist: Boolean
-        get() = !isEmpty || hasLexiconSnapshot
+        get() = !isEmpty || hasLexiconSnapshot || senseGroupTranslations.isNotEmpty()
+}
+
+/**
+ * Підпис атрибуції перекладу: відсортовані стабільні `senseKeys`, інакше легасі
+ * `legacy:$senseIndex` (лише якщо індекс справді вказує на наявний sense).
+ * Null — атрибуції немає взагалі (збереження до V2).
+ */
+internal fun WordDetails.attributionSignature(): String? {
+    val stableKeys = senseKeys.filter(String::isNotBlank).distinct().sorted()
+    if (stableKeys.isNotEmpty()) return stableKeys.joinToString(separator = "\u0000")
+    return senseIndex?.takeIf { it in senses.indices }?.let { "legacy:$it" }
+}
+
+/**
+ * Множина сенсів, за якою переклад зливається з групою. Стабільні `senseKeys`
+ * мають пріоритет; легасі-атрибуція представлена одним псевдоключем
+ * `legacy:$senseIndex` (те саме правило, що й у [attributionSignature]).
+ * Порожня множина = атрибуції немає взагалі (легасі-запис).
+ *
+ * Живе в домені навмисно: це правило спільне для збережених слів
+ * (`groupBySense`, `overlapsSenseGroup`) і для групування відповіді пошуку
+ * (`toSenseGroupedOptions`) — копії правила розійшлися б.
+ */
+internal fun WordDetails?.senseMergeKeys(): Set<String> {
+    val details = this ?: return emptySet()
+    val stableKeys = details.senseKeys.filter(String::isNotBlank).toSet()
+    if (stableKeys.isNotEmpty()) return stableKeys
+    return setOfNotNull(details.attributionSignature())
 }
 
 data class LanguageOption(
@@ -216,6 +257,14 @@ data class TranslationOption(
     val ipa: String? = null,
     /** Rich dictionary enrichment (senses, synonyms, antonyms, forms). */
     val details: WordDetails? = null,
+    /**
+     * «Близькі за значенням» — решта перекладів ТОГО САМОГО сенсу, кожен
+     * повноцінною опцією (свій `translationId` і свої `details`, у яких той
+     * самий `senseGroupTranslations`). Тому ✓ на альтернативі зберігається
+     * звичайним `onAdd(альтернатива)`, без переписування головної опції.
+     * Порожній у самих альтернатив — вкладеність на один рівень.
+     */
+    val alternatives: List<TranslationOption> = emptyList(),
 )
 
 sealed interface TranslationOptionNote {

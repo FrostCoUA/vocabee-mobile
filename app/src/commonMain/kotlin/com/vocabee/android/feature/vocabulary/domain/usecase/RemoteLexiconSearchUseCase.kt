@@ -16,6 +16,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordForm
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
+import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
 
 /** Тег для `adb logcat -s VocabeeSearch` — звідки прийшов кожен переклад. */
 internal const val SearchLogTag = "VocabeeSearch"
@@ -55,7 +56,7 @@ class RemoteLexiconSearchUseCase(
                 learnLang = learnLang,
             )
             trackSearchResult(response, currentEpochMillis() - startedAt)
-            val options = response.results.map { variant -> variant.toOption(savedWordKeys) }
+            val options = response.results.toSenseGroupedOptions(savedWordKeys)
             Result.Ok(
                 query = query,
                 options = options,
@@ -165,11 +166,83 @@ private fun isAiOrigin(origin: String?): Boolean =
     origin?.startsWith("openai-") == true || origin?.startsWith("ai-") == true
 
 /**
+ * Один айтем на СЕНС: варіанти, що рендерять те саме значення, зливаються в
+ * одну опцію — головний переклад плюс [TranslationOption.alternatives]
+ * («близькі за значенням»).
+ *
+ * Ключ групи — слово-джерело + доменні [senseMergeKeys] (стабільні `senseKeys`,
+ * інакше легасі `legacy:$senseIndex`); слово в ключі обов'язкове, бо однаковий
+ * senseKey у різних слів — різні сенси. Неатрибутовані варіанти НЕ зливаються
+ * навіть між собою: без атрибуції ми не знаємо, чи це той самий сенс, тож
+ * кожен лишається окремим рядком (стара поведінка списку).
+ *
+ * Головний у групі — перший за порядком сервера: сервер уже сортує за
+ * `isPrimary`/`confidence`, тож клієнт не перевпорядковує.
+ *
+ * На відміну від `groupBySense` (збережені слова, шар presentation) тут злиття
+ * йде за РІВНІСТЮ множин ключів, а не за перетином:
+ * уся відповідь приходить з однієї ревізії лексикону, тож розбіжність множин
+ * означає різні набори значень, і рядки чесніше показати окремо.
+ *
+ * @param savedWordKeys ключі [savedWordKey] збережених пар (слово, переклад).
+ */
+internal fun List<SearchVariant>.toSenseGroupedOptions(savedWordKeys: Set<String>): List<TranslationOption> {
+    val buckets = mutableListOf<MutableList<SearchVariant>>()
+    val bucketsByKey = mutableMapOf<Pair<String, List<String>>, MutableList<SearchVariant>>()
+    for (variant in this) {
+        val key = variant.senseGroupKey()
+        val bucket = if (key == null) {
+            mutableListOf<SearchVariant>().also(buckets::add)
+        } else {
+            bucketsByKey.getOrPut(key) { mutableListOf<SearchVariant>().also(buckets::add) }
+        }
+        bucket += variant
+    }
+    return buckets.map { bucket -> bucket.toSenseGroupOption(savedWordKeys) }
+}
+
+/** Null — атрибуції немає, такий варіант ні з чим не зливається. */
+private fun SearchVariant.senseGroupKey(): Pair<String, List<String>>? {
+    val mergeKeys = toWordDetails().senseMergeKeys()
+    if (mergeKeys.isEmpty()) return null
+    return learningWord.trim().lowercase() to mergeKeys.sorted()
+}
+
+/**
+ * Опція одного сенсу. `value` — головний переклад, `alternatives` — решта
+ * групи, `details.senseGroupTranslations` (у головного і в кожної
+ * альтернативи) — увесь список групи, представник першим; тому ✓ на
+ * альтернативі зберігає її переклад із тим самим сенс-контекстом.
+ *
+ * `alreadyAdded` рахується по ВСІЙ групі: збережений `run→гнати` означає, що
+ * сенс уже у словнику, хай навіть головний переклад — `бігти`. Живу позначку
+ * рядка UI все одно бере з `savedWordKeys` по конкретній парі (`isSavedIn`).
+ */
+private fun List<SearchVariant>.toSenseGroupOption(savedWordKeys: Set<String>): TranslationOption {
+    val members = distinctBy { member -> member.knownWord.trim().lowercase() }
+    // Список із самого себе не несе інформації — «близькі» лишаються порожніми.
+    val groupTranslations = if (members.size > 1) members.map(SearchVariant::knownWord) else emptyList()
+    val head = members.first().toOption(savedWordKeys, groupTranslations)
+    val alternatives = members.drop(1).map { member -> member.toOption(savedWordKeys, groupTranslations) }
+    val groupSaved = head.alreadyAdded || alternatives.any(TranslationOption::alreadyAdded)
+    return head.copy(
+        alreadyAdded = groupSaved,
+        note = if (groupSaved) TranslationOptionNote.AlreadyAdded(source = members.first().origin) else head.note,
+        alternatives = alternatives,
+    )
+}
+
+/**
  * @param savedWordKeys ключі [savedWordKey] збережених пар (слово, переклад).
  * Позначка «вже додано» звіряє саме пару: збережений `run→серія` не робить
  * «доданим» варіант `series→серія`.
+ * @param senseGroupTranslations усі переклади сенс-групи (представник першим);
+ * порожній для одинарної групи.
  */
-internal fun SearchVariant.toOption(savedWordKeys: Set<String>): TranslationOption {
+internal fun SearchVariant.toOption(
+    savedWordKeys: Set<String>,
+    senseGroupTranslations: List<String> = emptyList(),
+): TranslationOption {
     val translation = knownWord
     val alreadySaved = savedWordKeys.contains(
         savedWordKey(source = learningWord, translation = translation),
@@ -188,38 +261,48 @@ internal fun SearchVariant.toOption(savedWordKeys: Set<String>): TranslationOpti
         alreadyAdded = alreadySaved,
         learningWord = learningWord,
         ipa = ipa,
-        details = WordDetails(
-            translationId = translationId.takeIf { it.isNotBlank() },
-            lexiconSchemaVersion = lexiconSchemaVersion,
-            lexiconRevision = lexiconRevision,
-            senseKeys = senseKeys.distinct(),
-            senseIndex = senseIndex,
-            senses = senses.map { sense ->
-                WordSense(
-                    senseKey = sense.senseKey,
-                    definition = sense.definition,
-                    partOfSpeech = sense.partOfSpeech,
-                    tags = sense.tags,
-                    examples = sense.examples.map { it.text },
-                    synonyms = sense.synonyms,
-                    antonyms = sense.antonyms,
-                )
-            },
-            synonyms = synonyms,
-            antonyms = antonyms,
-            forms = forms.map { WordForm(text = it.text, tags = it.tags) },
-            partOfSpeech = partOfSpeech,
-            lexicalUnitKind = lexicalUnitKind.toLexicalUnitKind(),
-            registerTags = registerTags.mapNotNull(String::toLexicalRegisterTag).distinct(),
-            expansion = expansion,
-            translatedExpansion = translatedExpansion,
-            meaning = meaning,
-            literalTranslation = literalTranslation,
-            usageExample = usageExample,
-            usageExampleTranslation = usageExampleTranslation,
-        ).takeIf { it.shouldPersist },
+        details = toWordDetails(senseGroupTranslations).takeIf { it.shouldPersist },
     )
 }
+
+/**
+ * Повний зліпок деталей варіанта — БЕЗ фільтра `shouldPersist`: групування
+ * читає з нього `senseKeys`/`senseIndex` ще до того, як порожній зліпок буде
+ * відкинуто.
+ */
+private fun SearchVariant.toWordDetails(
+    senseGroupTranslations: List<String> = emptyList(),
+): WordDetails = WordDetails(
+    translationId = translationId.takeIf { it.isNotBlank() },
+    lexiconSchemaVersion = lexiconSchemaVersion,
+    lexiconRevision = lexiconRevision,
+    senseKeys = senseKeys.distinct(),
+    senseIndex = senseIndex,
+    senses = senses.map { sense ->
+        WordSense(
+            senseKey = sense.senseKey,
+            definition = sense.definition,
+            partOfSpeech = sense.partOfSpeech,
+            tags = sense.tags,
+            examples = sense.examples.map { it.text },
+            synonyms = sense.synonyms,
+            antonyms = sense.antonyms,
+        )
+    },
+    senseGroupTranslations = senseGroupTranslations,
+    synonyms = synonyms,
+    antonyms = antonyms,
+    forms = forms.map { WordForm(text = it.text, tags = it.tags) },
+    partOfSpeech = partOfSpeech,
+    lexicalUnitKind = lexicalUnitKind.toLexicalUnitKind(),
+    registerTags = registerTags.mapNotNull(String::toLexicalRegisterTag).distinct(),
+    expansion = expansion,
+    translatedExpansion = translatedExpansion,
+    meaning = meaning,
+    literalTranslation = literalTranslation,
+    usageExample = usageExample,
+    usageExampleTranslation = usageExampleTranslation,
+)
 
 private fun String.toLexicalUnitKind(): LexicalUnitKind = when (lowercase()) {
     "phrase" -> LexicalUnitKind.Phrase

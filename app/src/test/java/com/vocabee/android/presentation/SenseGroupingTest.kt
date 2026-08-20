@@ -3,6 +3,7 @@ package com.vocabee.android.feature.vocabulary.presentation
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
+import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
