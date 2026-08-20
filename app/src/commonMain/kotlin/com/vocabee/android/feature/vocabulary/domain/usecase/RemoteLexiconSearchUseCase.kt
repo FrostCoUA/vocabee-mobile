@@ -170,43 +170,59 @@ private fun isAiOrigin(origin: String?): Boolean =
  * одну опцію — головний переклад плюс [TranslationOption.alternatives]
  * («близькі за значенням»).
  *
- * Ключ групи — слово-джерело + доменні [senseMergeKeys] (стабільні `senseKeys`,
- * інакше легасі `legacy:$senseIndex`); слово в ключі обов'язкове, бо однаковий
- * senseKey у різних слів — різні сенси. Неатрибутовані варіанти НЕ зливаються
- * навіть між собою: без атрибуції ми не знаємо, чи це той самий сенс, тож
- * кожен лишається окремим рядком (стара поведінка списку).
+ * **Мердж «якір на головного»:** група тримає множину сенсів свого ПЕРШОГО
+ * (головного) варіанта; кандидат вливається, якщо його ключі
+ * ([senseMergeKeys] — стабільні `senseKeys`, інакше легасі `legacy:$senseIndex`)
+ * ПЕРЕТИНАЮТЬСЯ з ключами якоря. Рівності вимагати не можна: у V2-даних
+ * ~1,6% головних слів мають ширший переклад із зайвим сенсом
+ * (`strange` → `дивний[k1]` + `чудернацький[k1,k2]`), і два рядки з тим самим
+ * підписом виглядали б як баг.
+ *
+ * Якір НЕ розширюється прийнятими кандидатами, тобто перетин **не
+ * транзитивний**: `[k2]` не приклеїться до групи `[k1]` через місток
+ * `[k1,k2]`. Інакше ланцюжок сенсів злипався б в одну «мега-групу».
+ *
+ * Слово-джерело входить у порівняння обов'язково: однаковий senseKey у різних
+ * слів — різні сенси. Неатрибутовані варіанти НЕ зливаються навіть між собою:
+ * без атрибуції невідомо, чи це той самий сенс, тож кожен лишається окремим
+ * рядком (стара поведінка списку).
  *
  * Головний у групі — перший за порядком сервера: сервер уже сортує за
  * `isPrimary`/`confidence`, тож клієнт не перевпорядковує.
  *
- * На відміну від `groupBySense` (збережені слова, шар presentation) тут злиття
- * йде за РІВНІСТЮ множин ключів, а не за перетином:
- * уся відповідь приходить з однієї ревізії лексикону, тож розбіжність множин
- * означає різні набори значень, і рядки чесніше показати окремо.
- *
  * @param savedWordKeys ключі [savedWordKey] збережених пар (слово, переклад).
  */
 internal fun List<SearchVariant>.toSenseGroupedOptions(savedWordKeys: Set<String>): List<TranslationOption> {
-    val buckets = mutableListOf<MutableList<SearchVariant>>()
-    val bucketsByKey = mutableMapOf<Pair<String, List<String>>, MutableList<SearchVariant>>()
-    for (variant in this) {
-        val key = variant.senseGroupKey()
-        val bucket = if (key == null) {
-            mutableListOf<SearchVariant>().also(buckets::add)
-        } else {
-            bucketsByKey.getOrPut(key) { mutableListOf<SearchVariant>().also(buckets::add) }
-        }
-        bucket += variant
+    class SenseBucket(val sourceKey: String, val anchorKeys: Set<String>) {
+        val members = mutableListOf<SearchVariant>()
     }
-    return buckets.map { bucket -> bucket.toSenseGroupOption(savedWordKeys) }
+
+    val buckets = mutableListOf<SenseBucket>()
+    for (variant in this) {
+        val sourceKey = variant.learningWord.trim().lowercase()
+        val keys = variant.attributionKeys()
+        // Порожні ключі не перетинаються ні з чим — неатрибутований варіант
+        // завжди відкриває власну групу (і в неї теж ніхто не вливається).
+        val matched = if (keys.isEmpty()) null else buckets.firstOrNull { bucket ->
+            bucket.sourceKey == sourceKey && bucket.anchorKeys.any(keys::contains)
+        }
+        val target = matched ?: SenseBucket(sourceKey, keys).also(buckets::add)
+        target.members += variant
+    }
+    return buckets.map { bucket -> bucket.members.toSenseGroupOption(savedWordKeys) }
 }
 
-/** Null — атрибуції немає, такий варіант ні з чим не зливається. */
-private fun SearchVariant.senseGroupKey(): Pair<String, List<String>>? {
-    val mergeKeys = toWordDetails().senseMergeKeys()
-    if (mergeKeys.isEmpty()) return null
-    return learningWord.trim().lowercase() to mergeKeys.sorted()
-}
+/**
+ * Атрибуція варіанта — тим самим доменним правилом [senseMergeKeys], але на
+ * ЛЕГКОМУ зліпку: правило читає лише `senseKeys`, `senseIndex` і межі `senses`,
+ * тож повний маппінг деталей (приклади, форми, синоніми) тут зайвий — його
+ * робить [toOption] рівно один раз на варіант.
+ */
+private fun SearchVariant.attributionKeys(): Set<String> = WordDetails(
+    senseKeys = senseKeys.distinct(),
+    senseIndex = senseIndex,
+    senses = senses.map { sense -> WordSense(senseKey = sense.senseKey, definition = sense.definition) },
+).senseMergeKeys()
 
 /**
  * Опція одного сенсу. `value` — головний переклад, `alternatives` — решта
@@ -219,7 +235,7 @@ private fun SearchVariant.senseGroupKey(): Pair<String, List<String>>? {
  * рядка UI все одно бере з `savedWordKeys` по конкретній парі (`isSavedIn`).
  */
 private fun List<SearchVariant>.toSenseGroupOption(savedWordKeys: Set<String>): TranslationOption {
-    val members = distinctBy { member -> member.knownWord.trim().lowercase() }
+    val members = distinctByTranslation()
     // Список із самого себе не несе інформації — «близькі» лишаються порожніми.
     val groupTranslations = if (members.size > 1) members.map(SearchVariant::knownWord) else emptyList()
     val head = members.first().toOption(savedWordKeys, groupTranslations)
@@ -230,6 +246,23 @@ private fun List<SearchVariant>.toSenseGroupOption(savedWordKeys: Set<String>): 
         note = if (groupSaved) TranslationOptionNote.AlreadyAdded(source = members.first().origin) else head.note,
         alternatives = alternatives,
     )
+}
+
+/**
+ * Однаковий переклад у межах групи — один рядок. Позиція визначається першим
+ * входженням, але з дублів лишається екземпляр із НЕПОРОЖНІМ `translationId`:
+ * саме він дає скаргу «неякісний переклад» і зв'язок із лексиконом.
+ */
+private fun List<SearchVariant>.distinctByTranslation(): List<SearchVariant> {
+    val kept = LinkedHashMap<String, SearchVariant>()
+    for (member in this) {
+        val key = member.knownWord.trim().lowercase()
+        val previous = kept[key]
+        if (previous == null || (previous.translationId.isBlank() && member.translationId.isNotBlank())) {
+            kept[key] = member
+        }
+    }
+    return kept.values.toList()
 }
 
 /**

@@ -6,6 +6,7 @@ import com.vocabee.android.feature.vocabulary.data.api.SearchVariant
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOptionNote
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
 import com.vocabee.android.feature.vocabulary.domain.usecase.toSenseGroupedOptions
+import com.vocabee.android.feature.vocabulary.presentation.firstSenseLine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -156,6 +157,76 @@ class SenseGroupedSearchResultsTest {
         ).toSenseGroupedOptions(emptySet())
 
         assertEquals(listOf("бігти", "мчати"), options.map { it.value })
+    }
+
+    // I1 — реальні V2-дані (~1,6% headwords: strange/étrange, chicken, determine…):
+    // ширший переклад несе ще один сенс. Якір — ГОЛОВНИЙ варіант групи: кандидат
+    // зливається, якщо перетинається саме з ним.
+    @Test
+    fun candidateWithAnExtraSenseKeyMergesIntoTheAnchorGroup() {
+        val options = listOf(
+            variant("дивний", senseKeys = listOf("k1"), senses = listOf(senseRun)),
+            variant("чудернацький", senseKeys = listOf("k1", "k2"), senses = listOf(senseRun, senseJog)),
+        ).toSenseGroupedOptions(emptySet())
+
+        assertEquals(listOf("дивний"), options.map { it.value })
+        assertEquals(listOf("чудернацький"), options.single().alternatives.map { it.value })
+        assertEquals(
+            listOf("дивний", "чудернацький"),
+            requireNotNull(options.single().details).senseGroupTranslations,
+        )
+    }
+
+    @Test
+    fun disjointSenseKeySetsStayInSeparateGroups() {
+        val options = listOf(
+            variant("бігти", senseKeys = listOf("k1"), senses = listOf(senseRun)),
+            variant("пробіжка", senseKeys = listOf("k2", "k3"), senses = listOf(senseJog)),
+        ).toSenseGroupedOptions(emptySet())
+
+        assertEquals(listOf("бігти", "пробіжка"), options.map { it.value })
+        assertTrue(options.all { it.alternatives.isEmpty() })
+    }
+
+    // Якір не розширюється прийнятими кандидатами: `[k2]` не приклеюється до
+    // групи `[k1]` лише тому, що там уже лежить місток `[k1,k2]`.
+    @Test
+    fun anchorMergeIsNotTransitive() {
+        val options = listOf(
+            variant("бігти", senseKeys = listOf("k1"), senses = listOf(senseRun)),
+            variant("мчати", senseKeys = listOf("k1", "k2"), senses = listOf(senseRun, senseJog)),
+            variant("пробіжка", senseKeys = listOf("k2"), senses = listOf(senseJog)),
+        ).toSenseGroupedOptions(emptySet())
+
+        assertEquals(listOf("бігти", "пробіжка"), options.map { it.value })
+        assertEquals(listOf("мчати"), options[0].alternatives.map { it.value })
+    }
+
+    // M3 — префіксна видача: `senseKeys` є, а в самих sense-об'єктах ключів немає
+    // (старіший рядок лексикону). Групування працює, підпису сенсу не буде.
+    @Test
+    fun senseKeysWithoutMatchingSenseObjectsGroupButShowNoSenseLine() {
+        val anonymousSense = SearchSense(definition = "рухатися швидко на ногах")
+        val options = listOf(
+            variant("бігти", senseKeys = listOf("k1"), senses = listOf(anonymousSense)),
+            variant("гнати", senseKeys = listOf("k1"), senses = listOf(anonymousSense)),
+        ).toSenseGroupedOptions(emptySet())
+
+        assertEquals(listOf("гнати"), options.single().alternatives.map { it.value })
+        assertEquals(null, requireNotNull(options.single().details).firstSenseLine())
+    }
+
+    // M5 — з двох однакових перекладів виграє той, у кого є `translationId`:
+    // саме він дає скаргу «неякісний переклад» і зв'язок із лексиконом.
+    @Test
+    fun duplicateTranslationPrefersTheVariantWithTranslationId() {
+        val options = listOf(
+            variant("бігти", senseKeys = listOf("k1"), senses = listOf(senseRun), translationId = ""),
+            variant("бігти", senseKeys = listOf("k1"), senses = listOf(senseRun), translationId = "t-curated"),
+        ).toSenseGroupedOptions(emptySet())
+
+        assertEquals("t-curated", options.single().translationId)
+        assertTrue(options.single().alternatives.isEmpty())
     }
 
     @Test

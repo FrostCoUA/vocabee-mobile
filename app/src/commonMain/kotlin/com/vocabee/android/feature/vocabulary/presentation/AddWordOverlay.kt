@@ -1080,15 +1080,16 @@ private fun AddWordResultRow(
                     },
                 )
                 // Перший рядок сенсу — саме він відрізняє айтеми одного слова
-                // один від одного, коли переклади зібрані у сенс-групи.
-                if (senseLine != null) {
+                // один від одного у згорнутому списку. Розгорнутий стан його
+                // ховає: та сама дефініція вже є у `WordDetailsBlock`.
+                if (senseLine != null && !expanded) {
                     Text(
                         text = senseLine,
                         modifier = Modifier.padding(top = 4.dp),
                         color = PrototypeColor.Muted2,
                         fontWeight = FontWeight.Medium,
                         fontSize = 12.5.sp,
-                        maxLines = if (expanded) 3 else 1,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

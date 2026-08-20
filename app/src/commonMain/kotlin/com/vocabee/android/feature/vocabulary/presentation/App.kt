@@ -297,9 +297,14 @@ private suspend fun backfillContextSenseDetails(
                 emptySet(),
             ) as? RemoteLexiconSearchUseCase.Result.Ok ?: continue
             for (member in group) {
-                val option = result.options.firstOrNull {
-                    it.value.trim().lowercase() == member.translation.trim().lowercase()
-                } ?: continue
+                // Пошук тепер віддає один айтем на сенс, а решта перекладів того
+                // самого значення лежить в `alternatives` — бекфіл мусить бачити
+                // і їх, інакше збережене слово-синонім не знайде своїх деталей.
+                val option = result.options
+                    .flatMap { option -> listOf(option) + option.alternatives }
+                    .firstOrNull {
+                        it.value.trim().lowercase() == member.translation.trim().lowercase()
+                    } ?: continue
                 val newDetails = option.details ?: continue
                 if (newDetails.attributedSenseIndexes().isEmpty() && member.details != null) continue
                 updateWord(topic.id, member.id, option.ipa, newDetails)
