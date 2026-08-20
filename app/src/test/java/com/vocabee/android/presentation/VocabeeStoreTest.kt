@@ -222,6 +222,35 @@ class VocabeeStoreTest {
         assertTrue(savedPair.isSavedIn(savedRunSeria))
     }
 
+    @Test
+    fun toggleFlipsBackToAddAfterTheSavedWordIsRemovedWithoutANewSearch() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+        store.onEvent(
+            VocabeeEvent.AddWord(topicId = topic.id, source = "run", translation = "серія"),
+        )
+        // Варіант, знайдений пошуком ПІСЛЯ збереження слова: сервер/мапер
+        // заморозили `alreadyAdded = true` на момент пошуку.
+        val option = searchVariantForTest(learningWord = "run", knownWord = "серія")
+            .toOption(store.topicForTest(topic.id).words.savedWordKeys())
+        assertTrue(option.alreadyAdded)
+        assertTrue(option.isSavedIn(store.topicForTest(topic.id).words.savedWordKeys()))
+
+        store.onEvent(
+            VocabeeEvent.RemoveWord(topicId = topic.id, source = "run", translation = "серія"),
+        )
+
+        // Живий набір — єдине джерело правди: ✓ мусить стати `+` без нового пошуку.
+        assertFalse(option.isSavedIn(store.topicForTest(topic.id).words.savedWordKeys()))
+
+        store.onEvent(
+            VocabeeEvent.AddWord(topicId = topic.id, source = "run", translation = "серія"),
+        )
+
+        assertTrue(option.isSavedIn(store.topicForTest(topic.id).words.savedWordKeys()))
+        assertEquals(1, store.topicForTest(topic.id).words.size)
+    }
+
     private fun searchVariantForTest(
         learningWord: String,
         knownWord: String,

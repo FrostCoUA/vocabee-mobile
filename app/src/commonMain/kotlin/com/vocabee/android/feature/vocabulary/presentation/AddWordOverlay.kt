@@ -136,9 +136,16 @@ internal fun List<com.vocabee.android.feature.vocabulary.domain.model.WordEntry>
  * Чи збережена САМЕ ця пара (слово, переклад) — від цього залежить ✓ «вже
  * додано» і те, що ховається за кнопкою (додати проти видалити). Збережений
  * `run→серія` не робить «доданим» варіант `series→серія`.
+ *
+ * Єдине джерело правди — ЖИВИЙ [savedWordKeys] зі стану словника. Прапорець
+ * `TranslationOption.alreadyAdded` навмисно НЕ враховується: він заморожений на
+ * момент пошуку (і рахується з того самого набору), тож у суміші робив би
+ * toggle однобічним — після видалення рядка ✓ лишалась би назавжди, і додати
+ * слово назад без нового пошуку було б неможливо. `alreadyAdded` лишається
+ * лише підписом-нотаткою рядка ([TranslationOptionNote.AlreadyAdded]).
  */
 internal fun TranslationOption.isSavedIn(savedWordKeys: Set<String>): Boolean =
-    alreadyAdded || savedWordKeys.contains(savedWordKey(learningWord, value))
+    savedWordKeys.contains(savedWordKey(learningWord, value))
 
 /** Result returned by the async backend search. The overlay drives its loading/error UI off this. */
 internal data class AddWordSearchState(
@@ -779,10 +786,10 @@ internal fun AddWordResultsList(
     ) {
         items(keyedResults, key = { it.key }) { keyedOption ->
             val option = keyedOption.option
-            // Live "is this (word, translation) pair in the topic right now?" check.
-            // Either the search marked it `alreadyAdded`, OR the user just tapped "+"
-            // on it during this session and the topic state updated. Both flow through
-            // the same pair key so the toggle is instant and word-scoped.
+            // Live "is this (word, translation) pair in the topic right now?" check
+            // against the current topic state — щойно доданий рядок дає ✓, щойно
+            // видалений повертає `+` без нового пошуку. Заморожений `alreadyAdded`
+            // сюди не входить навмисно (див. [isSavedIn]).
             val isAdded = option.isSavedIn(savedWordKeys)
             AddWordResultRow(
                 query = query,

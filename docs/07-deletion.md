@@ -10,18 +10,19 @@
 - **[НОВЕ]** — затверджена зміна / новий функціонал.
 - **[Припущення (уточнити)]** — не зафіксовано рішенням, потребує підтвердження.
 
-Ключові файли:
+Ключові файли (посилання — за **назвами символів**, не за номерами рядків: рядки
+дрейфують швидше за документацію):
 
 | Шар | Файл |
 |-----|------|
-| Стор / події | `VocabeeStore.kt` (`removeTopic` :292, `removeWord` :331, `clearTopicWords`) |
-| Локальне сховище | `RoomVocabularyRepository.kt` (`removeTopic` :88, `removeWordByTranslation` :168, `clearTopicWords`) |
-| DAO | `VocabularyDao.kt` (`deleteTopic` :158, `markTopicDeleted` :173, `deleteWordByTranslation` :216, `markWordDeletedByTranslation` :233, `deleteWordsInTopic`, `markWordsInTopicDeleted`) |
-| UI (словник) | `App.kt` (`DeleteDictionaryConfirmationSheet` :999, dispatch RemoveTopic :811–818) |
+| Стор / події | `VocabeeStore.kt` (`removeTopic`, `removeWord`, `clearTopicWords`; події `RemoveTopic`, `RemoveWord`, `ClearTopicWords`) |
+| Локальне сховище | `RoomVocabularyRepository.kt` (`removeTopic`, `removeWordByTranslation`, `clearTopicWords`) |
+| DAO | `VocabularyDao.kt` (`deleteTopic`, `markTopicDeleted`, `deleteWordByTranslation`, `markWordDeletedByTranslation`, `deleteWordsInTopic`, `markWordsInTopicDeleted`) |
+| UI (словник) | `App.kt` (`DeleteDictionaryConfirmationSheet`, dispatch `VocabeeEvent.RemoveTopic`) |
 | UI (очищення) | `App.kt` (`ClearDictionaryConfirmationSheet`, `isClearDictionaryConfirmed`, меню `DetailHeaderMenuButton`) |
-| UI (слово) | `App.kt` (`onRemoveWord` :714–717) |
-| Сервер | `topics.service.ts` (`softDelete` :146, `deleteWord` :221, sync :305–314, applyClientTopic/Word :335, :397) |
-| Схема | `db/schema/topics.ts` (`deletedAt` :35, :73; FK CASCADE :21, :56) |
+| UI (слово) | `App.kt` (`onRemoveWord` у `MainApp` і `DictionaryDetailScreen`: свайп по групі та ✓ у панелі пошуку) |
+| Сервер | `topics.service.ts` (`softDelete`, `deleteWord`, `sync`, `applyClientTopic`, `applyClientWord`, `bumpTopicWordsTimestamp`) |
+| Схема | `db/schema/topics.ts` (`deletedAt` у `topics` і `words`; FK `onDelete: cascade`) |
 
 ---
 
@@ -40,36 +41,35 @@
 
 | Користувач (`userKey`) | Метод DAO | Тип видалення |
 |---|---|---|
-| Анонім (`DEFAULT_LOCAL_USER_KEY`) | `deleteWordByTranslation` (`VocabularyDao.kt:216`) | **HARD-delete** — `DELETE FROM vocabulary_words …` |
-| Авторизований | `markWordDeletedByTranslation` (`VocabularyDao.kt:233`) | **SOFT-delete** — `sync_status = PendingDelete` |
+| Анонім (`DEFAULT_LOCAL_USER_KEY`) | `deleteWordByTranslation` (`VocabularyDao.kt`) | **HARD-delete** — `DELETE FROM vocabulary_words …` |
+| Авторизований | `markWordDeletedByTranslation` (`VocabularyDao.kt`) | **SOFT-delete** — `sync_status = PendingDelete` |
 
-> Коментар у DAO (`VocabularyDao.kt:201–207`) каже: «Hard-delete by translation …
-> **Local-only delete for now**; once topic-word sync is wired, switch to a soft
-> delete with `sync_status = PendingDelete` so the server picks it up.» Цей коментар
-> **застарів** для авторизованого шляху — soft-delete вже реалізовано
-> (`markWordDeletedByTranslation`). Коментар лишається релевантним лише для
-> анонімного hard-delete (анонім ніколи не синхронізується, тож hard-delete безпечний).
+> KDoc над `deleteWordByTranslation` описує саме цей розподіл: «Hard-delete by the
+> (source, translation) pair … Локальний hard-delete — для аноніма; авторизований
+> користувач іде через `markWordDeletedByTranslation`, щоб сервер побачив
+> видалення.» Раніше тут стояв застарілий коментар «Local-only delete for now»,
+> який не враховував уже реалізований soft-delete — його прибрано разом із
+> переходом на ключ пари.
 
 ### Що шлеться на сервер (soft-delete)
 
 Лише для авторизованого користувача. SOFT-видалене слово (`sync_status = PendingDelete`)
-експортується через `exportCurrentSyncSnapshot(includeDeleted = true)` (`App.kt:393`)
-і шлеться в `applySync`. На сервері `applyClientWord` (`topics.service.ts:397`) при
-`word.deleted == true` ставить `deletedAt = now()` (`topics.service.ts:412–419`) — за
-умови, що рядок уже існує на сервері. Анонімне слово на сервер **не йде взагалі**
-(анонім не синхронізується; `syncVocabularyNow` робить early-return, якщо акаунт не
-`Authenticated` — `App.kt:390`).
+експортується через `exportCurrentSyncSnapshot(includeDeleted = true)` (`App.kt`)
+і шлеться в `applySync`. На сервері `applyClientWord` (`topics.service.ts`) при
+`word.deleted == true` ставить `deletedAt = now()` — за умови, що рядок уже існує
+на сервері. Анонімне слово на сервер **не йде взагалі** (анонім не синхронізується;
+`syncVocabularyNow` робить early-return, якщо акаунт не `Authenticated` — `App.kt`).
 
 ### Оновлення `words_updated_at`
 
 Після видалення слова локально топік позначається як змінений
-(`RoomVocabularyRepository.kt:193–203`): `sync_status` стає `PendingUpdate` (або
-лишається `PendingCreate`, якщо топік ще не синхронізований), оновлюється
-`updated_at_epoch_millis`. На сервері `deleteWord` (`topics.service.ts:221`) і
-`applyClientWord` (`:418`) викликають `bumpTopicWordsTimestamp` (`:236`), що оновлює
+(`RoomVocabularyRepository.removeWordByTranslation` → `updateTopicAfterWordInsert`):
+`sync_status` стає `PendingUpdate` (або лишається `PendingCreate`, якщо топік ще не
+синхронізований), оновлюється `updated_at_epoch_millis`. На сервері `deleteWord` і
+`applyClientWord` викликають `bumpTopicWordsTimestamp`, що оновлює
 `topics.updatedAt` і `topics.wordsUpdatedAt = now()`. Завдяки цьому наступний `sync`
-(`:243`) бачить зміну набору слів навіть якщо сам рядок топіка не мінявся (умова
-`gt(topics.wordsUpdatedAt, sinceTs)` — `:254`).
+бачить зміну набору слів навіть якщо сам рядок топіка не мінявся (умова
+`gt(topics.wordsUpdatedAt, sinceTs)`).
 
 ### Порожній словник не видаляється
 
@@ -287,25 +287,26 @@ charge може існувати не більше одного credit. Полі
 
 ## 5. Узгодженість soft/hard
 
-### [ЗАРАЗ] — розбіжність
+### [ЗАРАЗ] — фактичний стан
 
-Видалення **слова** і **словника** використовують **різні стратегії** для одного й
-того ж стану користувача — ні, насправді обидва однакові ПО КОРИСТУВАЧУ, але DAO-коментар
-і реалізація слова відстають:
+Видалення **слова** і **словника** використовують ту саму стратегію по стану
+користувача:
 
 | | Анонім | Авторизований |
 |---|---|---|
 | Слово | hard (`deleteWordByTranslation`) | soft (`markWordDeletedByTranslation`) |
 | Словник | hard (`deleteTopic`) | soft (`markTopicDeleted`) |
 
-Фактично логіка вже **симетрична** (анонім → hard, авторизований → soft) для обох.
-Проблема в іншому: **застарілий коментар** у `VocabularyDao.kt:201–207`, який стверджує,
-що видалення слова «local-only … switch to a soft delete … once topic-word sync is
-wired». Word-sync уже підключений (`applyClientWord` :397), отже коментар вводить в оману.
+Логіка **симетрична** (анонім → hard, авторизований → soft) для обох. Застарілий
+DAO-коментар «local-only … switch to a soft delete … once topic-word sync is wired»
+вводив в оману (word-sync уже підключений через `applyClientWord`) — його
+**прибрано**; KDoc над `deleteWordByTranslation` тепер описує фактичний розподіл
+hard/soft і ключ пари (слово, переклад).
 
 ### [НОВЕ] — вирівнювання
 
-1. Оновити/прибрати застарілий коментар у `VocabularyDao.kt:201–207` (word-sync уже є).
+1. ~~Оновити/прибрати застарілий коментар у DAO~~ — **зроблено** разом із переходом
+   видалення на ключ пари (слово, переклад).
 2. Чітко зафіксувати інваріант: **анонім = hard-delete** (немає синку, рядки не потрібні),
    **авторизований = soft-delete з `PendingDelete`** — однаково для слів і словників.
 3. Узгодити soft-стратегію слова зі словником: при soft-delete **словника** у
