@@ -97,13 +97,14 @@ internal data class AddWordOrigin(
 internal enum class AddWordMode { Idle, Recording, Results }
 
 /**
- * Same English source word, multiple Ukrainian translations. Lexeme-level
- * details live on the source word, while senseIndex may differ per translation.
- * The grouped card therefore surfaces the shared all-senses view once.
+ * Один СЕНС слова-джерела з усіма його збереженими перекладами
+ * ([groupBySense]). Картка списку рендерить пару представника в заголовку, а
+ * решту — рядком «близькі за значенням» ([nearbyTranslations]); деталі
+ * скоуплені по атрибуції представника ([displayDetails]).
  *
  * `entries` keeps the original WordEntry rows so existing per-row actions
- * (remove, highlight on recent add) still work — the UI just renders them
- * stacked under one header.
+ * (remove, highlight on recent add) still work — свайп-видалення знімає саме
+ * ПАРИ (слово, переклад) кожного запису групи.
  */
 internal data class WordGroup(
     val sourceWord: String,
@@ -133,6 +134,42 @@ internal data class WordGroup(
     val representative: WordEntry
         get() = entries.maxByOrNull { entry -> entry.addedAtEpochMillis } ?: entries.first()
     val anyId: String get() = entries.first().id
+
+    /**
+     * Деталі для розгорнутої картки — саме ПРЕДСТАВНИКА: у заголовку рендериться
+     * його пара, тож і скоуп сенсу (`scopeToAttributedSense`) має бути його.
+     * Якщо в представника деталей нема (легасі-запис), беремо перші наявні в
+     * групі: сенс той самий, краще показати блок, ніж порожнечу.
+     */
+    val displayDetails: WordDetails?
+        get() = representative.details?.takeUnless(WordDetails::isEmpty) ?: details
+
+    /**
+     * «Близькі за значенням» для картки словника — решта перекладів цього сенсу,
+     * без власного перекладу представника (він уже в заголовку).
+     *
+     * АВТОРИТЕТ — збережені [entries]: саме вони показують, що реально лежить у
+     * словнику. `details.senseGroupTranslations` — лише best-effort ПІДКАЗКА зі
+     * знімка пошуку (канонічний синк може її замінити), тож іде ДОПОВНЕННЯМ
+     * після записів і без дублів. Підказка містить і переклад представника —
+     * відсіюємо його за значенням, а не за посиланням.
+     */
+    val nearbyTranslations: List<String>
+        get() {
+            val seen = mutableSetOf(representative.translation.trim().lowercase())
+            val nearby = mutableListOf<String>()
+            fun offer(value: String) {
+                val trimmed = value.trim()
+                if (trimmed.isEmpty() || !seen.add(trimmed.lowercase())) return
+                nearby += trimmed
+            }
+            entries.forEach { entry -> offer(entry.translation) }
+            // Представник першим: його знімок відповідає парі із заголовка.
+            (listOf(representative) + entries).forEach { entry ->
+                entry.details?.senseGroupTranslations?.forEach(::offer)
+            }
+            return nearby
+        }
 }
 
 internal fun List<com.vocabee.android.feature.vocabulary.domain.model.WordEntry>.averageKnowledgePercent(): Int {

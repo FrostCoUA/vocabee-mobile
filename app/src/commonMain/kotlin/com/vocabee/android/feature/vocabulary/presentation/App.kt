@@ -3055,6 +3055,18 @@ private fun updatedLabelText(label: TopicUpdatedLabel): String = when (label) {
     is TopicUpdatedLabel.WeeksAgo -> "${label.count} ${ukrainianPlural(label.count, "тиждень", "тижні", "тижнів")} тому"
 }
 
+/**
+ * Чесний лічильник словника: карток (сенсів) і збережених пар. Відколи картка =
+ * один сенс, «N слів» на кількість рядків брехало б — три переклади одного
+ * сенсу дають одну картку. Коли мультиперекладних груп немає (карток рівно
+ * стільки, скільки записів), друга частина не несе інформації — скорочуємо.
+ */
+internal fun senseCountLabel(groupCount: Int, entryCount: Int): String {
+    val words = "$groupCount ${ukrainianPlural(groupCount, "слово", "слова", "слів")}"
+    if (groupCount >= entryCount) return words
+    return "$words · $entryCount ${ukrainianPlural(entryCount, "переклад", "переклади", "перекладів")}"
+}
+
 internal fun ukrainianPlural(count: Int, one: String, few: String, many: String): String {
     val mod100 = count % 100
     if (mod100 in 11..14) return many
@@ -3236,7 +3248,9 @@ private fun DictionaryDetailScreen(
     }
     // Compute groups at the screen scope so the `remember` lives in a
     // @Composable context (LazyListScope.else { … } below is not Composable).
-    val wordGroups = remember(topic.words) { topic.words.groupBySourceWord() }
+    // Одна картка = один СЕНС: `run` (бігти/мчати) і `run` (серія) — різні
+    // картки, а не один список із семи перекладів.
+    val wordGroups = remember(topic.words) { topic.words.groupBySense() }
     // Пара (слово, переклад) — ключ позначки «вже додано»: збережений
     // `run→серія` не сміє позначати ✓ на варіанті `series→серія`.
     val savedWordKeys = remember(topic.words) { topic.words.savedWordKeys() }
@@ -3417,10 +3431,11 @@ private fun DictionaryDetailScreen(
                     )
                 }
             } else {
-                // Group entries by source word so multiple translations of the
-                // same English word collapse into one card. `wordGroups` is
-                // computed at the screen scope (above) because LazyListScope
-                // isn't a Composable context — `remember` can't run here.
+                // Картка на СЕНС: усі збережені переклади одного значення
+                // згортаються в одну. `wordGroups` рахується в скоупі екрана
+                // (вище), бо LazyListScope не композабл — `remember` тут не
+                // працює. Ключ — `anyId` (id першого запису групи): стабільний
+                // ідентифікатор рендера, але НЕ id представника.
                 items(wordGroups, key = { it.anyId }) { group ->
                     WordGroupRow(
                         group = group,
@@ -3444,6 +3459,7 @@ private fun DictionaryDetailScreen(
 
         DetailHeader(
             topic = topic,
+            wordCountLabel = senseCountLabel(wordGroups.size, topic.words.size),
             accent = accent,
             collapseFraction = detailHeaderCollapseFraction,
             modifier = Modifier.align(Alignment.TopCenter),
@@ -3893,6 +3909,8 @@ private fun VoiceRecognitionErrorState(onRetry: () -> Unit) {
 @Composable
 private fun DetailHeader(
     topic: DictionaryTopic,
+    /** Готовий лічильник «карток · перекладів» — див. [senseCountLabel]. */
+    wordCountLabel: String,
     accent: Color,
     collapseFraction: Float,
     modifier: Modifier = Modifier,
@@ -4001,7 +4019,7 @@ private fun DetailHeader(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "${topic.words.size} слів · ${updatedLabelText(topic.updatedLabel)}",
+                text = "$wordCountLabel · ${updatedLabelText(topic.updatedLabel)}",
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .offset(y = subtitleTop)
@@ -4135,13 +4153,14 @@ private fun KebabGlyph(color: Color, modifier: Modifier = Modifier) {
 }
 
 /**
- * Grouped card for one English source word with its 1+ translations stacked
- * beneath. Replaces the per-row [WordRow] in [DictionaryDetailScreen] so 3
- * translations of "play" render as one expandable card instead of three
- * cards with duplicate dictionary blocks.
+ * Картка ОДНОГО ЗБЕРЕЖЕНОГО СЕНСУ: слово-джерело + переклад представника в
+ * заголовку, решта перекладів цього ж сенсу — рядком «близькі за значенням».
+ * `run` (бігти) і `run` (серія) дають дві картки: це різні значення, і в списку
+ * вони мусять читатися окремо.
  *
- * The IPA and details (senses, examples, syn/ant, forms) are pulled from
- * whichever entry in the group has them (typically the first added).
+ * IPA беремо з будь-якого запису групи, деталі (сенси, приклади, син/ант,
+ * форми) — з представника ([WordGroup.displayDetails]), і скоуплено по його
+ * атрибуції: картка представляє один сенс, а не весь лексем.
  */
 @Composable
 private fun WordGroupRow(
@@ -4154,12 +4173,17 @@ private fun WordGroupRow(
     onSpeak: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    val details = group.details
+    // Похідні групи рахуємо раз на її вміст: `WordGroup` — data class, тож
+    // ключем годиться сама група, а не її поля.
+    val details = remember(group) { group.displayDetails }
     val hasDetails = details != null && !details.isEmpty
     val lexicalLabels = lexicalLabelsFor(group.sourceWord, details)
+    val headlineTranslation = group.representative.translation
+    val nearbyTranslations = remember(group) { group.nearbyTranslations }
     var sourceTextOverflows by remember(group.anyId, group.sourceWord) { mutableStateOf(false) }
-    var translationTextOverflows by remember(group.anyId, group.translations) { mutableStateOf(false) }
-    val canExpand = hasDetails || sourceTextOverflows || translationTextOverflows
+    var translationTextOverflows by remember(group.anyId, headlineTranslation) { mutableStateOf(false) }
+    var nearbyTextOverflows by remember(group.anyId, nearbyTranslations) { mutableStateOf(false) }
+    val canExpand = hasDetails || sourceTextOverflows || translationTextOverflows || nearbyTextOverflows
     var expanded by remember(group.anyId) { mutableStateOf(false) }
     val expandInteractionSource = remember(group.anyId) { MutableInteractionSource() }
 
@@ -4218,13 +4242,11 @@ private fun WordGroupRow(
                                 )
                             }
                         }
-                        // Translations comma-joined on one line — keeps the row
-                        // compact when there are several. Mobile users will rarely
-                        // have more than ~5 translations per word; if they do, the
-                        // line truncates with ellipsis and the full list shows in
-                        // the expanded details block.
+                        // Заголовок картки — переклад ПРЕДСТАВНИКА (найновіший
+                        // збережений цього сенсу), а не злиплий список усіх:
+                        // так картка читається як одне значення.
                         Text(
-                            text = group.translations.joinToString(", "),
+                            text = headlineTranslation,
                             modifier = Modifier.padding(top = 3.dp),
                             color = PrototypeColor.Muted,
                             fontWeight = FontWeight.SemiBold,
@@ -4235,6 +4257,22 @@ private fun WordGroupRow(
                                 if (!expanded) translationTextOverflows = result.hasVisualOverflow
                             },
                         )
+                        // Решта перекладів того самого сенсу. Згорнуто — один
+                        // рядок з ellipsis, розгорнуто — повний перелік.
+                        if (nearbyTranslations.isNotEmpty()) {
+                            Text(
+                                text = "Близькі за значенням: ${nearbyTranslations.joinToString(", ")}",
+                                modifier = Modifier.padding(top = 4.dp),
+                                color = PrototypeColor.Muted2,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 12.5.sp,
+                                maxLines = if (expanded) Int.MAX_VALUE else 1,
+                                overflow = TextOverflow.Ellipsis,
+                                onTextLayout = { result ->
+                                    if (!expanded) nearbyTextOverflows = result.hasVisualOverflow
+                                },
+                            )
+                        }
                         if (lexicalLabels.isNotEmpty()) {
                             Text(
                                 text = lexicalLabels.joinToString(" · "),
@@ -4277,7 +4315,11 @@ private fun WordGroupRow(
                     WordDetailsBlock(
                         details = details,
                         accent = accent,
-                        scopeToAttributedSense = false,
+                        // Картка = один сенс, тож і деталі скоуплені по ньому:
+                        // сервер після фази 0 віддає вже скоуплений блоб, а
+                        // легасі-записи без атрибуції отримають старий
+                        // all-senses вигляд самі (`displayContent` фолбек).
+                        scopeToAttributedSense = true,
                         targetWord = group.sourceWord,
                         savedContextKeys = savedContextKeys,
                         onAddContextWord = onAddContextWord,
@@ -4513,8 +4555,9 @@ internal data class WordDetailsDisplayContent(
  * A translation option represents one or more attributed meanings of a lexeme.
  * Show only those senses and their relations when the backend supplied V2
  * senseKeys. The legacy senseIndex remains a fallback for old snapshots.
- * Grouped saved-word cards deliberately opt out because they represent several
- * translations at once. Legacy/unattributed rows keep the previous all-senses view.
+ * Картка словника теж скоуплена: вона представляє ОДИН збережений сенс, а не
+ * весь лексем. Legacy/unattributed rows keep the previous all-senses view —
+ * атрибуції в них немає, і фолбек нижче сам віддає всі сенси.
  */
 internal fun WordDetails.displayContent(
     scopeToAttributedSense: Boolean = true,

@@ -22,7 +22,13 @@ class SenseGroupingTest {
         senseKeys: List<String> = emptyList(),
         senseIndex: Int? = null,
         senses: List<WordSense> = emptyList(),
-    ) = WordDetails(senseKeys = senseKeys, senseIndex = senseIndex, senses = senses)
+        senseGroupTranslations: List<String> = emptyList(),
+    ) = WordDetails(
+        senseKeys = senseKeys,
+        senseIndex = senseIndex,
+        senses = senses,
+        senseGroupTranslations = senseGroupTranslations,
+    )
 
     private fun entry(
         id: String,
@@ -252,5 +258,135 @@ class SenseGroupingTest {
     @Test
     fun emptyListProducesNoGroups() {
         assertEquals(emptyList<WordGroup>(), emptyList<WordEntry>().groupBySense())
+    }
+
+    // ── Формування списку словника: картка = збережений сенс ─────────────────
+
+    /**
+     * Словник, який бачить користувач: дев'ять рядків `run` (три сенсу k1, два
+     * сенсу k2, чотири легасі без атрибуції) і одне окреме слово. Порядок —
+     * такий, як приходить зі стану словника.
+     */
+    private fun dictionaryWithNineRunRows(): List<WordEntry> = listOf(
+        entry("1", "run", "бігти", senseKeys = listOf("k1")),
+        entry("2", "run", "мчати", senseKeys = listOf("k1")),
+        entry("3", "run", "гнати", senseKeys = listOf("k1")),
+        entry("4", "run", "серія", senseKeys = listOf("k2")),
+        entry("5", "run", "сезон", senseKeys = listOf("k2")),
+        entry("6", "run", "керувати"),
+        entry("7", "run", "запуск"),
+        entry("8", "run", "пробіжка"),
+        entry("9", "run", "тираж"),
+        entry("10", "naturally", "природно", senseKeys = listOf("k9")),
+    )
+
+    @Test
+    fun dictionaryListCollapsesRunRowsIntoOneCardPerSense() {
+        val groups = dictionaryWithNineRunRows().groupBySense()
+
+        assertEquals(listOf("run", "run", "run", "naturally"), groups.map { it.sourceWord })
+        assertEquals(
+            listOf(
+                listOf("бігти", "мчати", "гнати"),
+                listOf("серія", "сезон"),
+                // Легасі-рядки одного source лишаються ОДНІЄЮ спільною карткою.
+                listOf("керувати", "запуск", "пробіжка", "тираж"),
+                listOf("природно"),
+            ),
+            groups.map { it.translations },
+        )
+        // Заголовок картки — пара представника; решта йде в «близькі за значенням».
+        assertEquals(listOf("бігти", "серія", "керувати", "природно"), groups.map { it.representative.translation })
+        assertEquals(listOf("мчати", "гнати"), groups[0].nearbyTranslations)
+        assertEquals(listOf("запуск", "пробіжка", "тираж"), groups[2].nearbyTranslations)
+        assertEquals(emptyList<String>(), groups[3].nearbyTranslations)
+    }
+
+    @Test
+    fun headerCounterCountsSensesAndTranslations() {
+        val words = dictionaryWithNineRunRows()
+
+        assertEquals("4 слова · 10 перекладів", senseCountLabel(words.groupBySense().size, words.size))
+    }
+
+    // Немає жодної мультиперекладної групи → друга частина лічильника зайва.
+    @Test
+    fun headerCounterDropsTranslationsPartWhenEveryCardIsOneRow() {
+        val words = listOf(
+            entry("1", "run", "бігти", senseKeys = listOf("k1")),
+            entry("2", "naturally", "природно", senseKeys = listOf("k9")),
+        )
+
+        assertEquals("2 слова", senseCountLabel(words.groupBySense().size, words.size))
+        assertEquals("0 слів", senseCountLabel(0, 0))
+    }
+
+    @Test
+    fun headerCounterUsesUkrainianPlurals() {
+        assertEquals("1 слово · 3 переклади", senseCountLabel(1, 3))
+        assertEquals("2 слова · 11 перекладів", senseCountLabel(2, 11))
+        assertEquals("5 слів · 21 переклад", senseCountLabel(5, 21))
+    }
+
+    // Авторитет «близьких» — збережені записи; підказка лише доповнює їх.
+    @Test
+    fun nearbyTranslationsPreferSavedEntriesAndOnlySupplementWithTheHint() {
+        val group = listOf(
+            entry(
+                "1",
+                "run",
+                "бігти",
+                details = details(senseKeys = listOf("k1"), senseGroupTranslations = listOf("бігти", "мчати", "гнати")),
+            ),
+            entry("2", "run", "мчати", senseKeys = listOf("k1")),
+        ).groupBySense().single()
+
+        assertEquals("бігти", group.representative.translation)
+        assertEquals(listOf("мчати", "гнати"), group.nearbyTranslations)
+    }
+
+    // Збережений один переклад сенсу — «близькі» тримаються на підказці, і
+    // власний переклад представника з неї викидається (він у ній теж є).
+    @Test
+    fun singleSavedTranslationStillShowsHintedNeighboursWithoutItself() {
+        val group = listOf(
+            entry(
+                "1",
+                "run",
+                "бігти",
+                details = details(senseKeys = listOf("k1"), senseGroupTranslations = listOf("Бігти ", "гнати")),
+            ),
+        ).groupBySense().single()
+
+        assertEquals(listOf("гнати"), group.nearbyTranslations)
+    }
+
+    // Канонічний синк стер підказку — «близькі» лишаються з самих записів.
+    @Test
+    fun nearbyTranslationsSurviveWithoutTheHint() {
+        val group = listOf(
+            entry("1", "run", "бігти", senseKeys = listOf("k1"), addedAt = 900L),
+            entry("2", "run", "мчати", senseKeys = listOf("k1"), addedAt = 100L),
+        ).groupBySense().single()
+
+        assertEquals(listOf("мчати"), group.nearbyTranslations)
+    }
+
+    // Розгорнута картка показує деталі ПРЕДСТАВНИКА (його ж пара в заголовку),
+    // а якщо їх нема — перші наявні в групі, бо сенс той самий.
+    @Test
+    fun expandedCardTakesRepresentativeDetailsWithGroupFallback() {
+        val representativeDetails = details(senseKeys = listOf("k1"), senses = listOf(WordSense(definition = "to move fast")))
+        val withRepresentative = listOf(
+            entry("1", "run", "бігти", details = representativeDetails, addedAt = 900L),
+            entry("2", "run", "мчати", details = details(senseKeys = listOf("k1")), addedAt = 100L),
+        ).groupBySense().single()
+        assertSame(representativeDetails, withRepresentative.displayDetails)
+
+        val withoutRepresentative = listOf(
+            entry("1", "run", "бігти", details = details(senseKeys = listOf("k1")), addedAt = 900L),
+            entry("2", "run", "мчати", details = representativeDetails, addedAt = 100L),
+        ).groupBySense().single()
+        assertSame(representativeDetails, withoutRepresentative.displayDetails)
     }
 }
