@@ -295,11 +295,64 @@ class SenseGroupingTest {
             ),
             groups.map { it.translations },
         )
-        // Заголовок картки — пара представника; решта йде в «близькі за значенням».
+        // Заголовок картки — пара представника; решта йде другим рядком.
         assertEquals(listOf("бігти", "серія", "керувати", "природно"), groups.map { it.representative.translation })
         assertEquals(listOf("мчати", "гнати"), groups[0].nearbyTranslations)
         assertEquals(listOf("запуск", "пробіжка", "тираж"), groups[2].nearbyTranslations)
         assertEquals(emptyList<String>(), groups[3].nearbyTranslations)
+    }
+
+    // I1 — «близькі за значенням» чесні лише для атрибутованої групи: легасі-бакет
+    // тримає РІЗНІ значення одного слова (керувати/запуск/тираж), близькими їх
+    // називати не можна.
+    @Test
+    fun nearbyLabelIsSemanticOnlyForAnAttributedGroup() {
+        val groups = dictionaryWithNineRunRows().groupBySense()
+
+        assertEquals("Близькі за значенням", nearbyTranslationsLabel(groups[0]))
+        assertEquals("Інші переклади", nearbyTranslationsLabel(groups[2]))
+    }
+
+    // Легасі-атрибуція по senseIndex — це все ще ОДИН сенс, мітка семантична.
+    @Test
+    fun nearbyLabelStaysSemanticForLegacySenseIndexAttribution() {
+        val senses = listOf(WordSense(definition = "to move fast"))
+        val group = listOf(
+            entry("1", "run", "бігти", details = details(senseIndex = 0, senses = senses)),
+            entry("2", "run", "мчати", details = details(senseIndex = 0, senses = senses)),
+        ).groupBySense().single()
+
+        assertEquals("Близькі за значенням", nearbyTranslationsLabel(group))
+    }
+
+    // M4 — ключ рендера тримається на ІДЕНТИЧНОСТІ сенсу, а не на найновішому
+    // записі: доданий переклад того самого сенсу не скидає розгорнутий стан.
+    @Test
+    fun stableKeyIdentifiesTheSenseNotTheNewestMember() {
+        val groups = dictionaryWithNineRunRows().groupBySense()
+
+        assertEquals(
+            listOf("run\u0000k1", "run\u0000k2", "run\u0000legacy", "naturally\u0000k9"),
+            groups.map { it.stableKey },
+        )
+        assertEquals(4, groups.mapTo(mutableSetOf()) { it.stableKey }.size)
+
+        val before = listOf(entry("1", "run", "бігти", senseKeys = listOf("k1"), addedAt = 100L)).groupBySense().single()
+        val after = listOf(
+            entry("1", "run", "бігти", senseKeys = listOf("k1"), addedAt = 100L),
+            entry("2", "run", "мчати", senseKeys = listOf("k1"), addedAt = 900L),
+        ).groupBySense().single()
+
+        assertEquals(before.stableKey, after.stableKey)
+        assertNotEquals(before.representative.id, after.representative.id)
+    }
+
+    @Test
+    fun stableKeyIgnoresKeyOrderAndSourceCase() {
+        assertEquals(
+            listOf(entry("1", " Run ", "бігти", senseKeys = listOf("k2", "k1"))).groupBySense().single().stableKey,
+            listOf(entry("2", "run", "мчати", senseKeys = listOf("k1", "k2"))).groupBySense().single().stableKey,
+        )
     }
 
     @Test
@@ -372,8 +425,36 @@ class SenseGroupingTest {
         assertEquals(listOf("мчати"), group.nearbyTranslations)
     }
 
+    // I2 — фолбек деталей не сміє тягти блоб ЧУЖОГО сенсу через запис-місток:
+    // під заголовком k1 не місце сенсам, які прийшли лише з k2.
+    @Test
+    fun detailsFallbackSkipsMembersOutsideTheRepresentativeSense() {
+        val bridged = details(senseKeys = listOf("k1", "k2"), senses = listOf(WordSense(definition = "to move fast")))
+        val foreign = details(senseKeys = listOf("k2"), senses = listOf(WordSense(definition = "a series of episodes")))
+        val group = listOf(
+            entry("1", "run", "бігти", details = details(senseKeys = listOf("k1")), addedAt = 900L),
+            entry("2", "run", "серія", details = foreign, addedAt = 100L),
+            entry("3", "run", "мчати", details = bridged, addedAt = 200L),
+        ).groupBySense().single()
+
+        assertEquals("бігти", group.representative.translation)
+        assertSame(bridged, group.displayDetails)
+    }
+
+    // Легасі-представник без атрибуції обмежувати нічим — фолбек як раніше.
+    @Test
+    fun detailsFallbackStaysUnrestrictedForAnUnattributedRepresentative() {
+        val legacyDetails = details(senses = listOf(WordSense(definition = "to move fast")))
+        val group = listOf(
+            entry("1", "run", "керувати", addedAt = 900L),
+            entry("2", "run", "запуск", details = legacyDetails, addedAt = 100L),
+        ).groupBySense().single()
+
+        assertSame(legacyDetails, group.displayDetails)
+    }
+
     // Розгорнута картка показує деталі ПРЕДСТАВНИКА (його ж пара в заголовку),
-    // а якщо їх нема — перші наявні в групі, бо сенс той самий.
+    // а якщо їх нема — перші наявні в групі того самого сенсу.
     @Test
     fun expandedCardTakesRepresentativeDetailsWithGroupFallback() {
         val representativeDetails = details(senseKeys = listOf("k1"), senses = listOf(WordSense(definition = "to move fast")))

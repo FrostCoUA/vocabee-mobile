@@ -3434,9 +3434,10 @@ private fun DictionaryDetailScreen(
                 // Картка на СЕНС: усі збережені переклади одного значення
                 // згортаються в одну. `wordGroups` рахується в скоупі екрана
                 // (вище), бо LazyListScope не композабл — `remember` тут не
-                // працює. Ключ — `anyId` (id першого запису групи): стабільний
-                // ідентифікатор рендера, але НЕ id представника.
-                items(wordGroups, key = { it.anyId }) { group ->
+                // працює. Ключ — ідентичність сенсу ([WordGroup.stableKey]), не
+                // id запису: інакше видалення/додавання члена скидало б стан
+                // картки, яка нікуди не ділась.
+                items(wordGroups, key = { it.stableKey }) { group ->
                     WordGroupRow(
                         group = group,
                         accent = accent,
@@ -4028,6 +4029,11 @@ private fun DetailHeader(
                 color = Color.White.copy(alpha = 0.82f),
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.5.sp,
+                // Рядок подовшав («N слів · M перекладів · оновлено») — на
+                // вузькому екрані він мусить обрізатись, а не заповзати на
+                // другий рядок під кнопки.
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -4153,6 +4159,15 @@ private fun KebabGlyph(color: Color, modifier: Modifier = Modifier) {
 }
 
 /**
+ * Мітка другого рядка картки. «Близькі за значенням» — обіцянка СПІЛЬНОГО
+ * значення, і вона правдива лише для атрибутованої групи. Легасі-бакет тримає
+ * усі неатрибутовані переклади слова разом, а це різні значення (`run` →
+ * керувати/запуск/тираж), тож там мітка нейтральна.
+ */
+internal fun nearbyTranslationsLabel(group: WordGroup): String =
+    if (group.representative.senseMergeKeys().isEmpty()) "Інші переклади" else "Близькі за значенням"
+
+/**
  * Картка ОДНОГО ЗБЕРЕЖЕНОГО СЕНСУ: слово-джерело + переклад представника в
  * заголовку, решта перекладів цього ж сенсу — рядком «близькі за значенням».
  * `run` (бігти) і `run` (серія) дають дві картки: це різні значення, і в списку
@@ -4174,18 +4189,22 @@ private fun WordGroupRow(
     onRemove: () -> Unit,
 ) {
     // Похідні групи рахуємо раз на її вміст: `WordGroup` — data class, тож
-    // ключем годиться сама група, а не її поля.
+    // ключем годиться сама група, а не її поля. Стан картки (розгортання,
+    // ellipsis) прив'язаний до ІДЕНТИЧНОСТІ сенсу — той самий ключ, що й у
+    // LazyColumn, інакше новий найновіший переклад згортав би картку.
+    val groupKey = group.stableKey
     val details = remember(group) { group.displayDetails }
     val hasDetails = details != null && !details.isEmpty
     val lexicalLabels = lexicalLabelsFor(group.sourceWord, details)
     val headlineTranslation = group.representative.translation
     val nearbyTranslations = remember(group) { group.nearbyTranslations }
-    var sourceTextOverflows by remember(group.anyId, group.sourceWord) { mutableStateOf(false) }
-    var translationTextOverflows by remember(group.anyId, headlineTranslation) { mutableStateOf(false) }
-    var nearbyTextOverflows by remember(group.anyId, nearbyTranslations) { mutableStateOf(false) }
+    val nearbyLabel = nearbyTranslationsLabel(group)
+    var sourceTextOverflows by remember(groupKey, group.sourceWord) { mutableStateOf(false) }
+    var translationTextOverflows by remember(groupKey, headlineTranslation) { mutableStateOf(false) }
+    var nearbyTextOverflows by remember(groupKey, nearbyTranslations) { mutableStateOf(false) }
     val canExpand = hasDetails || sourceTextOverflows || translationTextOverflows || nearbyTextOverflows
-    var expanded by remember(group.anyId) { mutableStateOf(false) }
-    val expandInteractionSource = remember(group.anyId) { MutableInteractionSource() }
+    var expanded by remember(groupKey) { mutableStateOf(false) }
+    val expandInteractionSource = remember(groupKey) { MutableInteractionSource() }
 
     SwipeRevealDeleteContainer(
         modifier = modifier.fillMaxWidth(),
@@ -4257,11 +4276,12 @@ private fun WordGroupRow(
                                 if (!expanded) translationTextOverflows = result.hasVisualOverflow
                             },
                         )
-                        // Решта перекладів того самого сенсу. Згорнуто — один
-                        // рядок з ellipsis, розгорнуто — повний перелік.
+                        // Решта перекладів групи. Згорнуто — один рядок з
+                        // ellipsis, розгорнуто — повний перелік. Мітка залежить
+                        // від атрибуції: див. [nearbyTranslationsLabel].
                         if (nearbyTranslations.isNotEmpty()) {
                             Text(
-                                text = "Близькі за значенням: ${nearbyTranslations.joinToString(", ")}",
+                                text = "$nearbyLabel: ${nearbyTranslations.joinToString(", ")}",
                                 modifier = Modifier.padding(top = 4.dp),
                                 color = PrototypeColor.Muted2,
                                 fontWeight = FontWeight.Medium,

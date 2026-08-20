@@ -99,7 +99,8 @@ internal enum class AddWordMode { Idle, Recording, Results }
 /**
  * Один СЕНС слова-джерела з усіма його збереженими перекладами
  * ([groupBySense]). Картка списку рендерить пару представника в заголовку, а
- * решту — рядком «близькі за значенням» ([nearbyTranslations]); деталі
+ * решту — другим рядком ([nearbyTranslations]; мітку добирає
+ * `nearbyTranslationsLabel`, бо легасі-бакет не є одним значенням); деталі
  * скоуплені по атрибуції представника ([displayDetails]).
  *
  * `entries` keeps the original WordEntry rows so existing per-row actions
@@ -136,17 +137,48 @@ internal data class WordGroup(
     val anyId: String get() = entries.first().id
 
     /**
-     * Деталі для розгорнутої картки — саме ПРЕДСТАВНИКА: у заголовку рендериться
-     * його пара, тож і скоуп сенсу (`scopeToAttributedSense`) має бути його.
-     * Якщо в представника деталей нема (легасі-запис), беремо перші наявні в
-     * групі: сенс той самий, краще показати блок, ніж порожнечу.
+     * Ідентичність СЕНСУ для рендера: слово-джерело + підпис атрибуції
+     * представника (`legacy` — для бакета без атрибуції, він один на слово).
+     * Той самий підпис, що й у [senseGroupKey], лише з явним маркером легасі.
+     *
+     * Ключ навмисно НЕ `anyId`: id першого запису змінюється, щойно його
+     * видалять, і LazyColumn скидає розгорнутий стан картки, яка нікуди не
+     * ділась. Унікальність тримається в межах слова: групи одного source не
+     * можуть мати спільного sense-ключа (спільний — це вже одна група).
      */
-    val displayDetails: WordDetails?
-        get() = representative.details?.takeUnless(WordDetails::isEmpty) ?: details
+    val stableKey: String
+        get() {
+            val keys = representative.senseMergeKeys()
+            val signature = if (keys.isEmpty()) "legacy" else keys.sorted().joinToString(separator = "\u0000")
+            return "${sourceWord.trim().lowercase()}\u0000$signature"
+        }
 
     /**
-     * «Близькі за значенням» для картки словника — решта перекладів цього сенсу,
-     * без власного перекладу представника (він уже в заголовку).
+     * Деталі для розгорнутої картки — саме ПРЕДСТАВНИКА: у заголовку рендериться
+     * його пара, тож і скоуп сенсу (`scopeToAttributedSense`) має бути його.
+     *
+     * Якщо в представника блоба нема, беремо перший наявний у члена ТОГО САМОГО
+     * сенсу — перетин ключів обовʼязковий. Без цієї перевірки запис-місток
+     * `[k1, k2]` протягнув би під заголовок `k1` блоб сусіда `[k2]` з чужими
+     * сенсами. Неатрибутований (легасі) представник обмежувати нічим — там
+     * фолбек лишається вільним, як і було.
+     */
+    val displayDetails: WordDetails?
+        get() {
+            representative.details?.takeUnless(WordDetails::isEmpty)?.let { return it }
+            val representativeKeys = representative.senseMergeKeys()
+            return entries.firstNotNullOfOrNull { entry ->
+                val sameSense = representativeKeys.isEmpty() ||
+                    entry.senseMergeKeys().any(representativeKeys::contains)
+                if (sameSense) entry.details?.takeUnless(WordDetails::isEmpty) else null
+            }
+        }
+
+    /**
+     * Решта перекладів групи для другого рядка картки — без власного перекладу
+     * представника (він уже в заголовку). Для атрибутованої групи це справді
+     * «близькі за значенням», для легасі-бакета — просто «інші переклади»
+     * (мітку добирає `nearbyTranslationsLabel`).
      *
      * АВТОРИТЕТ — збережені [entries]: саме вони показують, що реально лежить у
      * словнику. `details.senseGroupTranslations` — лише best-effort ПІДКАЗКА зі
