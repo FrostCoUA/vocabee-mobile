@@ -71,6 +71,7 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.languageFlag
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
+import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKeys
 import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechInputController
@@ -110,6 +111,19 @@ internal data class WordGroup(
     val translations: List<String> get() = entries.map { it.translation }
     val knowledgePercent: Int
         get() = entries.averageKnowledgePercent()
+
+    /**
+     * Найслабший запис групи — для тренування важливий саме він: карта сенсу
+     * не вважається вивченою, доки бодай один її переклад «не знаю».
+     */
+    val minKnowledgePercent: Int
+        get() = entries.minOfOrNull { entry -> entry.knowledgePercent.coerceIn(0, 100) } ?: 0
+
+    /**
+     * Представник групи — найновіший запис: список слів словника йде DESC за
+     * часом додавання, тож перший елемент і є останній доданий.
+     */
+    val representative: WordEntry get() = entries.first()
     val anyId: String get() = entries.first().id
 }
 
@@ -130,6 +144,81 @@ internal fun List<com.vocabee.android.feature.vocabulary.domain.model.WordEntry>
         grouped.getOrPut(key) { mutableListOf() }.add(entry)
     }
     return grouped.values.map { WordGroup(sourceWord = it.first().source, entries = it) }
+}
+
+/**
+ * Ключ СЕНСУ збереженого запису: слово-джерело + атрибуція перекладу
+ * ([attributionSignature] — стабільні `senseKeys`, інакше легасі `senseIndex`).
+ * Source обов'язково входить у ключ: однаковий senseKey у різних слів — різні
+ * сенси, `run` і `naturally` не мають злипатись.
+ *
+ * Записи без атрибуції (збережені до V2) дістають ключ самого лише source —
+ * так вони лишаються однією «легасі»-карткою, як у [groupBySourceWord], і не
+ * приклеюються до жодного конкретного сенсу.
+ */
+internal fun WordEntry.senseGroupKey(): String {
+    val signature = details?.attributionSignature()
+    val base = source.trim().lowercase()
+    return if (signature.isNullOrBlank()) base else "$base\u0000$signature"
+}
+
+/**
+ * Множина сенсів, за якою запис зливається з групою. Стабільні `senseKeys`
+ * мають пріоритет; легасі-атрибуція представлена одним псевдоключем
+ * `legacy:$senseIndex` (те саме правило, що й у [attributionSignature]).
+ */
+private fun WordEntry.senseMergeKeys(): Set<String> {
+    val details = details ?: return emptySet()
+    val stableKeys = details.senseKeys.filter(String::isNotBlank).toSet()
+    if (stableKeys.isNotEmpty()) return stableKeys
+    return setOfNotNull(details.attributionSignature())
+}
+
+/**
+ * Групування слів словника ПО СЕНСУ: одна картка = один сенс слова, скільки б
+ * перекладів його не рендерило. Порядок груп — за першим входженням у списку
+ * (список DESC, тож найновіша група перша), порядок записів усередині групи
+ * теж зберігається.
+ *
+ * Злиття йде за НЕПОРОЖНІМ ПЕРЕТИНОМ множин `senseKeys`, а не за рівністю:
+ * ревізія лексикону може дописати перекладу ще один сенс, і збережений раніше
+ * `[k1]` мусить лишитися в одній групі з новішим `[k1, k2]`. Перетин
+ * транзитивний — запис-місток `[k1, k2]` об'єднує групи `[k1]` і `[k2]`.
+ *
+ * Записи без атрибуції зливаються лише між собою (порожній перетин ні з чим не
+ * перетинається) і дають одну легасі-групу на слово — стару поведінку
+ * [groupBySourceWord].
+ */
+internal fun List<WordEntry>.groupBySense(): List<WordGroup> {
+    class SenseBucket(val sourceKey: String) {
+        val senseKeys = mutableSetOf<String>()
+        val entries = mutableListOf<IndexedValue<WordEntry>>()
+    }
+
+    val buckets = mutableListOf<SenseBucket>()
+    for ((index, entry) in withIndex()) {
+        val sourceKey = entry.source.trim().lowercase()
+        val mergeKeys = entry.senseMergeKeys()
+        val matches = buckets.filter { bucket ->
+            bucket.sourceKey == sourceKey && if (mergeKeys.isEmpty()) {
+                bucket.senseKeys.isEmpty()
+            } else {
+                bucket.senseKeys.any(mergeKeys::contains)
+            }
+        }
+        val target = matches.firstOrNull() ?: SenseBucket(sourceKey).also(buckets::add)
+        for (bridged in matches.drop(1)) {
+            target.senseKeys += bridged.senseKeys
+            target.entries += bridged.entries
+            buckets.remove(bridged)
+        }
+        target.senseKeys += mergeKeys
+        target.entries += IndexedValue(index, entry)
+    }
+    return buckets.map { bucket ->
+        val entries = bucket.entries.sortedBy(IndexedValue<WordEntry>::index).map(IndexedValue<WordEntry>::value)
+        WordGroup(sourceWord = entries.first().source, entries = entries)
+    }
 }
 
 /**
