@@ -371,6 +371,39 @@ class VocabeeStoreTest {
         assertNull(store.state.pendingMessage)
     }
 
+    /**
+     * Гейт скоупований ТОПІКОМ: той самий сенс того самого слова законно живе
+     * у двох різних словниках (напр. «Робота» і «Спорт»). Тест упаде, якщо
+     * хтось перепише перевірку на `state.topics.flatMap { it.words }`.
+     */
+    @Test
+    fun theSameSenseIsSavedIndependentlyInEachDictionary() {
+        val store = VocabeeStore()
+        val first = store.createTopicForTest("Робота")
+        val second = store.createTopicForTest("Спорт")
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = first.id,
+                source = "run",
+                translation = "бігти",
+                details = senseDetailsForTest("k1"),
+            ),
+        )
+
+        store.onEvent(
+            VocabeeEvent.AddWord(
+                topicId = second.id,
+                source = "run",
+                translation = "бігти",
+                details = senseDetailsForTest("k1"),
+            ),
+        )
+
+        assertEquals(1, store.topicForTest(first.id).words.size)
+        assertEquals(1, store.topicForTest(second.id).words.size)
+        assertNull(store.state.pendingMessage)
+    }
+
     /** Той самий senseKey в ІНШОГО слова — окремий сенс, збереження проходить. */
     @Test
     fun sameSenseKeyOfAnotherWordIsSavedSeparately() {

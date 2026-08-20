@@ -568,11 +568,16 @@ private fun MainApp(
     var practiceBottomPanelVisible by remember { mutableStateOf(false) }
     val appSnackbarHostState = remember { SnackbarHostState() }
 
-    // Повідомлення стора (наприклад, «цей сенс уже у словнику»). Гасимо його
-    // ПІСЛЯ показу: споживання змінює ключ ефекту, тож зроблене раніше воно
-    // скасувало б власний снекбар тією ж рекомпозицією. Після споживання стан
-    // порожній, і та сама відмова наступного разу спливе знову.
-    LaunchedEffect(state.pendingMessage) {
+    // ЗАПАСНИЙ показ повідомлень стора. Основний шлях — IME-обізнаний хост
+    // усередині екрана словника (`DictionaryDetailScreen`): відмова «цей сенс
+    // уже у словнику» прилітає на тап «+» з відкритою клавіатурою, а цей хост
+    // Scaffold'а лишився б за нею. Сюди повідомлення потрапляє, лише якщо той
+    // екран НЕ відкритий (наприклад, майбутній кол-сайт `AddWord` з іншого
+    // екрана або відхід назад до того, як снекбар устиг показатись).
+    // Гасимо ПІСЛЯ показу: споживання змінює ключ ефекту, тож зроблене раніше
+    // воно скасувало б власний снекбар тією ж рекомпозицією.
+    LaunchedEffect(state.pendingMessage, currentRoute) {
+        if (currentRoute is VocabeeRoute.TopicDetail) return@LaunchedEffect
         val message = state.pendingMessage ?: return@LaunchedEffect
         appSnackbarHostState.showVocabeeSnackbar(message)
         store.consumePendingMessage()
@@ -1117,6 +1122,13 @@ private fun MainApp(
                                         state.beeBalance < TranslationSearchBeeCost -> {
                                             sheet = PrototypeSheet.NeedBees(BeeGateReason.BookmarkSave)
                                         }
+                                        // Монетка списується ДО `AddWord`. Це
+                                        // безпечно лише поки закладки йдуть без
+                                        // `senseKeys`: сенс-дедуп у сторі їх не
+                                        // бачить. Щойно закладка дістане
+                                        // атрибуцію — відхилене збереження
+                                        // спалить монетку, і спенд доведеться
+                                        // переносити ПІСЛЯ успішного додавання.
                                         store.spendTranslationBee() -> {
                                             store.onEvent(
                                                 VocabeeEvent.AddWord(
@@ -1155,6 +1167,8 @@ private fun MainApp(
                                 onSpeak = { text, languageTag ->
                                     speechOutputController.speak(text, languageTag)
                                 },
+                                pendingMessage = state.pendingMessage,
+                                onMessageShown = { store.consumePendingMessage() },
                             )
                         }
                     }
@@ -1212,6 +1226,12 @@ private fun MainApp(
                                             false
                                         } else {
                                             var chargedBees = 0
+                                            // Той самий запобіжник, що й у
+                                            // `onAddContextWord`: спенд ДО
+                                            // `AddWord` безпечний, поки закладки
+                                            // без `senseKeys` — з атрибуцією
+                                            // відхилений сенс-дедуп спалив би
+                                            // монетку.
                                             newBookmarks.forEach { bookmark ->
                                                 if (store.spendTranslationBee()) {
                                                     chargedBees += TranslationSearchBeeCost
@@ -3179,6 +3199,13 @@ private fun DictionaryDetailScreen(
     onRemoveWord: (source: String, translation: String) -> Unit,
     onDislikeTranslation: (TranslationOption) -> Unit = {},
     onSpeak: (text: String, languageTag: String) -> Unit,
+    /**
+     * Повідомлення стора (наприклад, відмова зберегти вже збережений сенс) —
+     * показуємо його ТУТ, над клавіатурою: тап по «+» здебільшого відбувається
+     * з відкритим IME, а хост Scaffold'а лишився б за клавіатурою.
+     */
+    pendingMessage: String? = null,
+    onMessageShown: () -> Unit = {},
 ) {
     val accent = prototypeTopicTheme(topic.coverIndex).color
     val density = LocalDensity.current
@@ -3198,6 +3225,15 @@ private fun DictionaryDetailScreen(
     }
     val scope = rememberCoroutineScope()
     val voiceSnackbarHostState = remember { SnackbarHostState() }
+    // Той самий IME-обізнаний хост, що й для голосових повідомлень (він
+    // піднятий над інпут-докою і клавіатурою). Гасимо ПІСЛЯ показу — споживання
+    // змінює ключ ефекту, тож раніше воно скасувало б власний снекбар.
+    LaunchedEffect(pendingMessage) {
+        val message = pendingMessage ?: return@LaunchedEffect
+        voiceSnackbarHostState.currentSnackbarData?.dismiss()
+        voiceSnackbarHostState.showVocabeeSnackbar(message)
+        onMessageShown()
+    }
     // Compute groups at the screen scope so the `remember` lives in a
     // @Composable context (LazyListScope.else { … } below is not Composable).
     val wordGroups = remember(topic.words) { topic.words.groupBySourceWord() }

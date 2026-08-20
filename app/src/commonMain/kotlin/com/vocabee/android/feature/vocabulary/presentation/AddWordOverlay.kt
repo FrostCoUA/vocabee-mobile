@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -1165,11 +1166,13 @@ private fun AddWordResultRow(
             Row(
                 modifier = Modifier
                     .align(Alignment.End)
+                    // Мінімум 40dp висоти — інакше тап-таргет виходив ~30dp.
+                    .heightIn(min = 40.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(PrototypeColor.NeutralSurface)
                     .border(BorderStroke(1.dp, PrototypeColor.Line2), RoundedCornerShape(12.dp))
                     .clickable(onClick = onDislike)
-                    .padding(horizontal = 11.dp, vertical = 7.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
