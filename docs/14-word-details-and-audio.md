@@ -220,6 +220,25 @@ details = WordDetails(
 
 > `WordSenseBlock` рендерить номер, partOfSpeech, definition та examples. Sense-level synonyms/antonyms конкретного атрибутованого перекладу показуються нижче окремими `WordChipsRow`; word-level списки лишаються fallback для legacy та групових карток. Форми завжди word-level.
 
+> **[ЗАРАЗ→виправлено фазою 0]** До фази 0 сервер завжди клав у **кожен**
+> `VariantDto` **однаковий word-level блоб** `senses`/`synonyms`/`antonyms`/
+> `examples` — усі варіанти того самого слова діставали ідентичний список
+> значень незалежно від того, з яким сенсом конкретно повʼязаний саме цей
+> переклад. Коректне відображення трималось лише на клієнтському
+> `WordDetails.displayContent()`/`attributedSenseIndexes()`
+> (`App.kt:4580-4619`), який вже після факту вирізав linked senses з повного
+> блоба (і досі так робить — див. нижче).
+>
+> **[НОВЕ] (фаза 0)** `projectEnrichmentForVariant`
+> (`vocabee-gateway/src/lexicon/lexicon.service.ts:1946`) тепер сам скоупить
+> `senses`/`synonyms`/`antonyms`/`examples` під конкретний варіант ще на
+> сервері, з тим самим фолбеком на word-level пул при порожній sense-scoped
+> видачі (деталі контракту — `17-api-and-data-reference.md` §1.5). Клієнтський
+> `displayContent()` лишається без змін і без ризику: для атрибутованого
+> варіанта він тепер працює над уже звуженими даними (по суті no-op, бо
+> `senses` вже містить лише лінковані значення), для legacy/group-карток —
+> як і раніше.
+
 ### 3.3 `WordSenseBlock` — одне значення
 
 **[ЗАРАЗ]** `App.kt:3080-3127`:

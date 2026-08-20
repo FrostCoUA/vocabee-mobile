@@ -565,8 +565,9 @@ dictionary → client facade), `knownWord`, `learningWord`, `ipa?`, `audioUrl?`,
 (`{senseKey: string|null, definition, partOfSpeech?, tags[], examples[], synonyms[], antonyms[]}`;
 `null` дозволено лише для legacy row без персистованого stable key),
 `synonyms[]`, `antonyms[]`, `forms[]` (`{text, tags[]}`), `senseKeys[]` (усі stable
-значення, які рендерить переклад), `senseIndex?` (перша compatibility-проєкція
-для старих клієнтів; null — не атрибутовано),
+значення, які рендерить переклад), `senseIndex?` (**[НОВЕ] фаза 0:** індекс
+**у межах масиву `senses` цього ж варіанта**, не глобальний позиційний за словом;
+для атрибутованого варіанта завжди `0`; null — не атрибутовано),
 `lexicalUnitKind` (`word|phrase|expression|abbreviation`), `registerTags[]`
 (`slang|informal|formal|technical|offensive|humorous|internet`), `expansion?`,
 `translatedExpansion?`, `meaning?`, `literalTranslation?`, `usageExample?`,
@@ -582,6 +583,32 @@ Legacy sense без записаного key лишається `senseKey=null` 
 Autocomplete не запускає translator/dictionary, sense-attribution або quality repair.
 Це важливо, бо mobile не робить другого detail-запиту: натискання `+` зберігає саме цей
 response snapshot у `WordEntry.details`/Room.
+
+**[НОВЕ] (фаза 0) Per-variant sense scoping.** До фази 0 кожен `VariantDto` ніс
+однаковий word-level блоб `senses`/`synonyms`/`antonyms`/`examples` незалежно
+від того, з яким конкретно сенсом повʼязаний цей переклад — усі варіанти
+одного слова отримували ідентичний список. `projectEnrichmentForVariant`
+(`lexicon.service.ts:1946`), вплетена в `prefixMatchToVariant` перед return
+(`lexicon.service.ts:654`), тепер проєктує це word-level enrichment у
+конкретний варіант:
+- **Атрибутований варіант** (`senseKeys[]` непорожній, або legacy `senseIndex`
+  вказує на існуючий сенс) несе **лише власні** сенси — і їхні `examples`,
+  `synonyms`, `antonyms` (union по відібраних сенсах). Якщо в відібраних
+  сенсів ці списки порожні — фолбек: `synonyms`/`antonyms` беруться з
+  word-level пулу, `examples` — з повного flat-списку.
+- `senseIndex` для такого варіанта нормалізується в `0` (індекс у межах
+  власного, вже звуженого масиву `senses` — див. вище).
+- **Без атрибуції** (немає ні `senseKeys`, ні валідного legacy `senseIndex`) —
+  повний word-level блоб без змін, легасі-поведінка збережена.
+- Wire-формат `SearchVariant` не змінився — лише вміст перелічених полів.
+
+**[НОВЕ] (фаза 0) Фільтр форм.** `forms[]` більше не містить wiktextract-
+службові псевдо-форми таблиці відмінювання (текст `no-table-tags`/`glossary`,
+теги `table-tags`/`inflection-template`, рядки без жодної літери/цифри) —
+спільний `isJunkWordForm` (`word-form-filter.ts`) фільтрує їх і на записі
+(`FreeDictionaryProvider`), і на видачі (`assembleEnrichment`,
+`lexicon.service.ts:1816`). Міграція `0022_prune_junk_word_forms.sql`
+одноразово вичистила вже накопичений дебрис у `lexicon_word_forms`.
 
 `MetaDto`: `totalAvailable`, `triedProvider`, `providerReason` (`exact_cached`\|`not_a_word`\|`echo`\|`no_provider_data`\|`translated`\|null), `dictionarySource?`, `dictionaryOrigin?`, `beeBalance?`.
 
