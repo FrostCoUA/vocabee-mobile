@@ -15,9 +15,16 @@ import org.junit.Test
  * Групування збережених записів ПО СЕНСУ (а не по слову-джерелу): один сенс —
  * одна картка. Ключ включає source, тож `run` і `naturally` ніколи не злипаються
  * навіть за однакового senseKey. Записи без атрибуції (легасі) лишаються в
- * окремій «безсенсовій» групі свого source — точно як у [groupBySourceWord].
+ * окремій «безсенсовій» групі свого source — тобто в старій, по-словній групі.
  */
 class SenseGroupingTest {
+    /**
+     * Склад групи в порядку записів — читабельний вигляд для ассертів. Живе в
+     * тесті, а не на [WordGroup]: продакшн рендерить пару представника й
+     * `nearbyTranslations`, «плаский» список перекладів там нікому не потрібен.
+     */
+    private val WordGroup.translations: List<String> get() = entries.map { it.translation }
+
     private fun details(
         senseKeys: List<String> = emptyList(),
         senseIndex: Int? = null,
@@ -72,7 +79,7 @@ class SenseGroupingTest {
     }
 
     // (в) — безатрибутивні записи не зливаються з атрибутованим, але між собою
-    // тримаються однією легасі-групою (стара поведінка groupBySourceWord).
+    // тримаються однією легасі-групою (стара, по-словна поведінка).
     @Test
     fun unattributedEntriesFormOneLegacyGroupApartFromAttributedOne() {
         val groups = listOf(

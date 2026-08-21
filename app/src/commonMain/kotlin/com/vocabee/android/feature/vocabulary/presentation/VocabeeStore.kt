@@ -207,17 +207,13 @@ sealed interface VocabeeEvent {
         val translation: String,
     ) : VocabeeEvent
 
-    data class AdjustWordKnowledge(
-        val topicId: String,
-        val wordId: String,
-        val deltaPercent: Int,
-    ) : VocabeeEvent
-
     /**
      * Одна відповідь тренування — одна подія на ВСЮ сенс-групу: картка колоди
      * питає значення, тож дельта дістається кожному його збереженому перекладу.
-     * Батч свідомо не N окремих [AdjustWordKnowledge]: інакше на кожну відповідь
-     * було б N перезавантажень стану, N синків і N подій аналітики.
+     * Батч свідомо не N окремих подій на запис: інакше на кожну відповідь було
+     * б N перезавантажень стану, N синків і N подій аналітики. Один запис —
+     * окремий випадок групи з одного члена, тож окремої «порядкової» події
+     * немає взагалі.
      *
      * [memberWordIds] — усі записи групи, ПРЕДСТАВНИК ПЕРШИЙ (його id іде в
      * аналітику як обличчя картки). Кламп 0..100 лишається по-членний.
@@ -296,7 +292,6 @@ class VocabeeStore(
             is VocabeeEvent.ClearTopicWords -> clearTopicWords(event.topicId)
             is VocabeeEvent.AddWord -> addWord(event.topicId, event.source, event.translation, event.ipa, event.details)
             is VocabeeEvent.RemoveWord -> removeWord(event.topicId, event.source, event.translation)
-            is VocabeeEvent.AdjustWordKnowledge -> adjustWordKnowledge(event.topicId, event.wordId, event.deltaPercent)
             is VocabeeEvent.AdjustSenseGroupKnowledge ->
                 adjustSenseGroupKnowledge(event.topicId, event.memberWordIds, event.deltaPercent)
             is VocabeeEvent.SelectSpeakingLanguage -> selectSpeakingLanguage(event.language)
@@ -678,11 +673,6 @@ class VocabeeStore(
         state = state.copy(topics = loadUserTopicsUseCase())
         analytics.track("word_deleted", mapOf("topic_id" to topicId))
         touchLocalRevision()
-    }
-
-    /** Один запис — окремий випадок групи з одного члена (спільний обробник). */
-    private fun adjustWordKnowledge(topicId: String, wordId: String, deltaPercent: Int) {
-        adjustSenseGroupKnowledge(topicId, listOf(wordId), deltaPercent)
     }
 
     /**

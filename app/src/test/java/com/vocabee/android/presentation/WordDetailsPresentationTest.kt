@@ -1,6 +1,7 @@
 package com.vocabee.android.feature.vocabulary.presentation
 
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
+import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -70,21 +71,52 @@ class WordDetailsPresentationTest {
         assertEquals(details.antonyms, content.antonyms)
     }
 
+    /**
+     * Раніше картка групувала всі переклади слова й тому свідомо ВИМИКАЛА скоуп
+     * (`displayContent(scopeToAttributedSense = false)` — «покажи всі сенси»).
+     * Відколи картка = один СЕНС, вимикача немає: розгорнута група показує саме
+     * сенс свого представника, а не весь лексем, хоч у неї й кілька перекладів.
+     */
     @Test
-    fun groupedCardKeepsAllSensesForItsMultipleTranslations() {
-        val details = WordDetails(
-            senseIndex = 1,
-            senses = listOf(signalSense, burstSense),
-            synonyms = listOf("signal light", "burst", "flash"),
-            antonyms = listOf("concealment", "fade"),
+    fun groupedCardScopesDetailsToTheSenseOfItsRepresentative() {
+        val group = WordGroup(
+            sourceWord = "flash",
+            entries = listOf(
+                wordEntry(
+                    id = "flash-burst",
+                    translation = "спалах",
+                    addedAt = 200L,
+                    details = WordDetails(
+                        senseKeys = listOf("sense_burst"),
+                        senses = listOf(signalSense, burstSense),
+                        synonyms = listOf("signal light", "burst", "flash"),
+                        antonyms = listOf("concealment", "fade"),
+                    ),
+                ),
+                wordEntry(id = "flash-blink", translation = "зблиск", addedAt = 100L),
+            ),
         )
 
-        val content = details.displayContent(scopeToAttributedSense = false)
+        val content = requireNotNull(group.displayDetails).displayContent()
 
-        assertEquals(listOf(0, 1), content.senses.map { it.index })
-        assertEquals(details.synonyms, content.synonyms)
-        assertEquals(details.antonyms, content.antonyms)
+        assertEquals(listOf(1), content.senses.map { it.index })
+        assertEquals(listOf(burstSense), content.senses.map { it.value })
+        assertEquals(listOf("burst", "flash"), content.synonyms)
+        assertEquals(listOf("fade"), content.antonyms)
     }
+
+    private fun wordEntry(
+        id: String,
+        translation: String,
+        addedAt: Long,
+        details: WordDetails? = null,
+    ) = WordEntry(
+        id = id,
+        source = "flash",
+        translation = translation,
+        details = details,
+        addedAtEpochMillis = addedAt,
+    )
 
     @Test
     fun attributedSenseWithoutOwnRelationsFallsBackToTheWholeWordSet() {

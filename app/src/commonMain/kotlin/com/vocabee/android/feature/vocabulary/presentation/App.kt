@@ -230,11 +230,6 @@ internal fun handleVocabularySyncAttempt(
 
 internal enum class AppFlow { Splash, Onboarding, Auth, LanguageSelect, Main }
 
-/**
- * Bridges the Add Word overlay's `searchRemote` callback to the gateway use case.
- * Falls back to local options when no API is plumbed (previews, tests) so the UI
- * still has something to render.
- */
 /** Lightweight lookup for the in-sentence peek: top translation only. */
 private suspend fun peekTranslateRemotely(
     useCase: RemoteLexiconSearchUseCase?,
@@ -256,68 +251,10 @@ private suspend fun peekTranslateRemotely(
 }
 
 /**
- * Бекфіл sense-збагачення для контекстного тренування: для груп слів із 2+
- * перекладами, де пари ще не мають речення власного значення, перепитуємо
- * лексикон (кеш — безкоштовно) і оновлюємо збережені details+senseIndex.
- * Повертає true, якщо хоч одне слово оновилось.
+ * Bridges the inline translation panel's `searchRemote` callback to the gateway
+ * use case. Falls back to an empty result when no API is plumbed (previews,
+ * tests) so the UI still has something to render.
  */
-private suspend fun backfillContextSenseDetails(
-    useCase: RemoteLexiconSearchUseCase?,
-    topics: List<DictionaryTopic>,
-    updateWord: (topicId: String, wordId: String, ipa: String?, details: WordDetails?) -> Unit,
-): Boolean {
-    if (useCase == null) return false
-    var updatedAny = false
-    for (topic in topics) {
-        val groups = topic.words
-            .groupBy { it.source.trim().lowercase() }
-            .values
-            .filter { group -> group.size >= 2 }
-        for (group in groups) {
-            // «Той самий сенс» тут — та сама семантика, що й у групуванні
-            // словника: ПЕРЕТИН sense-ключів ([groupBySense]), а не рівність
-            // підпису. Збережений `[k1]` і ревізований `[k1, k2]` — один сенс,
-            // тож два його переклади неоднозначні й вимагають збагачення.
-            // Легасі-записи (без атрибуції) під це правило не підпадають:
-            // спільна відсутність підпису не робить їх нерозрізнюваними.
-            val hasAmbiguousSense = group.groupBySense().any { sense ->
-                sense.entries.count { member -> member.senseMergeKeys().isNotEmpty() } > 1
-            }
-            val needsEnrichment = group.any { member ->
-                val details = member.details
-                val ownSenses = details
-                    ?.attributedSenseIndexes()
-                    .orEmpty()
-                    .mapNotNull { details?.senses?.getOrNull(it) }
-                ownSenses.isEmpty() ||
-                    ownSenses.all { sense -> sense.examples.none { it.isNotBlank() } }
-            } || hasAmbiguousSense
-            if (!needsEnrichment) continue
-            val result = useCase(
-                group.first().source.trim(),
-                topic.targetLanguage.code,
-                topic.sourceLanguage.code,
-                emptySet(),
-            ) as? RemoteLexiconSearchUseCase.Result.Ok ?: continue
-            for (member in group) {
-                // Пошук тепер віддає один айтем на сенс, а решта перекладів того
-                // самого значення лежить в `alternatives` — бекфіл мусить бачити
-                // і їх, інакше збережене слово-синонім не знайде своїх деталей.
-                val option = result.options
-                    .flatMap { option -> listOf(option) + option.alternatives }
-                    .firstOrNull {
-                        it.value.trim().lowercase() == member.translation.trim().lowercase()
-                    } ?: continue
-                val newDetails = option.details ?: continue
-                if (newDetails.attributedSenseIndexes().isEmpty() && member.details != null) continue
-                updateWord(topic.id, member.id, option.ipa, newDetails)
-                updatedAny = true
-            }
-        }
-    }
-    return updatedAny
-}
-
 private suspend fun searchRemotely(
     useCase: RemoteLexiconSearchUseCase?,
     input: String,
@@ -4344,147 +4281,14 @@ private fun WordGroupRow(
                     WordDetailsBlock(
                         details = details,
                         accent = accent,
-                        // Картка = один сенс, тож і деталі скоуплені по ньому:
+                        // Картка = один сенс, тож і деталі скоуплені по ньому
+                        // (без варіантів — [displayContent] завжди скоуплює):
                         // сервер після фази 0 віддає вже скоуплений блоб, а
                         // легасі-записи без атрибуції отримають старий
-                        // all-senses вигляд самі (`displayContent` фолбек).
-                        scopeToAttributedSense = true,
+                        // all-senses вигляд самі (фолбек усередині).
                         targetWord = group.sourceWord,
                         savedContextKeys = savedContextKeys,
                         onAddContextWord = onAddContextWord,
-                        modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 15.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun WordRow(
-    word: WordEntry,
-    accent: Color,
-    highlighted: Boolean,
-    modifier: Modifier = Modifier,
-    onSpeak: () -> Unit,
-    onRemove: () -> Unit = {},
-) {
-    val hasDetails = word.details != null && !word.details.isEmpty
-    val lexicalLabels = lexicalLabelsFor(word.source, word.details)
-    var sourceTextOverflows by remember(word.id, word.source) { mutableStateOf(false) }
-    var translationTextOverflows by remember(word.id, word.translation) { mutableStateOf(false) }
-    val canExpand = hasDetails || sourceTextOverflows || translationTextOverflows
-    var expanded by remember(word.id) { mutableStateOf(false) }
-    val expandInteractionSource = remember(word.id) { MutableInteractionSource() }
-
-    SwipeRevealDeleteContainer(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        deleteButtonWidth = 88.dp,
-        onDeleteClick = onRemove,
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            color = PrototypeColor.White,
-            shadowElevation = 2.dp,
-            border = if (highlighted) BorderStroke(1.dp, PrototypeColor.Yellow) else null,
-        ) {
-            Column {
-                Row(
-                    modifier = Modifier
-                        .clickable(
-                            enabled = canExpand,
-                            interactionSource = expandInteractionSource,
-                            indication = null,
-                        ) { expanded = !expanded }
-                        .padding(15.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Row(
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(9.dp),
-                        ) {
-                            Text(
-                                text = word.source,
-                                modifier = Modifier.weight(1f, fill = false),
-                                color = PrototypeColor.Ink,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 18.sp,
-                                letterSpacing = (-0.18).sp,
-                                maxLines = if (expanded) Int.MAX_VALUE else 1,
-                                overflow = TextOverflow.Ellipsis,
-                                onTextLayout = { result ->
-                                    if (!expanded) sourceTextOverflows = result.hasVisualOverflow
-                                },
-                            )
-                            if (!word.ipa.isNullOrBlank()) {
-                                Text(
-                                    text = word.ipa,
-                                    color = PrototypeColor.Muted2,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                        Text(
-                            text = word.translation,
-                            modifier = Modifier.padding(top = 3.dp),
-                            color = PrototypeColor.Muted,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            maxLines = if (expanded) Int.MAX_VALUE else 1,
-                            overflow = TextOverflow.Ellipsis,
-                            onTextLayout = { result ->
-                                if (!expanded) translationTextOverflows = result.hasVisualOverflow
-                            },
-                        )
-                        if (lexicalLabels.isNotEmpty()) {
-                            Text(
-                                text = lexicalLabels.joinToString(" · "),
-                                modifier = Modifier.padding(top = 5.dp),
-                                color = accent,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 11.5.sp,
-                            )
-                        }
-                    }
-
-                    Surface(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clickable(onClick = onSpeak),
-                        shape = RoundedCornerShape(12.dp),
-                        color = PrototypeColor.Tint,
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            PrototypeLineIcon(
-                                icon = PrototypeIcon.Sound,
-                                modifier = Modifier.size(17.dp),
-                                color = PrototypeColor.PurpleText,
-                                strokeWidth = 1.9f,
-                            )
-                        }
-                    }
-
-                    PrototypeLineIcon(
-                        icon = PrototypeIcon.ChevronDown,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .graphicsLayer { rotationZ = if (expanded && canExpand) 180f else 0f },
-                        color = if (canExpand) accent else PrototypeColor.Muted3,
-                        strokeWidth = 2f,
-                    )
-                }
-
-                if (expanded && word.details != null) {
-                    WordDetailsBlock(
-                        details = word.details,
-                        accent = accent,
                         modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 15.dp),
                     )
                 }
@@ -4515,12 +4319,11 @@ internal fun WordDetailsBlock(
     details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails,
     accent: Color,
     modifier: Modifier = Modifier,
-    scopeToAttributedSense: Boolean = true,
     targetWord: String? = null,
     savedContextKeys: Set<String> = emptySet(),
     onAddContextWord: ((glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit)? = null,
 ) {
-    val displayContent = details.displayContent(scopeToAttributedSense)
+    val displayContent = details.displayContent()
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -4587,13 +4390,13 @@ internal data class WordDetailsDisplayContent(
  * Картка словника теж скоуплена: вона представляє ОДИН збережений сенс, а не
  * весь лексем. Legacy/unattributed rows keep the previous all-senses view —
  * атрибуції в них немає, і фолбек нижче сам віддає всі сенси.
+ *
+ * Вимикача скоупу більше немає: відколи картка = сенс, «показати всі сенси
+ * атрибутованого блоба» не потрібне жодному кол-сайту, а фолбек для записів
+ * без атрибуції лишається автоматичним.
  */
-internal fun WordDetails.displayContent(
-    scopeToAttributedSense: Boolean = true,
-): WordDetailsDisplayContent {
+internal fun WordDetails.displayContent(): WordDetailsDisplayContent {
     val attributedSenses = attributedSenseIndexes()
-        .takeIf { scopeToAttributedSense }
-        .orEmpty()
         .mapNotNull { index -> senses.getOrNull(index)?.let { index to it } }
 
     return if (attributedSenses.isNotEmpty()) {
@@ -5904,7 +5707,7 @@ internal data class PracticeDeckCard(
  *
  * Ключ навмисно тримається на [WordGroup.stableKey], а не на id запису:
  * видалений переклад не повинен перебудовувати колоду сенсу, який нікуди не
- * дівся (`anyId` з'їхав би на наступний запис).
+ * дівся (будь-який «id члена» з'їхав би на наступний запис).
  */
 internal fun buildPracticeDeckCards(topics: List<DictionaryTopic>): List<PracticeDeckCard> {
     return topics.flatMap { topic ->

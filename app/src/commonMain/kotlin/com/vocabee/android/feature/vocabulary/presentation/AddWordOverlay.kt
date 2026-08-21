@@ -1,6 +1,5 @@
 package com.vocabee.android.feature.vocabulary.presentation
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -12,7 +11,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,78 +21,46 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vocabee.android.core.presentation.designsystem.PrototypeColor
-import com.vocabee.android.core.presentation.designsystem.manropeFamily
 import com.vocabee.android.core.presentation.designsystem.PrototypeIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
-import com.vocabee.android.core.presentation.designsystem.languageFlag
-import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.attributionSignature
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
-import com.vocabee.android.feature.vocabulary.domain.model.savedWordKeys
 import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
-import com.vocabee.android.feature.vocabulary.presentation.platform.SpeechInputController
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
-
-/** Origin rect (in dp) of the pill that we morph from. */
-internal data class AddWordOrigin(
-    val left: Dp,
-    val top: Dp,
-    val width: Dp,
-    val height: Dp,
-)
-
-internal enum class AddWordMode { Idle, Recording, Results }
 
 /**
  * Один СЕНС слова-джерела з усіма його збереженими перекладами
@@ -114,7 +80,6 @@ internal data class WordGroup(
     val ipa: String? get() = entries.firstNotNullOfOrNull { it.ipa?.takeIf(String::isNotBlank) }
     val details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?
         get() = entries.firstNotNullOfOrNull { it.details?.takeUnless(com.vocabee.android.feature.vocabulary.domain.model.WordDetails::isEmpty) }
-    val translations: List<String> get() = entries.map { it.translation }
     val knowledgePercent: Int
         get() = entries.averageKnowledgePercent()
 
@@ -134,17 +99,17 @@ internal data class WordGroup(
      */
     val representative: WordEntry
         get() = entries.maxByOrNull { entry -> entry.addedAtEpochMillis } ?: entries.first()
-    val anyId: String get() = entries.first().id
 
     /**
      * Ідентичність СЕНСУ для рендера: слово-джерело + підпис атрибуції
      * представника (`legacy` — для бакета без атрибуції, він один на слово).
      * Той самий підпис, що й у [senseGroupKey], лише з явним маркером легасі.
      *
-     * Ключ навмисно НЕ `anyId`: id першого запису змінюється, щойно його
-     * видалять, і LazyColumn скидає розгорнутий стан картки, яка нікуди не
-     * ділась. Унікальність тримається в межах слова: групи одного source не
-     * можуть мати спільного sense-ключа (спільний — це вже одна група).
+     * Ключ навмисно НЕ id запису: id будь-якого конкретного члена змінюється,
+     * щойно його видалять, і LazyColumn скидає розгорнутий стан картки, яка
+     * нікуди не ділась. Унікальність тримається в межах слова: групи одного
+     * source не можуть мати спільного sense-ключа (спільний — це вже одна
+     * група).
      */
     val stableKey: String
         get() {
@@ -155,7 +120,7 @@ internal data class WordGroup(
 
     /**
      * Деталі для розгорнутої картки — саме ПРЕДСТАВНИКА: у заголовку рендериться
-     * його пара, тож і скоуп сенсу (`scopeToAttributedSense`) має бути його.
+     * його пара, тож і сенс, по якому скоупиться блоб, має бути його.
      *
      * Якщо в представника блоба нема, беремо перший наявний у члена ТОГО САМОГО
      * сенсу — перетин ключів обовʼязковий. Без цієї перевірки запис-місток
@@ -211,26 +176,13 @@ internal fun List<com.vocabee.android.feature.vocabulary.domain.model.WordEntry>
 }
 
 /**
- * Group topic words by source word (case-insensitive). Order preserved from
- * the underlying list — newest-added group first.
- */
-internal fun List<com.vocabee.android.feature.vocabulary.domain.model.WordEntry>.groupBySourceWord(): List<WordGroup> {
-    val grouped = mutableMapOf<String, MutableList<com.vocabee.android.feature.vocabulary.domain.model.WordEntry>>()
-    for (entry in this) {
-        val key = entry.source.trim().lowercase()
-        grouped.getOrPut(key) { mutableListOf() }.add(entry)
-    }
-    return grouped.values.map { WordGroup(sourceWord = it.first().source, entries = it) }
-}
-
-/**
  * Ключ ПРЕДСТАВЛЕННЯ сенсу: слово-джерело + атрибуція перекладу
  * ([attributionSignature] — стабільні `senseKeys`, інакше легасі `senseIndex`).
  * Source обов'язково входить у ключ: однаковий senseKey у різних слів — різні
  * сенси, `run` і `naturally` не мають злипатись.
  *
  * Записи без атрибуції (збережені до V2) дістають ключ самого лише source —
- * так вони лишаються однією «легасі»-карткою, як у [groupBySourceWord], і не
+ * так вони лишаються однією «легасі»-карткою (стара, по-словна поведінка) і не
  * приклеюються до жодного конкретного сенсу.
  *
  * **НЕ ідентичність групи.** [groupBySense] зливає за ПЕРЕТИНОМ ключів, тож
@@ -289,8 +241,8 @@ internal fun WordEntry.overlapsSenseGroup(candidateSource: String, candidate: Wo
  * транзитивний — запис-місток `[k1, k2]` об'єднує групи `[k1]` і `[k2]`.
  *
  * Записи без атрибуції зливаються лише між собою (порожній перетин ні з чим не
- * перетинається) і дають одну легасі-групу на слово — стару поведінку
- * [groupBySourceWord].
+ * перетинається) і дають одну легасі-групу на слово — тобто стару, по-словну
+ * поведінку.
  *
  * Кандидати на злиття беруться з індексу по слову-джерелу, тож прохід коштує
  * O(n × груп САМЕ ЦЬОГО слова), а не O(n × усіх груп словника).
@@ -334,7 +286,8 @@ internal fun List<WordEntry>.groupBySense(): List<WordGroup> {
  * додано» і те, що ховається за кнопкою (додати проти видалити). Збережений
  * `run→серія` не робить «доданим» варіант `series→серія`.
  *
- * Єдине джерело правди — ЖИВИЙ [savedWordKeys] зі стану словника. Прапорець
+ * Єдине джерело правди — ЖИВИЙ набір `WordEntry.savedWordKeys()` зі стану
+ * словника. Прапорець
  * `TranslationOption.alreadyAdded` навмисно НЕ враховується: він заморожений на
  * момент пошуку (і рахується з того самого набору), тож у суміші робив би
  * toggle однобічним — після видалення рядка ✓ лишалась би назавжди, і додати
@@ -355,476 +308,6 @@ internal data class AddWordSearchState(
     val tier: String? = null,
     val maxResults: Int? = null,
 )
-
-@Composable
-internal fun AddWordOverlay(
-    topic: DictionaryTopic,
-    accent: Color,
-    origin: AddWordOrigin,
-    speechInputController: SpeechInputController,
-    searchRemote: suspend (query: String) -> AddWordSearchState,
-    onAddWord: (source: String, translation: String, ipa: String?, details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?) -> Unit,
-    onRemoveWord: (source: String, translation: String) -> Unit,
-    onDislikeTranslation: (TranslationOption) -> Unit = {},
-    onClose: () -> Unit,
-) {
-    var query by remember { mutableStateOf("") }
-    val cleanedQuery = query.trim()
-    var searchState by remember { mutableStateOf(AddWordSearchState()) }
-    val addedCount = remember { mutableStateOf(0) }
-
-    // Live set of (word, translation) pairs currently in this topic — recomputed on every
-    // recompose so tapping "+" or "✓" flips the per-row state immediately (the host
-    // re-renders us with a fresh `topic` after the store update). Ключ — саме пара:
-    // збережений `run→серія` не сміє позначати «додано» варіант `series→серія`.
-    val savedWordKeys = remember(topic.words) { topic.words.savedWordKeys() }
-
-    var partialText by remember { mutableStateOf("") }
-    var heardText by remember { mutableStateOf("") }
-    var isListening by remember { mutableStateOf(false) }
-    var speechError by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-
-    val morph = remember { Animatable(0f) }
-    val content = remember { Animatable(0f) }
-    var closing by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        morph.animateTo(1f, animationSpec = tween(420))
-        content.animateTo(1f, animationSpec = tween(280))
-    }
-
-    fun close() {
-        if (closing) return
-        closing = true
-        scope.launch {
-            content.animateTo(0f, animationSpec = tween(150))
-            morph.animateTo(0f, animationSpec = tween(380))
-            onClose()
-        }
-    }
-
-    DisposableEffect(speechInputController) {
-        onDispose { speechInputController.stopListening() }
-    }
-
-    // Debounced backend search: every keystroke / voice result re-runs the search
-    // 1s after the user pauses typing. `isLoading=true` is set immediately so the
-    // spinner is visible throughout the wait — the LaunchedEffect cancels and
-    // restarts on each new character, keeping the spinner pinned while typing.
-    LaunchedEffect(cleanedQuery) {
-        if (cleanedQuery.isEmpty()) {
-            searchState = AddWordSearchState()
-            return@LaunchedEffect
-        }
-        searchState = searchState.copy(query = cleanedQuery, isLoading = true, errorMessage = null)
-        delay(1000)
-        searchState = searchRemote(cleanedQuery)
-    }
-
-    fun resetSpeech() {
-        partialText = ""
-        heardText = ""
-        speechError = null
-    }
-
-    fun startListening() {
-        resetSpeech()
-        query = ""
-        speechInputController.startListening(
-            languageTag = topic.targetLanguage.speechTag,
-            alternativeLanguageTags = listOf(topic.sourceLanguage.speechTag),
-            onPartialResult = { partialText = it },
-            onResult = { recognized ->
-                val text = recognized.trim()
-                heardText = text
-                partialText = ""
-                isListening = false
-                if (text.isNotBlank()) query = text
-            },
-            onError = { message ->
-                speechError = message
-                partialText = ""
-                isListening = false
-            },
-            onListeningChanged = { isListening = it },
-        )
-    }
-
-    suspend fun stopListeningWithGrace() {
-        delay(700)
-        speechInputController.stopListening()
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) { /* swallow taps on backdrop */ },
-    ) {
-        // Backdrop fade
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.20f * morph.value)),
-        )
-
-        // Morphing surface — interpolates from pill at origin to full screen
-        val cornerDp = (32f * (1f - morph.value)).dp
-        val color = lerpColor(accent, PrototypeColor.White, morph.value)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    val targetWidth = size.width
-                    val targetHeight = size.height
-                    val scaleXVal = (origin.width.toPx() + (targetWidth - origin.width.toPx()) * morph.value) / targetWidth
-                    val scaleYVal = (origin.height.toPx() + (targetHeight - origin.height.toPx()) * morph.value) / targetHeight
-                    val translateXVal = origin.left.toPx() * (1f - morph.value)
-                    val translateYVal = origin.top.toPx() * (1f - morph.value)
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
-                    scaleX = scaleXVal
-                    scaleY = scaleYVal
-                    translationX = translateXVal
-                    translationY = translateYVal
-                }
-                .clip(RoundedCornerShape(cornerDp))
-                .background(color),
-        )
-
-        if (content.value > 0.001f) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .graphicsLayer { alpha = content.value },
-            ) {
-                AddWordHeader(
-                    topic = topic,
-                    onClose = ::close,
-                )
-
-                AddWordSearchField(
-                    value = query,
-                    onValueChange = { value ->
-                        query = value
-                        if (value.isNotEmpty()) heardText = value
-                    },
-                    onClear = {
-                        query = ""
-                        resetSpeech()
-                    },
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f, fill = true)
-                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                ) {
-                    when {
-                        isListening || cleanedQuery.isBlank() -> MicStage(
-                            accent = accent,
-                            isListening = isListening,
-                            speechError = speechError,
-                            onStart = ::startListening,
-                            onStop = { scope.launch { stopListeningWithGrace() } },
-                        )
-                        searchState.isLoading -> AddWordLoadingState()
-                        searchState.errorMessage != null -> AddWordErrorState(
-                            message = searchState.errorMessage!!,
-                        )
-                        else -> AddWordResultsList(
-                            query = cleanedQuery,
-                            results = searchState.results,
-                            tier = searchState.tier,
-                            maxResults = searchState.maxResults,
-                            accent = accent,
-                            savedWordKeys = savedWordKeys,
-                            onAdd = { option ->
-                                // Save the canonical learning-word from the variant,
-                                // not the user's raw typing. Otherwise a prefix
-                                // suggestion ("circumstance" shown while typing
-                                // "circum") would persist as "circum".
-                                onAddWord(option.learningWord, option.value, option.ipa, option.details)
-                                addedCount.value = addedCount.value + 1
-                            },
-                            onRemove = { option ->
-                                onRemoveWord(option.learningWord, option.value)
-                            },
-                            onDislike = onDislikeTranslation,
-                        )
-                    }
-                }
-
-                if (addedCount.value > 0) {
-                    AddedCountBar(count = addedCount.value, onDone = ::close)
-                }
-                Spacer(modifier = Modifier.imePadding())
-            }
-        }
-    }
-}
-
-@Composable
-private fun AddWordHeader(
-    topic: DictionaryTopic,
-    onClose: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "Додати у ",
-                color = PrototypeColor.Muted,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-            )
-            Text(
-                text = "«${topic.title}»",
-                color = PrototypeColor.Ink,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 16.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        // Read-only language pair indicator. Was a dropdown opening the language
-        // sheet — dropped because language for a topic isn't editable here (it's
-        // baked in at topic-create time). Just two flags + arrow now.
-        Surface(
-            shape = RoundedCornerShape(11.dp),
-            color = PrototypeColor.NeutralSurface,
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Text(languageFlag(topic.sourceLanguage.code), fontSize = 16.sp)
-                PrototypeLineIcon(
-                    icon = PrototypeIcon.ArrowRight,
-                    modifier = Modifier.size(12.dp),
-                    color = PrototypeColor.Muted2,
-                    strokeWidth = 2f,
-                )
-                Text(languageFlag(topic.targetLanguage.code), fontSize = 16.sp)
-            }
-        }
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(13.dp))
-                .background(PrototypeColor.NeutralSurface)
-                .clickable(onClick = onClose),
-            contentAlignment = Alignment.Center,
-        ) {
-            PrototypeLineIcon(
-                icon = PrototypeIcon.Close,
-                modifier = Modifier.size(22.dp),
-                color = PrototypeColor.Muted,
-                strokeWidth = 2.2f,
-            )
-        }
-    }
-}
-
-@Composable
-private fun AddWordSearchField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onClear: () -> Unit,
-) {
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) {
-        // Don't auto-focus to avoid forcing keyboard open immediately
-    }
-    Row(
-        modifier = Modifier
-            .padding(horizontal = 18.dp, vertical = 4.dp)
-            .fillMaxWidth()
-            .height(58.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(PrototypeColor.FieldBg)
-            .border(BorderStroke(1.5.dp, PrototypeColor.Line), RoundedCornerShape(18.dp))
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(11.dp),
-    ) {
-        PrototypeLineIcon(
-            icon = PrototypeIcon.Search,
-            modifier = Modifier.size(20.dp),
-            color = PrototypeColor.Muted2,
-            strokeWidth = 2f,
-        )
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier
-                .weight(1f)
-                .focusRequester(focusRequester),
-            singleLine = true,
-            textStyle = TextStyle(
-                fontFamily = manropeFamily(),
-                color = PrototypeColor.Ink,
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-            ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            cursorBrush = androidx.compose.ui.graphics.SolidColor(PrototypeColor.Purple),
-            decorationBox = { inner ->
-                Box(contentAlignment = Alignment.CenterStart) {
-                    if (value.isEmpty()) {
-                        Text(
-                            "Введи слово англійською…",
-                            color = PrototypeColor.Muted2,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 18.sp,
-                        )
-                    }
-                    inner()
-                }
-            },
-        )
-        if (value.isNotEmpty()) {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(PrototypeColor.ChipNeutralBg)
-                    .clickable(onClick = onClear),
-                contentAlignment = Alignment.Center,
-            ) {
-                PrototypeLineIcon(
-                    icon = PrototypeIcon.Close,
-                    modifier = Modifier.size(16.dp),
-                    color = PrototypeColor.Muted2,
-                    strokeWidth = 2.2f,
-                )
-            }
-        }
-    }
-}
-
-/**
- * Single composable that hosts both the idle and recording states. We previously
- * had two separate column layouts — when the user pressed the mic, the waveform
- * appeared ABOVE the button and pushed the whole column down, making the mic
- * "jump". Now the waveform slot is always present (fixed 80dp + 30dp spacer),
- * just empty when idle, so the mic stays nailed to the same vertical position.
- */
-@Composable
-private fun MicStage(
-    accent: Color,
-    isListening: Boolean,
-    speechError: String?,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-) {
-    val micColor = if (isListening) PrototypeColor.Orange else accent
-    val primary = when {
-        isListening -> "Слухаю…"
-        speechError != null -> "Не вдалося розпізнати"
-        else -> "Продиктуй слово"
-    }
-    val secondary = when {
-        isListening -> "торкнись, щоб зупинити"
-        else -> speechError ?: "або почни вводити його у поле вгорі"
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        // Reserved waveform slot — same height whether or not we're listening,
-        // so the mic doesn't move between states.
-        Box(
-            modifier = Modifier.height(80.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (isListening) VoiceWaveform()
-        }
-        Spacer(modifier = Modifier.height(30.dp))
-        HoldToTalkButton(
-            color = micColor,
-            listening = isListening,
-            onStart = onStart,
-            onStop = onStop,
-        )
-        Text(
-            text = primary,
-            modifier = Modifier.padding(top = if (isListening) 24.dp else 22.dp),
-            color = PrototypeColor.Ink,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = if (isListening) 17.sp else 18.sp,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            text = secondary,
-            modifier = Modifier.padding(top = if (isListening) 5.dp else 6.dp),
-            color = PrototypeColor.Muted,
-            fontWeight = if (isListening) FontWeight.SemiBold else FontWeight.Medium,
-            fontSize = if (isListening) 13.5.sp else 14.sp,
-            textAlign = TextAlign.Center,
-        )
-    }
-}
-
-@Composable
-private fun HoldToTalkButton(
-    color: Color,
-    listening: Boolean,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-) {
-    Box(
-        modifier = Modifier.size(116.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (listening) {
-            Box(
-                modifier = Modifier
-                    .size(116.dp)
-                    .clip(CircleShape)
-                    .border(BorderStroke(3.dp, PrototypeColor.Orange.copy(alpha = 0.42f)), CircleShape),
-            )
-        }
-        Surface(
-            modifier = Modifier
-                .size(104.dp)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = {
-                            onStart()
-                            try {
-                                tryAwaitRelease()
-                            } finally {
-                                onStop()
-                            }
-                        },
-                    )
-                },
-            shape = CircleShape,
-            color = color,
-            shadowElevation = 14.dp,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                PrototypeLineIcon(
-                    icon = PrototypeIcon.Mic,
-                    modifier = Modifier.size(if (listening) 32.dp else 34.dp),
-                    // Літерал: кнопка завжди фіолетова, токен у дарку темнішає.
-                    color = Color.White,
-                    strokeWidth = 1.9f,
-                )
-            }
-        }
-    }
-}
 
 /**
  * Animated waveform — the redesign's static picture brought to life. The mock
@@ -1336,51 +819,4 @@ internal fun WordDetails.firstSenseLine(): String? {
         ?: return null
     return sense.definition.takeIf(String::isNotBlank)
         ?: sense.examples.firstOrNull(String::isNotBlank)
-}
-
-private fun lerpColor(start: Color, end: Color, t: Float): Color {
-    val clamped = t.coerceIn(0f, 1f)
-    return Color(
-        red = start.red + (end.red - start.red) * clamped,
-        green = start.green + (end.green - start.green) * clamped,
-        blue = start.blue + (end.blue - start.blue) * clamped,
-        alpha = start.alpha + (end.alpha - start.alpha) * clamped,
-    )
-}
-
-@Composable
-private fun AddedCountBar(count: Int, onDone: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(BorderStroke(1.dp, PrototypeColor.DividerLight), RoundedCornerShape(0.dp))
-            .navigationBarsPadding()
-            .padding(horizontal = 22.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Row {
-            Text(
-                text = count.toString(),
-                color = PrototypeColor.Ink,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 15.sp,
-            )
-            Text(
-                text = " " + if (count == 1) "слово додано" else "слів додано",
-                color = PrototypeColor.Muted,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 15.sp,
-            )
-        }
-        Text(
-            text = "Готово",
-            modifier = Modifier
-                .clickable(onClick = onDone)
-                .padding(8.dp),
-            color = PrototypeColor.PurpleText,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 16.sp,
-        )
-    }
 }

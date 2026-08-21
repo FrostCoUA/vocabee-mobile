@@ -589,11 +589,13 @@ class VocabeeStoreTest {
         val word = store.topicForTest(topic.id).words.first()
         assertEquals(0, word.knowledgePercent)
 
-        store.onEvent(VocabeeEvent.AdjustWordKnowledge(topic.id, word.id, -20))
+        // Одинокий запис — сенс-група з одного члена: окремої порядкової події
+        // немає, кламп 0..100 робить той самий батчовий обробник.
+        store.onEvent(VocabeeEvent.AdjustSenseGroupKnowledge(topic.id, listOf(word.id), -20))
         assertEquals(0, store.topicForTest(topic.id).words.first().knowledgePercent)
 
         repeat(6) {
-            store.onEvent(VocabeeEvent.AdjustWordKnowledge(topic.id, word.id, 20))
+            store.onEvent(VocabeeEvent.AdjustSenseGroupKnowledge(topic.id, listOf(word.id), 20))
         }
         assertEquals(100, store.topicForTest(topic.id).words.first().knowledgePercent)
     }
