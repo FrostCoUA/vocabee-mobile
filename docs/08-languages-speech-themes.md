@@ -137,7 +137,7 @@ speechInputController.startListening(
 )
 ```
 
-Тобто **primary = мова, якою користувач зараз диктує** (за замовчуванням `topic.sourceLanguage`, тобто «вивчаю»), **alternative = інша мова словника**. Перемикач у хедері (`onToggleSpeechDirection`, `App.kt:2658`, `2713`) інвертує `speechDirectionReversed` → primary і alternative міняються місцями. У шторці «Додати слово» (`AddWordOverlay.kt:210-212`) primary = `topic.targetLanguage`, alternative = `topic.sourceLanguage` (там диктують переклад).
+Тобто **primary = мова, якою користувач зараз диктує** (за замовчуванням `topic.sourceLanguage`, тобто «вивчаю»), **alternative = інша мова словника**. Перемикач у хедері (`onToggleSpeechDirection`, `App.kt:2658`, `2713`) інвертує `speechDirectionReversed` → primary і alternative міняються місцями. **[ЗАРАЗ→змінено фазами 2–4]** Шторки «Додати слово» більше немає (композабл `AddWordOverlay` видалено як мертвий) — диктування живе лише в доку словника, тож окремої пари пріоритетів для неї теж немає.
 
 ### 3.3 Android 14+ (UPSIDE_DOWN_CAKE): language detection / switch
 **[ЗАРАЗ]** Якщо `SDK_INT >= 34` **і** кандидатів > 1 (`AndroidSpeechInputController.kt:139`), додатково вмикаються:

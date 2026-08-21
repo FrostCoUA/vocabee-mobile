@@ -204,8 +204,20 @@ runtime generation: `replaceSession()`/`clear()` змінюють поколін
 [ЗАРАЗ] Гілка видалення обирається по `userKey == DEFAULT_LOCAL_USER_KEY` (`RoomVocabularyRepository.kt:95`, `:177`): анонім — фізичний `DELETE`; авторизований — `sync_status = PendingDelete` (щоб сервер підхопив). Списки скрізь фільтрують `sync_status != 'PendingDelete'`.
 > [НОВЕ за D3] Потрібен **Undo** (снекбар ~5–10с) і для слів, і для словників; монетки за видалення платного словника НЕ повертаються. Локально — pending-delete до синку (що вже відповідає поточному soft-delete для авторизованого); для аноніма «Undo» доведеться будувати поверх pending-стану або відкладеного фактичного видалення, бо зараз воно одразу hard.
 
-### 6.5. Видалення слова ключується по `translation`, не по `id`
-[ЗАРАЗ] `removeWordByTranslation`/`deleteWordByTranslation`/`markWordDeletedByTranslation` оперують `LOWER(translation)`, бо overlay додавання слова тримає лише `option.value` (текст перекладу), а не id (`VocabularyDao.kt:201` коментар). Дедуп — по парі `LOWER(source)+LOWER(translation)` (`duplicateWordCount`, `VocabularyDao.kt:112`): один source може мати кілька різних перекладів, і всі вони дозволені.
+### 6.5. Видалення слова ключується по `translation`, не по `id`; дедуп двошаровий
+[ЗАРАЗ] `removeWordByTranslation`/`deleteWordByTranslation`/`markWordDeletedByTranslation` оперують парою `LOWER(source)+LOWER(translation)`, бо UI додавання слова тримає лише `option.learningWord` + `option.value` (тексти), а не id (`VocabularyDao.kt` коментар). Один source може мати кілька різних перекладів, і всі вони дозволені.
+
+**[ЗАРАЗ→змінено фазами 2–4 · D16] Дедуп тепер має два шари, і верхній — сенс:**
+
+| Шар | Де живе | Ключ | Що ловить |
+|---|---|---|---|
+| **1. Сенс-гейт** | `VocabeeStore.addWord` → `isSenseAlreadySaved` (памʼять, стан словника) | непорожній **перетин `senseKeys`** записів того самого source (`WordEntry.overlapsSenseGroup`) | той самий СЕНС, збережений під іншим перекладом: `run→гнати` блокує додавання `run→бігти` того ж значення. Спрацьовує ще до `addWordUseCase`, тож рядок не створюється й монетка не списується; відмова — снекбар «Цей сенс уже у словнику» |
+| **2. Пара в Room** | `duplicateWordCount` (`VocabularyDao.kt`) | `LOWER(source)+LOWER(translation)` | буквальний дубль пари — остання лінія для кандидатів **без атрибуції**, яких сенс-гейт свідомо не чіпає (нема по чому судити) |
+
+Шар 1 **не** торкається схеми чи запитів Room: він живе повністю в презентаційному
+стані й рахується з `detailsJson`, який і так лежить у рядку. Скоуп — поточний
+словник: той самий сенс у двох різних словниках лишається двома легальними записами.
+Деталі поведінки й крайових випадків — [13](13-add-word-and-ai-search.md) §6.2.
 
 ### 6.6. Конвертер SyncStatus дефолтить невідоме у `PendingUpdate`
 [ЗАРАЗ] `syncStatusFromStorage` при невідомому рядку повертає `SyncStatus.PendingUpdate` (`VocabeeTypeConverters.kt:14`). Наслідок: якщо в БД лежить статус, який поточна версія enum не знає (стара/майбутня міграція, пошкоджене значення), рядок безпечно вважається «локально зміненим» і потрапить у наступний синк, а не випаде й не зламає читання. Це консервативний дефолт — гірше було б мовчки вважати його `Synced`.
