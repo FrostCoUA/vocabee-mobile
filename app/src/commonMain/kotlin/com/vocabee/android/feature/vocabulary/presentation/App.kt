@@ -1191,11 +1191,11 @@ private fun MainApp(
                             onSpeakWord = { word, languageTag ->
                                 speechOutputController.speak(word, languageTag)
                             },
-                            onAnswerWord = { topicId, wordId, deltaPercent ->
+                            onAnswerSenseGroup = { topicId, memberWordIds, deltaPercent ->
                                 store.onEvent(
-                                    VocabeeEvent.AdjustWordKnowledge(
+                                    VocabeeEvent.AdjustSenseGroupKnowledge(
                                         topicId = topicId,
-                                        wordId = wordId,
+                                        memberWordIds = memberWordIds,
                                         deltaPercent = deltaPercent,
                                     ),
                                 )
@@ -5118,7 +5118,8 @@ private fun PracticeScreen(
     onSessionActiveChanged: (Boolean) -> Unit,
     onBottomPanelVisibilityChanged: (Boolean) -> Unit,
     onSpeakWord: (word: String, languageTag: String) -> Unit,
-    onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
+    /** Відповідь на картку = одна дельта на ВСЮ сенс-групу (представник перший). */
+    onAnswerSenseGroup: (topicId: String, memberWordIds: List<String>, deltaPercent: Int) -> Unit,
     onRequestContextGlossary: (topicId: String, wordId: String) -> Unit,
     beeBalance: Int,
     onSaveBookmarks: (bookmarks: List<PracticeBookmark>, topicId: String) -> Boolean,
@@ -5180,24 +5181,33 @@ private fun PracticeScreen(
     }
 
     val selectedTopics = trainableTopics.filter { topic -> topic.id in selectedTopicIds }
-    val availableCards = buildPracticeDeckCards(selectedTopics)
-    val availableCardKeys = availableCards.map { card -> card.key }
+    // Групування — не на кожну рекомпозицію, а лише коли справді змінився вміст
+    // вибраних словників (відповідь, збагачення контексту, нове слово).
+    val liveCards = remember(selectedTopics) { buildPracticeDeckCards(selectedTopics) }
     // Freeze membership for the active round: saving a bookmark into one of the
     // selected dictionaries must not rebuild the deck or reset the done screen.
-    val availableCardIdentity = remember { availableCardKeys.toSet() }
-    var shuffleSeed by remember(availableCardIdentity) { mutableIntStateOf(Random.nextInt()) }
-    val deckKeys = remember(availableCardIdentity, shuffleSeed) {
+    // Заморожені саме КАРТКИ: якщо посеред раунду група зіллється з сусідньою
+    // (зміниться stableKey) чи зміниться представник, картка не зникне з колоди
+    // й не зсуне cardStates — покажемо снапшот старту. Вміст живої картки при
+    // цьому підхоплюється по ключу, тож знання після відповіді й доїхале
+    // збагачення контексту видно одразу.
+    val roundCards = remember { liveCards }
+    val cardsByKey = remember(roundCards, liveCards) {
+        val live = liveCards.associateBy { card -> card.key }
+        roundCards.associate { card -> card.key to (live[card.key] ?: card) }
+    }
+    var shuffleSeed by remember(roundCards) { mutableIntStateOf(Random.nextInt()) }
+    val deckKeys = remember(roundCards, shuffleSeed) {
         buildPracticeDeckKeys(
-            candidates = availableCards.map { card -> card.key to card.knowledgePercent },
+            candidates = cardsByKey.values.map { card -> card.key to card.knowledgePercent },
             seed = shuffleSeed,
         )
     }
-    val cardsByKey = availableCards.associateBy { card -> card.key }
     val deck = deckKeys.mapNotNull { key -> cardsByKey[key] }
     val pagerState = rememberPagerState(pageCount = { deck.size })
     val coroutineScope = rememberCoroutineScope()
     var index by remember(deckKeys) { mutableIntStateOf(0) }
-    var roundGeneration by remember(availableCardIdentity) { mutableIntStateOf(0) }
+    var roundGeneration by remember(roundCards) { mutableIntStateOf(0) }
     val cardStates = remember(deckKeys, roundGeneration) {
         List(deck.size) { PracticeCardSessionState() }
     }
@@ -5259,7 +5269,7 @@ private fun PracticeScreen(
         val card = deck.getOrNull(index) ?: return
         val cardState = cardStates.getOrNull(index) ?: return
         if (cardState.answer != null) return
-        applyPracticeAnswer(card, KnowledgeStepPercent, onAnswerWord)
+        onAnswerSenseGroup(card.topicId, card.memberWordIds, KnowledgeStepPercent)
         cardState.answer = PracticeCardAnswer.Known
         correctAnswers += 1
         moveNext()
@@ -5269,7 +5279,7 @@ private fun PracticeScreen(
         val card = deck.getOrNull(page) ?: return
         val cardState = cardStates.getOrNull(page) ?: return
         if (cardState.answer != null) return
-        applyPracticeAnswer(card, -KnowledgeStepPercent, onAnswerWord)
+        onAnswerSenseGroup(card.topicId, card.memberWordIds, -KnowledgeStepPercent)
         cardState.answer = PracticeCardAnswer.Unknown
     }
 
@@ -5857,15 +5867,19 @@ private fun PracticeTopicPickerRow(
  * Одиниця колоди — СЕНС-ГРУПА словника, а не рядок: три збережені переклади
  * одного значення дають ОДНУ картку, інакше раунд тричі поспіль питає те саме.
  *
- * [word] — представник групи (його пару, IPA й контекстне речення показує
- * фронт), [knowledgePercent] — знання найслабшого члена, [memberWordIds] — усі
- * записи групи (між ними ділиться дельта відповіді), [extraTranslations] —
- * решта збережених перекладів сенсу для рядка «також» на звороті.
+ * [word] — представник групи (його пару показує фронт), [details] і [ipa] —
+ * похідні ГРУПИ ([WordGroup.displayDetails]/[WordGroup.ipa]), тож представник
+ * без вмісту не лишає картку без речення й транскрипції; [knowledgePercent] —
+ * знання найслабшого члена, [memberWordIds] — усі записи групи, представник
+ * першим (між ними ділиться дельта відповіді), [extraTranslations] — решта
+ * збережених перекладів сенсу для рядка «також» на звороті.
  */
 internal data class PracticeDeckCard(
     /** `topicId` + [WordGroup.stableKey] — ідентичність СЕНСУ, а не рядка. */
     val key: String,
     val word: WordEntry,
+    val details: WordDetails?,
+    val ipa: String?,
     val topicId: String,
     val topicTitle: String,
     val sourceLanguageTag: String,
@@ -5894,12 +5908,17 @@ internal fun buildPracticeDeckCards(topics: List<DictionaryTopic>): List<Practic
             PracticeDeckCard(
                 key = "${topic.id}:${group.stableKey}",
                 word = representative,
+                details = group.displayDetails,
+                ipa = group.ipa,
                 topicId = topic.id,
                 topicTitle = topic.title,
                 sourceLanguageTag = topic.sourceLanguage.speechTag,
                 accent = accent,
                 knowledgePercent = group.minKnowledgePercent,
-                memberWordIds = group.entries.map { entry -> entry.id },
+                // Представник першим: його id іде в аналітику як обличчя картки.
+                memberWordIds = (listOf(representative) + group.entries)
+                    .distinctBy { entry -> entry.id }
+                    .map { entry -> entry.id },
                 extraTranslations = group.practiceExtraTranslations(),
             )
         }
@@ -5917,19 +5936,6 @@ private fun WordGroup.practiceExtraTranslations(): List<String> {
     return entries.mapNotNull { entry ->
         entry.translation.trim().takeIf { it.isNotEmpty() && seen.add(it.lowercase()) }
     }
-}
-
-/**
- * Дельта знань за відповідь дістається УСІМ записам сенс-групи: на звороті юзер
- * бачив усі її переклади, тож оцінка стосується значення, а не одного рядка.
- * Подія лишається по-рядковою — по одній на члена.
- */
-internal fun applyPracticeAnswer(
-    card: PracticeDeckCard,
-    deltaPercent: Int,
-    onAnswerWord: (topicId: String, wordId: String, deltaPercent: Int) -> Unit,
-) {
-    card.memberWordIds.forEach { wordId -> onAnswerWord(card.topicId, wordId, deltaPercent) }
 }
 
 /** Рядок «також …» на звороті; null — коли інших перекладів сенсу немає. */
@@ -6095,11 +6101,11 @@ private fun PracticeFlipCard(
                             )
                         }
                         PracticeCardBackMetadata(
-                            details = card.word.details,
+                            details = card.details,
                             modifier = Modifier.padding(top = 24.dp),
                         )
                     }
-                    card.word.details?.usageExampleTranslation
+                    card.details?.usageExampleTranslation
                         ?.takeIf { it.isNotBlank() }
                         ?.let { translatedExample ->
                             Text(
@@ -6144,7 +6150,7 @@ private fun PracticeFlipCard(
                                 )
                             }
                         }
-                        val lexicalLabels = lexicalLabelsFor(card.word.source, card.word.details)
+                        val lexicalLabels = lexicalLabelsFor(card.word.source, card.details)
                         if (lexicalLabels.isNotEmpty()) {
                             androidx.compose.foundation.layout.FlowRow(
                                 modifier = Modifier.padding(top = 12.dp),
@@ -6162,7 +6168,7 @@ private fun PracticeFlipCard(
                             color = PrototypeColor.Ink,
                             baseFontSize = 40,
                         )
-                        val ipa = card.word.ipa?.takeIf { it.isNotBlank() }
+                        val ipa = card.ipa?.takeIf { it.isNotBlank() }
                         if (ipa != null) {
                             Text(
                                 text = ipa,
@@ -6192,8 +6198,10 @@ private fun PracticeFlipCard(
                             }
                         }
                     }
-                    card.word.contextSentence()?.let { sentence ->
-                        val glossary = card.word.details?.contextGlossary
+                    // Речення й глосарій — з деталей ГРУПИ: представник без
+                    // блоба інакше лишив би фронт без контексту.
+                    card.details.contextSentence()?.let { sentence ->
+                        val glossary = card.details?.contextGlossary
                             ?.takeIf { it.sentence == sentence && it.tokens.isNotEmpty() }
                         if (glossary != null) {
                             ContextGlossarySentence(

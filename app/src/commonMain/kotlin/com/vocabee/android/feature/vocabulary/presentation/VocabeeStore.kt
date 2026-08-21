@@ -213,6 +213,21 @@ sealed interface VocabeeEvent {
         val deltaPercent: Int,
     ) : VocabeeEvent
 
+    /**
+     * Одна відповідь тренування — одна подія на ВСЮ сенс-групу: картка колоди
+     * питає значення, тож дельта дістається кожному його збереженому перекладу.
+     * Батч свідомо не N окремих [AdjustWordKnowledge]: інакше на кожну відповідь
+     * було б N перезавантажень стану, N синків і N подій аналітики.
+     *
+     * [memberWordIds] — усі записи групи, ПРЕДСТАВНИК ПЕРШИЙ (його id іде в
+     * аналітику як обличчя картки). Кламп 0..100 лишається по-членний.
+     */
+    data class AdjustSenseGroupKnowledge(
+        val topicId: String,
+        val memberWordIds: List<String>,
+        val deltaPercent: Int,
+    ) : VocabeeEvent
+
     data class SelectSpeakingLanguage(
         val language: LanguageOption,
     ) : VocabeeEvent
@@ -282,6 +297,8 @@ class VocabeeStore(
             is VocabeeEvent.AddWord -> addWord(event.topicId, event.source, event.translation, event.ipa, event.details)
             is VocabeeEvent.RemoveWord -> removeWord(event.topicId, event.source, event.translation)
             is VocabeeEvent.AdjustWordKnowledge -> adjustWordKnowledge(event.topicId, event.wordId, event.deltaPercent)
+            is VocabeeEvent.AdjustSenseGroupKnowledge ->
+                adjustSenseGroupKnowledge(event.topicId, event.memberWordIds, event.deltaPercent)
             is VocabeeEvent.SelectSpeakingLanguage -> selectSpeakingLanguage(event.language)
             is VocabeeEvent.SelectLearningLanguage -> selectLearningLanguage(event.language)
             is VocabeeEvent.SetNotificationsEnabled -> {
@@ -663,20 +680,49 @@ class VocabeeStore(
         touchLocalRevision()
     }
 
+    /** Один запис — окремий випадок групи з одного члена (спільний обробник). */
     private fun adjustWordKnowledge(topicId: String, wordId: String, deltaPercent: Int) {
-        if (wordId.isBlank() || deltaPercent == 0) return
-        val updated = adjustWordKnowledgeUseCase(
-            topicId = topicId,
-            wordId = wordId,
-            deltaPercent = deltaPercent,
-        ) ?: return
+        adjustSenseGroupKnowledge(topicId, listOf(wordId), deltaPercent)
+    }
+
+    /**
+     * Відповідь на картку тренування: дельта кожному запису сенс-групи, але
+     * ОДИН перезавантажений стан і ОДНА подія аналітики на картку. Кламп
+     * 0..100 робить юзкейс по кожному члену окремо — сильний переклад упреться
+     * в 100, слабкий продовжить рости.
+     *
+     * `word_id` в аналітиці — представник (перший у списку): він обличчя
+     * картки; `sense_group_size` показує, скільки записів рушила одна відповідь.
+     */
+    private fun adjustSenseGroupKnowledge(
+        topicId: String,
+        memberWordIds: List<String>,
+        deltaPercent: Int,
+    ) {
+        if (deltaPercent == 0) return
+        // distinct — щоб дубль у списку не подвоїв дельту одному запису.
+        val wordIds = memberWordIds.filter { id -> id.isNotBlank() }.distinct()
+        if (wordIds.isEmpty()) return
+        val updatedIds = wordIds.mapNotNull { wordId ->
+            adjustWordKnowledgeUseCase(
+                topicId = topicId,
+                wordId = wordId,
+                deltaPercent = deltaPercent,
+            )?.id
+        }
+        if (updatedIds.isEmpty()) return
         state = state.copy(
             topics = loadUserTopicsUseCase(),
-            recentlyAddedWordId = state.recentlyAddedWordId.takeIf { it != updated.id },
+            recentlyAddedWordId = state.recentlyAddedWordId.takeIf { it !in updatedIds },
         )
         analytics.track(
             "practice_answer",
-            mapOf("topic_id" to topicId, "word_id" to wordId, "known" to (deltaPercent > 0)),
+            mapOf(
+                "topic_id" to topicId,
+                "word_id" to wordIds.first(),
+                "sense_group_size" to wordIds.size,
+                "known" to (deltaPercent > 0),
+            ),
         )
         touchLocalRevision()
     }

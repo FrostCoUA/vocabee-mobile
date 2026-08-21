@@ -62,6 +62,7 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.core.presentation.designsystem.prototypeTopicTheme
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
+import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import kotlin.random.Random
 import kotlinx.coroutines.delay
@@ -158,8 +159,15 @@ private fun normalizePeekWord(raw: String): String =
 
 /* ---------- eligibility & deck building ---------- */
 
-internal fun WordEntry.contextSentence(): String? {
-    val details = details ?: return null
+internal fun WordEntry.contextSentence(): String? = details.contextSentence()
+
+/**
+ * Те саме правило, але від БЛОБА деталей: класична картка тренування показує
+ * деталі сенс-групи (`WordGroup.displayDetails`), а не обов'язково блоб
+ * представника, тож речення мусить рахуватись із того ж джерела.
+ */
+internal fun WordDetails?.contextSentence(): String? {
+    val details = this ?: return null
     details.contextGlossary?.sentence?.takeIf { it.isNotBlank() }?.let { return it.trim() }
     // Спершу — приклад ВЛАСНОГО значення пари (бекендова атрибуція): саме він
     // робить картку чесною, коли інші переклади слова живуть в інших sense'ах.
@@ -189,7 +197,7 @@ private fun uniqueSentenceMembers(group: List<WordEntry>): List<Pair<WordEntry, 
 }
 
 /**
- * Тренуються тільки однозначні sense-кластери. Якщо кілька збережених перекладів
+ * Тренуються тільки однозначні sense-кластери. Якщо ДВА члени з реченнями
  * вказують на той самий sense, речення не може чесно відрізнити один переклад
  * від іншого; такий кластер лишається класиці до повторної атрибуції.
  * Легасі-члени без атрибуції йдуть старим правилом унікального речення;
@@ -200,6 +208,10 @@ private fun uniqueSentenceMembers(group: List<WordEntry>): List<Pair<WordEntry, 
  * `run→мчати [k1, k2]` (ревізія лексикону дописала другому ще один ключ) були б
  * однією карткою словника, але двома «різними» кластерами тренування — і
  * нерозрізнювані переклади пройшли б повз цей захист.
+ *
+ * Фільтр «має речення» стоїть ДО кластеризації свідомо: член без речення
+ * тренуватись усе одно не може, тож і кластер він не дискваліфікує — сусід із
+ * реченням лишається однозначною відповіддю.
  */
 private fun senseRepresentatives(group: List<WordEntry>): List<Pair<WordEntry, String>> {
     val attributed = group.filter { member ->
