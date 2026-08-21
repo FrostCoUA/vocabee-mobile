@@ -3027,7 +3027,13 @@ private fun DictionaryCard(
                             color = Color.White.copy(alpha = 0.22f),
                         ) {
                             Text(
-                                text = "${topic.words.size} слів",
+                                // Плитка рахує РЯДКИ, тобто збережені переклади:
+                                // «N слів» брехало б відколи три переклади одного
+                                // сенсу дають одну картку. Однорядковий формат
+                                // (без «· M») — тут немає місця на дві частини,
+                                // повну форму дає [senseCountLabel] у словнику.
+                                text = "${topic.words.size} " +
+                                    ukrainianPlural(topic.words.size, "переклад", "переклади", "перекладів"),
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
@@ -6200,8 +6206,9 @@ private fun PracticeFlipCard(
                     }
                     // Речення й глосарій — з деталей ГРУПИ: представник без
                     // блоба інакше лишив би фронт без контексту.
-                    card.details.contextSentence()?.let { sentence ->
-                        val glossary = card.details?.contextGlossary
+                    card.details?.let { details ->
+                        val sentence = details.contextSentence() ?: return@let
+                        val glossary = details.contextGlossary
                             ?.takeIf { it.sentence == sentence && it.tokens.isNotEmpty() }
                         if (glossary != null) {
                             ContextGlossarySentence(

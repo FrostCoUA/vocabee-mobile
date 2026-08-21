@@ -270,6 +270,42 @@ class PracticeSenseDeckTest {
         assertEquals("/run/", card.ipa)
     }
 
+    // `sense_group_size` — розмір ПО ФАКТУ: колода заморожена на час раунду, тож
+    // її `memberWordIds` можуть згадувати рядок, видалений уже після роздачі.
+    @Test
+    fun senseGroupSizeCountsOnlyTheRowsTheAnswerActuallyMoved() {
+        val analytics = RecordingAnalyticsTracker()
+        val store = storeWith(
+            words = listOf(
+                entry("run-1", "run", "бігти", senseKeys = listOf("k1")),
+                entry("run-2", "run", "мчати", senseKeys = listOf("k1")),
+                entry("run-3", "run", "гнати", senseKeys = listOf("k1")),
+            ),
+            analytics = analytics,
+        )
+        val card = buildPracticeDeckCards(store.state.topics).single()
+        assertEquals(listOf("run-1", "run-2", "run-3"), card.memberWordIds)
+
+        store.onEvent(VocabeeEvent.RemoveWord(topicId = card.topicId, source = "run", translation = "гнати"))
+        store.onEvent(
+            VocabeeEvent.AdjustSenseGroupKnowledge(
+                topicId = card.topicId,
+                memberWordIds = card.memberWordIds,
+                deltaPercent = KnowledgeStepPercent,
+            ),
+        )
+
+        assertEquals(
+            mapOf(
+                "topic_id" to "topic",
+                "word_id" to "run-1",
+                "sense_group_size" to 2,
+                "known" to true,
+            ),
+            analytics.events.single { (name, _) -> name == "practice_answer" }.second,
+        )
+    }
+
     @Test
     fun backSideListsGroupTranslationsOnlyWhenThereAreOthers() {
         assertEquals("також: мчати, гнати", practiceAlsoTranslationsLabel(listOf("мчати", "гнати")))

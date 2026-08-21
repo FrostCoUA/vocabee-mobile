@@ -692,7 +692,10 @@ class VocabeeStore(
      * в 100, слабкий продовжить рости.
      *
      * `word_id` в аналітиці — представник (перший у списку): він обличчя
-     * картки; `sense_group_size` показує, скільки записів рушила одна відповідь.
+     * картки, навіть якщо його рядок уже видалили з-під замороженої колоди.
+     * `sense_group_size` — скільки записів відповідь РЕАЛЬНО рушила
+     * (`updatedIds`), а не скільки їх було в картці: член, видалений під час
+     * сесії, не має роздувати розмір групи в аналітиці.
      */
     private fun adjustSenseGroupKnowledge(
         topicId: String,
@@ -720,7 +723,7 @@ class VocabeeStore(
             mapOf(
                 "topic_id" to topicId,
                 "word_id" to wordIds.first(),
-                "sense_group_size" to wordIds.size,
+                "sense_group_size" to updatedIds.size,
                 "known" to (deltaPercent > 0),
             ),
         )
