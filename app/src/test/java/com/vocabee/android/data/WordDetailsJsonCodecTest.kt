@@ -2,6 +2,8 @@ package com.vocabee.android.data
 
 import com.vocabee.android.feature.vocabulary.data.WordDetailsJsonCodec
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
+import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
+import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossaryToken
 import com.vocabee.android.feature.vocabulary.domain.model.WordForm
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
 import org.junit.Assert.assertEquals
@@ -57,5 +59,23 @@ class WordDetailsJsonCodecTest {
         assertTrue(details.isEmpty)
         assertTrue(details.shouldPersist)
         assertEquals(details, restored)
+    }
+
+    @Test
+    fun contextTokenSenseIdentitySurvivesRoomSnapshot() {
+        val details = WordDetails(
+            translationId = "translation-work-verb",
+            senseKeys = listOf("sense-work-verb"),
+            usageExample = "I work from home.",
+            contextGlossary = ContextGlossary(
+                sentence = "I work from home.", sourceLang = "en", targetLang = "uk",
+                tokens = listOf(ContextGlossaryToken(
+                    "work", "work", 2, 6, "працювати", "work",
+                    translationId = "translation-work-verb", senseKey = "sense-work-verb",
+                )),
+            ),
+        )
+
+        assertEquals(details, WordDetailsJsonCodec.decode(WordDetailsJsonCodec.encode(details)))
     }
 }

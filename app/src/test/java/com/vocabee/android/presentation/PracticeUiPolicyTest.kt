@@ -105,6 +105,68 @@ class PracticeUiPolicyTest {
     }
 
     @Test
+    fun attributedRunUsesItsOwnSenseExampleInsteadOfStaleGlossary() {
+        val details = WordDetails(
+            senseKeys = listOf("sense_operate"),
+            senses = listOf(
+                WordSense(
+                    senseKey = "sense_move",
+                    definition = "Move on foot",
+                    examples = listOf("I run every morning."),
+                ),
+                WordSense(
+                    senseKey = "sense_operate",
+                    definition = "Operate a program",
+                    examples = listOf("I run the program."),
+                ),
+            ),
+            usageExample = "I run every morning.",
+            contextGlossary = ContextGlossary(
+                sentence = "I run every morning.",
+                sourceLang = "en",
+                targetLang = "uk",
+                tokens = emptyList(),
+            ),
+        )
+
+        assertEquals("I run the program.", details.contextSentence())
+    }
+
+    @Test
+    fun attributedRunWithoutOwnExampleDoesNotBorrowAnotherMeaning() {
+        val details = WordDetails(
+            senseKeys = listOf("sense_operate"),
+            senses = listOf(
+                WordSense(
+                    senseKey = "sense_move",
+                    definition = "Move on foot",
+                    examples = listOf("I run every morning."),
+                ),
+                WordSense(senseKey = "sense_operate", definition = "Operate a program"),
+            ),
+            usageExample = "I run every morning.",
+        )
+
+        assertEquals(null, details.contextSentence())
+    }
+
+    @Test
+    fun attributedSnapshotWithoutMatchingSenseDoesNotTrustOldGlossary() {
+        val details = WordDetails(
+            senseKeys = listOf("sense_operate"),
+            usageExample = "I run every morning.",
+            contextGlossary = ContextGlossary(
+                sentence = "I run every morning.",
+                sourceLang = "en",
+                targetLang = "uk",
+                tokens = emptyList(),
+            ),
+        )
+
+        assertEquals(null, details.contextSentence())
+    }
+
+    @Test
     fun contextPopupHitTestingSelectsWordsButNotPunctuation() {
         val glossary = ContextGlossary(
             sentence = "Hello, world!",

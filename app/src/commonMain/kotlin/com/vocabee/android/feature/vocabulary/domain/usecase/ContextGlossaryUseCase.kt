@@ -14,11 +14,19 @@ class ContextGlossaryUseCase(
         sourceLang: String,
         targetLang: String,
     ): ContextGlossary? {
-        val response = api.buildContextGlossary(
+        val initial = api.buildContextGlossary(
             sentence = sentence,
             sourceLang = sourceLang,
             targetLang = targetLang,
         )
+        val response = awaitGeneration(
+            initial = initial,
+            generationOf = { it.generation },
+            poll = api::pollContextGlossaryGeneration,
+        )
+        if (response.sentence != sentence || response.sourceLang != sourceLang ||
+            response.targetLang != targetLang
+        ) return null
         return response.toValidatedGlossary()
     }
 }
@@ -49,5 +57,7 @@ private fun ContextGlossaryTokenResponse.toValidatedToken(sentence: String): Con
         endExclusive = endExclusive,
         translation = translation.trim(),
         lemma = lemma?.trim()?.takeIf(String::isNotEmpty),
+        translationId = translationId?.trim()?.takeIf(String::isNotEmpty),
+        senseKey = senseKey?.trim()?.takeIf(String::isNotEmpty),
     )
 }

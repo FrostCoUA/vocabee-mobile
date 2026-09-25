@@ -287,6 +287,23 @@ class VocabeeStoreTest {
         assertNull(store.state.pendingMessage)
     }
 
+    @Test
+    fun addWordRejectsChangedTextForSameTranslationIdWithoutSenseKeys() {
+        val store = VocabeeStore()
+        val topic = store.createTopicForTest()
+        store.onEvent(VocabeeEvent.AddWord(
+            topicId = topic.id, source = "run", translation = "бігти",
+            details = WordDetails(translationId = "translation-run-move"),
+        ))
+        store.onEvent(VocabeeEvent.AddWord(
+            topicId = topic.id, source = "run", translation = "мчати",
+            details = WordDetails(translationId = "translation-run-move"),
+        ))
+
+        assertEquals(listOf("бігти"), store.topicForTest(topic.id).words.map { it.translation })
+        assertEquals(SenseAlreadySavedMessage, store.state.pendingMessage)
+    }
+
     /** (б) Інший сенс того самого слова — законний окремий запис. */
     @Test
     fun addWordSavesAnotherSenseOfTheSameWord() {

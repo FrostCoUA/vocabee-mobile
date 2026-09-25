@@ -8,6 +8,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.VocabularySyncSnapsho
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
+import com.vocabee.android.feature.vocabulary.domain.model.conflictsWithCandidate
 
 class FakeVocabularyRepository : VocabularyRepository {
     override val supportedLanguages = listOf(
@@ -108,8 +109,8 @@ class FakeVocabularyRepository : VocabularyRepository {
 
         val topic = topics[topicIndex]
         val exists = topic.words.any { word ->
-            word.source.equals(source, ignoreCase = true) &&
-                word.translation.equals(translation, ignoreCase = true)
+            savedWordKey(word.source, word.translation) == savedWordKey(source, translation) &&
+                word.conflictsWithCandidate(source, translation, details)
         }
         if (exists) return null
 
@@ -154,6 +155,25 @@ class FakeVocabularyRepository : VocabularyRepository {
         topics[topicIndex] = topic.copy(
             words = remaining,
             updatedAtEpochMillis = now,
+            syncStatus = if (topic.syncStatus == SyncStatus.PendingCreate) {
+                SyncStatus.PendingCreate
+            } else {
+                SyncStatus.PendingUpdate
+            },
+        )
+        return true
+    }
+
+    override fun removeWordById(userKey: String, topicId: String, wordId: String): Boolean {
+        val topics = topicsByUser[userKey] ?: return false
+        val topicIndex = topics.indexOfFirst { it.id == topicId }
+        if (topicIndex == -1) return false
+        val topic = topics[topicIndex]
+        val remaining = topic.words.filterNot { it.id == wordId }
+        if (remaining.size == topic.words.size) return false
+        topics[topicIndex] = topic.copy(
+            words = remaining,
+            updatedAtEpochMillis = nextTimestamp(),
             syncStatus = if (topic.syncStatus == SyncStatus.PendingCreate) {
                 SyncStatus.PendingCreate
             } else {

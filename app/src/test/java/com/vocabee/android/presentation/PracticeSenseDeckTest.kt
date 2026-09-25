@@ -264,6 +264,7 @@ class PracticeSenseDeckTest {
         )
 
         val card = buildPracticeDeckCards(listOf(topic)).single()
+        assertEquals("run-old", card.contextWord.id)
 
         assertEquals("run-new", card.word.id)
         assertEquals("He can run fast.", card.details.contextSentence())

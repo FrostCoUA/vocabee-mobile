@@ -62,6 +62,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarData
 import androidx.compose.material3.SnackbarDuration
@@ -69,6 +70,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -163,6 +165,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKeys
+import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
 import com.vocabee.android.feature.vocabulary.domain.usecase.ContextGlossaryUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
 import com.vocabee.android.feature.vocabulary.presentation.navigation.AppTab
@@ -490,6 +493,7 @@ private fun MainApp(
         )
     }
     val contextGlossaryUseCase = remember(api) { api?.let(::ContextGlossaryUseCase) }
+    val contextAnalysisGate = remember { ContextAnalysisGate() }
     val backStack = rememberNavBackStack(
         vocabeeSavedStateConfiguration,
         VocabeeRoute.DictionaryHome,
@@ -593,38 +597,55 @@ private fun MainApp(
         }
     }
 
-    fun enrichContextGlossaryInBackground(topic: DictionaryTopic, word: WordEntry) {
-        val useCase = contextGlossaryUseCase ?: return
-        val sentence = word.contextSentence()?.trim()?.takeIf { it.isNotBlank() } ?: return
-        val existing = word.details?.contextGlossary
-        if (existing?.sentence == sentence && existing.tokens.isNotEmpty()) return
+    fun requestContextAnalysis(topicId: String, wordId: String, sentence: String) {
+        val word = store.state.topics.firstOrNull { it.id == topicId }
+            ?.words?.firstOrNull { it.id == wordId } ?: return
+        if (sentence !in word.details.contextSentences()) return
+        contextAnalysisGate.ask(
+            ContextAnalysisRequest(topicId, wordId, sentence),
+            alreadyReady = word.details.hasReadyContextGlossary(sentence),
+        )
+    }
 
+    fun analyzeContextAfterConfirmation(request: ContextAnalysisRequest) {
         scope.launch {
-            val glossary = try {
-                useCase(
-                    sentence = sentence,
+            try {
+                val topic = store.state.topics.firstOrNull { it.id == request.topicId } ?: return@launch
+                val word = topic.words.firstOrNull { it.id == request.wordId } ?: return@launch
+                if (request.sentence !in word.details.contextSentences() ||
+                    word.details.hasReadyContextGlossary(request.sentence)
+                ) return@launch
+                val useCase = contextGlossaryUseCase
+                    ?: throw IllegalStateException("API клієнт недоступний")
+                val glossary = useCase(
+                    sentence = request.sentence,
                     sourceLang = topic.sourceLanguage.code,
                     targetLang = topic.targetLanguage.code,
+                ) ?: throw IllegalStateException("Розбір речення не вдалося завершити")
+
+                val latestWord = store.state.topics
+                    .firstOrNull { it.id == request.topicId }
+                    ?.words?.firstOrNull { it.id == request.wordId } ?: return@launch
+                if (request.sentence !in latestWord.details.contextSentences() ||
+                    latestWord.details.hasReadyContextGlossary(request.sentence)
+                ) return@launch
+                store.updateWordEnrichment(
+                    topicId = request.topicId,
+                    wordId = request.wordId,
+                    ipa = latestWord.ipa,
+                    details = (latestWord.details ?: WordDetails()).copy(contextGlossary = glossary),
                 )
+                syncVocabularyNow()
             } catch (_: Exception) {
                 currentCoroutineContext().ensureActive()
-                null
-            } ?: return@launch
-
-            val latestWord = store.state.topics
-                .firstOrNull { it.id == topic.id }
-                ?.words
-                ?.firstOrNull { it.id == word.id }
-                ?: return@launch
-            val latestDetails = latestWord.details ?: WordDetails()
-            if (latestDetails.contextGlossary == glossary) return@launch
-            store.updateWordEnrichment(
-                topicId = topic.id,
-                wordId = word.id,
-                ipa = latestWord.ipa,
-                details = latestDetails.copy(contextGlossary = glossary),
-            )
-            syncVocabularyNow()
+                scope.launch {
+                    appSnackbarHostState.showVocabeeSnackbar(
+                        "Не вдалося розібрати речення. Торкнись його, щоб спробувати ще раз.",
+                    )
+                }
+            } finally {
+                contextAnalysisGate.finish(request)
+            }
         }
     }
 
@@ -999,6 +1020,12 @@ private fun MainApp(
                                 },
                                 onClearTopic = { sheet = PrototypeSheet.ClearDictionary(topic.id) },
                                 onDeleteTopic = { sheet = PrototypeSheet.DeleteDictionary(topic.id) },
+                                onRequestContextAnalysis = { wordId, sentence ->
+                                    requestContextAnalysis(topic.id, wordId, sentence)
+                                },
+                                isContextAnalysisRunning = { wordId ->
+                                    contextAnalysisGate.isRunning(topic.id, wordId)
+                                },
                                 speechInputController = speechInputController,
                                 canUseTranslationSearch = store.canSearchTranslation(),
                                 translationGateMessage = if (state.account is VocabeeAccountState.Authenticated) {
@@ -1029,18 +1056,8 @@ private fun MainApp(
                                 },
                                 onAddWord = { source, translation, ipa, details ->
                                     if (store.canAddWordToDictionary()) {
-                                        val previousWordId = store.state.recentlyAddedWordId
                                         store.onEvent(VocabeeEvent.AddWord(topic.id, source, translation, ipa, details))
-                                        val savedWord = store.state.recentlyAddedWordId
-                                            ?.takeIf { wordId -> wordId != previousWordId }
-                                            ?.let { wordId ->
-                                                store.state.topics
-                                                    .firstOrNull { it.id == topic.id }
-                                                    ?.words
-                                                    ?.firstOrNull { it.id == wordId }
-                                            }
                                         syncVocabularyNow()
-                                        savedWord?.let { enrichContextGlossaryInBackground(topic, it) }
                                     } else {
                                         sheet = PrototypeSheet.AuthRequired(AuthGateReason.WordLimit)
                                     }
@@ -1049,10 +1066,7 @@ private fun MainApp(
                                     val bookmark = practiceBookmark(glossary, token, topic.id)
                                     val currentTopic = store.state.topics.firstOrNull { it.id == topic.id }
                                         ?: return@addContextWord
-                                    val alreadyAdded = currentTopic.words.any { word ->
-                                        word.source.equals(bookmark.source, ignoreCase = true) &&
-                                            word.translation.equals(bookmark.translation, ignoreCase = true)
-                                    }
+                                    val alreadyAdded = bookmark.savedWordIn(currentTopic.words) != null
                                     if (alreadyAdded) return@addContextWord
 
                                     when {
@@ -1062,13 +1076,8 @@ private fun MainApp(
                                         state.beeBalance < TranslationSearchBeeCost -> {
                                             sheet = PrototypeSheet.NeedBees(BeeGateReason.BookmarkSave)
                                         }
-                                        // Монетка списується ДО `AddWord`. Це
-                                        // безпечно лише поки закладки йдуть без
-                                        // `senseKeys`: сенс-дедуп у сторі їх не
-                                        // бачить. Щойно закладка дістане
-                                        // атрибуцію — відхилене збереження
-                                        // спалить монетку, і спенд доведеться
-                                        // переносити ПІСЛЯ успішного додавання.
+                                        // Identity-aware preflight uses the same
+                                        // sense keys as the store's duplicate guard.
                                         store.spendTranslationBee() -> {
                                             store.onEvent(
                                                 VocabeeEvent.AddWord(
@@ -1082,8 +1091,10 @@ private fun MainApp(
                                         }
                                     }
                                 },
-                                onRemoveWord = { source, translation ->
-                                    store.onEvent(VocabeeEvent.RemoveWord(topic.id, source, translation))
+                                onRemoveWord = { word ->
+                                    store.onEvent(VocabeeEvent.RemoveWord(
+                                        topic.id, word.source, word.translation, word.id,
+                                    ))
                                     syncVocabularyNow()
                                 },
                                 onDislikeTranslation = { option ->
@@ -1138,13 +1149,8 @@ private fun MainApp(
                                 )
                                 syncVocabularyNow()
                             },
-                            onRequestContextGlossary = { topicId, wordId ->
-                                val topic = store.state.topics.firstOrNull { it.id == topicId }
-                                val word = topic?.words?.firstOrNull { it.id == wordId }
-                                if (topic != null && word != null) {
-                                    enrichContextGlossaryInBackground(topic, word)
-                                }
-                            },
+                            onRequestContextAnalysis = ::requestContextAnalysis,
+                            isContextAnalysisRunning = contextAnalysisGate::isRunning,
                             beeBalance = state.beeBalance,
                             onSaveBookmarks = { bookmarks, topicId ->
                                 if (state.account !is VocabeeAccountState.Authenticated) {
@@ -1156,22 +1162,15 @@ private fun MainApp(
                                         false
                                     } else {
                                         val newBookmarks = bookmarks.filter { bookmark ->
-                                            topic.words.none { word ->
-                                                word.source.equals(bookmark.source, ignoreCase = true) &&
-                                                    word.translation.equals(bookmark.translation, ignoreCase = true)
-                                            }
+                                            bookmark.savedWordIn(topic.words) == null
                                         }
                                         if (store.state.beeBalance < newBookmarks.size * TranslationSearchBeeCost) {
                                             sheet = PrototypeSheet.NeedBees(BeeGateReason.BookmarkSave)
                                             false
                                         } else {
                                             var chargedBees = 0
-                                            // Той самий запобіжник, що й у
-                                            // `onAddContextWord`: спенд ДО
-                                            // `AddWord` безпечний, поки закладки
-                                            // без `senseKeys` — з атрибуцією
-                                            // відхилений сенс-дедуп спалив би
-                                            // монетку.
+                                            // Each candidate was checked against
+                                            // the saved sense identity above.
                                             newBookmarks.forEach { bookmark ->
                                                 if (store.spendTranslationBee()) {
                                                     chargedBees += TranslationSearchBeeCost
@@ -1527,6 +1526,22 @@ private fun MainApp(
                     )
                 }
             }
+        }
+
+        contextAnalysisGate.pending?.let { request ->
+            AlertDialog(
+                onDismissRequest = contextAnalysisGate::cancel,
+                title = { Text("Розібрати речення на слова?") },
+                text = { Text("AI перекладе слова з урахуванням цього речення.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        contextAnalysisGate.confirm()?.let(::analyzeContextAfterConfirmation)
+                    }) { Text("Розібрати") }
+                },
+                dismissButton = {
+                    TextButton(onClick = contextAnalysisGate::cancel) { Text("Скасувати") }
+                },
+            )
         }
 
         if (exitSheetVisible) {
@@ -3146,6 +3161,8 @@ private fun DictionaryDetailScreen(
     onEditTopic: () -> Unit,
     onClearTopic: () -> Unit,
     onDeleteTopic: () -> Unit,
+    onRequestContextAnalysis: (wordId: String, sentence: String) -> Unit,
+    isContextAnalysisRunning: (wordId: String) -> Boolean,
     speechInputController: SpeechInputController,
     canUseTranslationSearch: Boolean,
     translationGateMessage: String,
@@ -3154,7 +3171,7 @@ private fun DictionaryDetailScreen(
     searchRemote: suspend (query: String) -> AddWordSearchState,
     onAddWord: (source: String, translation: String, ipa: String?, details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?) -> Unit,
     onAddContextWord: (glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit,
-    onRemoveWord: (source: String, translation: String) -> Unit,
+    onRemoveWord: (WordEntry) -> Unit,
     onDislikeTranslation: (TranslationOption) -> Unit = {},
     onSpeak: (text: String, languageTag: String) -> Unit,
     /**
@@ -3199,15 +3216,19 @@ private fun DictionaryDetailScreen(
     val wordGroups = remember(topic.words) { topic.words.groupBySense() }
     // Пара (слово, переклад) — ключ позначки «вже додано»: збережений
     // `run→серія` не сміє позначати ✓ на варіанті `series→серія`.
-    val savedWordKeys = remember(topic.words) { topic.words.savedWordKeys() }
     val savedContextKeys = remember(topic.words, topic.sourceLanguage.code, topic.targetLanguage.code) {
-        topic.words.mapTo(mutableSetOf()) { word ->
-            contextTranslationKey(
-                sourceLang = topic.sourceLanguage.code,
-                targetLang = topic.targetLanguage.code,
-                source = word.source,
-                translation = word.translation,
-            )
+        topic.words.flatMapTo(mutableSetOf()) { word ->
+            val senseKeys = word.details?.senseKeys.orEmpty().filter(String::isNotBlank)
+            if (senseKeys.isNotEmpty()) {
+                senseKeys.map { senseKey ->
+                    contextMeaningKey(topic.sourceLanguage.code, topic.targetLanguage.code,
+                        word.source, word.translation, senseKey = senseKey)
+                }
+            } else {
+                listOf(contextMeaningKey(topic.sourceLanguage.code, topic.targetLanguage.code,
+                    word.source, word.translation,
+                    translationId = word.details?.translationId))
+            }
         }
     }
     val showTranslationPanel =
@@ -3391,12 +3412,16 @@ private fun DictionaryDetailScreen(
                         modifier = Modifier.padding(horizontal = 16.dp),
                         savedContextKeys = savedContextKeys,
                         onAddContextWord = onAddContextWord,
+                        onRequestContextAnalysis = { wordId, sentence ->
+                            onRequestContextAnalysis(wordId, sentence)
+                        },
+                        isContextAnalysisRunning = isContextAnalysisRunning,
                         onSpeak = { onSpeak(group.sourceWord, topic.sourceLanguage.speechTag) },
                         onRemove = {
                             // Видаляємо саме записи цієї групи (пара слово+переклад),
                             // інакше однаковий переклад іншого слова піде разом з ними.
                             group.entries.forEach { entry ->
-                                onRemoveWord(entry.source, entry.translation)
+                                onRemoveWord(entry)
                             }
                         },
                     )
@@ -3441,15 +3466,13 @@ private fun DictionaryDetailScreen(
                     searchState = searchState,
                     speechError = speechError,
                     accent = accent,
-                    savedWordKeys = savedWordKeys,
+                    savedWords = topic.words,
                     inputReservedHeight = inputReservedHeight,
                     contentTopPadding = panelContentTopPadding,
                     onAdd = { option ->
                         onAddWord(option.learningWord, option.value, option.ipa, option.details)
                     },
-                    onRemove = { option ->
-                        onRemoveWord(option.learningWord, option.value)
-                    },
+                    onRemove = onRemoveWord,
                     onRetryVoice = ::startListening,
                     onDislike = onDislikeTranslation,
                 )
@@ -3703,11 +3726,11 @@ private fun InlineTranslationPanel(
     searchState: AddWordSearchState,
     speechError: String?,
     accent: Color,
-    savedWordKeys: Set<String>,
+    savedWords: List<WordEntry>,
     inputReservedHeight: androidx.compose.ui.unit.Dp,
     contentTopPadding: Dp,
     onAdd: (TranslationOption) -> Unit,
-    onRemove: (TranslationOption) -> Unit,
+    onRemove: (WordEntry) -> Unit,
     onRetryVoice: () -> Unit = {},
     onDislike: (TranslationOption) -> Unit = {},
 ) {
@@ -3776,7 +3799,7 @@ private fun InlineTranslationPanel(
                         tier = searchState.tier,
                         maxResults = searchState.maxResults,
                         accent = accent,
-                        savedWordKeys = savedWordKeys,
+                        savedWords = savedWords,
                         onAdd = onAdd,
                         onRemove = onRemove,
                         onDislike = onDislike,
@@ -4131,6 +4154,8 @@ private fun WordGroupRow(
     modifier: Modifier = Modifier,
     savedContextKeys: Set<String>,
     onAddContextWord: (glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit,
+    onRequestContextAnalysis: (wordId: String, sentence: String) -> Unit,
+    isContextAnalysisRunning: (wordId: String) -> Boolean,
     onSpeak: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -4140,6 +4165,7 @@ private fun WordGroupRow(
     // LazyColumn, інакше новий найновіший переклад згортав би картку.
     val groupKey = group.stableKey
     val details = remember(group) { group.displayDetails }
+    val detailsEntry = remember(group) { group.displayDetailsEntry }
     val hasDetails = details != null && !details.isEmpty
     val lexicalLabels = lexicalLabelsFor(group.sourceWord, details)
     val headlineTranslation = group.representative.translation
@@ -4289,6 +4315,10 @@ private fun WordGroupRow(
                         targetWord = group.sourceWord,
                         savedContextKeys = savedContextKeys,
                         onAddContextWord = onAddContextWord,
+                        onAnalyzeContext = detailsEntry?.let { entry ->
+                            { sentence -> onRequestContextAnalysis(entry.id, sentence) }
+                        },
+                        contextAnalysisRunning = detailsEntry?.let { isContextAnalysisRunning(it.id) } == true,
                         modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 15.dp),
                     )
                 }
@@ -4322,8 +4352,14 @@ internal fun WordDetailsBlock(
     targetWord: String? = null,
     savedContextKeys: Set<String> = emptySet(),
     onAddContextWord: ((glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit)? = null,
+    onAnalyzeContext: ((sentence: String) -> Unit)? = null,
+    contextAnalysisRunning: Boolean = false,
 ) {
     val displayContent = details.displayContent()
+    val sentence = details.contextSentence()
+    val glossary = details.contextGlossary?.takeIf { it.sentence == sentence && it.tokens.isNotEmpty() }
+    val showContextSentence = sentence != null && targetWord != null &&
+        (glossary != null || onAnalyzeContext != null)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -4338,14 +4374,27 @@ internal fun WordDetailsBlock(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         if (details.hasLexicalMetadata()) {
-            LexicalMetadataBlock(details = details, accent = accent)
+            LexicalMetadataBlock(
+                details = details,
+                accent = accent,
+                hideContextSentence = showContextSentence,
+                onAnalyzeContext = onAnalyzeContext,
+                contextAnalysisRunning = contextAnalysisRunning,
+            )
         }
-        details.contextGlossary?.let { glossary ->
+        if (glossary != null) {
             ContextGlossaryDetailsBlock(
                 glossary = glossary,
                 targetWord = targetWord,
                 savedContextKeys = savedContextKeys,
                 onAddContextWord = onAddContextWord,
+            )
+        } else if (showContextSentence && onAnalyzeContext != null) {
+            ContextExamplePrompt(
+                sentence = requireNotNull(sentence),
+                targetWord = targetWord.orEmpty(),
+                running = contextAnalysisRunning,
+                onClick = { onAnalyzeContext(requireNotNull(sentence)) },
             )
         }
         if (displayContent.senses.isNotEmpty()) {
@@ -4354,6 +4403,9 @@ internal fun WordDetailsBlock(
                     index = indexedSense.index,
                     sense = indexedSense.value,
                     accent = accent,
+                    hiddenExample = if (showContextSentence) sentence else null,
+                    onAnalyzeExample = onAnalyzeContext,
+                    contextAnalysisRunning = contextAnalysisRunning,
                 )
             }
         }
@@ -4374,6 +4426,31 @@ internal fun WordDetailsBlock(
                 accent = PrototypeColor.Muted,
             )
         }
+    }
+}
+
+@Composable
+private fun ContextExamplePrompt(
+    sentence: String,
+    targetWord: String,
+    running: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text("Контекстний приклад", color = PrototypeColor.Muted2, fontWeight = FontWeight.ExtraBold, fontSize = 11.5.sp)
+        Text(
+            text = highlightedSentence(sentence, targetWord),
+            modifier = Modifier.clickable(enabled = !running, onClick = onClick),
+            color = PrototypeColor.Muted,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+        )
+        Text(
+            text = if (running) "Розбираю речення…" else "Торкнись речення, щоб розібрати слова",
+            color = PrototypeColor.PurpleText,
+            fontSize = 11.sp,
+        )
     }
 }
 
@@ -4400,18 +4477,24 @@ internal fun WordDetails.displayContent(): WordDetailsDisplayContent {
         .mapNotNull { index -> senses.getOrNull(index)?.let { index to it } }
 
     return if (attributedSenses.isNotEmpty()) {
-        // Relations exist at two levels on the backend: scoped to a sense, and
-        // whole-word ones the provider returned without a sense. `details`
-        // carries their union. Scoping to the attributed senses must not drop
-        // the whole-word set entirely — a word whose provider gave only
-        // entry-level synonyms would otherwise render no chips at all.
+        // Top-level relations combine genuine word-level values with every
+        // sense's values in legacy snapshots. Remove values assigned to any
+        // sense before adding only those of the selected meanings back.
+        val allSenseSynonyms = senses.flatMap(WordSense::synonyms).toSet()
+        val allSenseAntonyms = senses.flatMap(WordSense::antonyms).toSet()
+        val wordSynonyms = synonyms.filterNot(allSenseSynonyms::contains)
+        val wordAntonyms = antonyms.filterNot(allSenseAntonyms::contains)
         val senseSynonyms = attributedSenses.flatMap { (_, sense) -> sense.synonyms }.distinct()
         val senseAntonyms = attributedSenses.flatMap { (_, sense) -> sense.antonyms }.distinct()
         WordDetailsDisplayContent(
             senses = attributedSenses.map { (index, sense) -> IndexedValue(index, sense) },
-            synonyms = senseSynonyms.ifEmpty { synonyms.distinct() },
-            antonyms = senseAntonyms.ifEmpty { antonyms.distinct() },
+            synonyms = (senseSynonyms + wordSynonyms).distinct(),
+            antonyms = (senseAntonyms + wordAntonyms).distinct(),
         )
+    } else if (senseMergeKeys().isNotEmpty()) {
+        // Attribution exists, but its linked sense is absent from this stale
+        // snapshot. Showing the first unrelated meanings would mislabel it.
+        WordDetailsDisplayContent(emptyList(), emptyList(), emptyList())
     } else {
         WordDetailsDisplayContent(
             senses = senses.take(3).mapIndexed(::IndexedValue),
@@ -4428,7 +4511,7 @@ internal fun WordDetails.attributedSenseIndexes(): List<Int> {
             senses.indexOfFirst { sense -> sense.senseKey == key }
                 .takeIf { it >= 0 }
         }
-    if (byStableKey.isNotEmpty()) return byStableKey
+    if (senseKeys.any(String::isNotBlank)) return byStableKey
     return listOfNotNull(senseIndex?.takeIf { it in senses.indices })
 }
 
@@ -4528,12 +4611,25 @@ internal fun WordDetails.hasLexicalMetadata(): Boolean =
     lexicalUnitKind != LexicalUnitKind.Word || registerTags.isNotEmpty() ||
         !expansion.isNullOrBlank() || !translatedExpansion.isNullOrBlank() ||
         !meaning.isNullOrBlank() || !literalTranslation.isNullOrBlank() ||
-        !usageExample.isNullOrBlank() || !usageExampleTranslation.isNullOrBlank()
+        usageExampleForDisplay() != null || usageExampleTranslationForDisplay() != null
+
+/** A word-level example is safe on an attributed card only if its own sense uses it. */
+internal fun WordDetails.usageExampleForDisplay(): String? {
+    val example = usageExample?.trim()?.takeIf(String::isNotBlank) ?: return null
+    if (senseMergeKeys().isNotEmpty() && contextSentence() != example) return null
+    return example
+}
+
+internal fun WordDetails.usageExampleTranslationForDisplay(): String? =
+    usageExampleTranslation?.takeIf { usageExampleForDisplay() != null && it.isNotBlank() }
 
 @Composable
 private fun LexicalMetadataBlock(
     details: WordDetails,
     accent: Color,
+    hideContextSentence: Boolean = false,
+    onAnalyzeContext: ((String) -> Unit)? = null,
+    contextAnalysisRunning: Boolean = false,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         androidx.compose.foundation.layout.FlowRow(
@@ -4554,11 +4650,16 @@ private fun LexicalMetadataBlock(
         LexicalMetadataValue(label = "Дослівно", value = details.literalTranslation)
         LexicalMetadataValue(
             label = "Приклад",
-            value = details.usageExample?.takeUnless { example ->
-                example == details.contextGlossary?.sentence
+            value = details.usageExampleForDisplay()?.takeUnless { example ->
+                example == details.contextGlossary?.sentence ||
+                    (hideContextSentence && example == details.contextSentence())
             },
+            onClick = onAnalyzeContext?.let { analyze ->
+                details.usageExampleForDisplay()?.let { example -> { analyze(example) } }
+            },
+            clickEnabled = !contextAnalysisRunning,
         )
-        LexicalMetadataValue(label = "Переклад прикладу", value = details.usageExampleTranslation)
+        LexicalMetadataValue(label = "Переклад прикладу", value = details.usageExampleTranslationForDisplay())
     }
 }
 
@@ -4585,6 +4686,8 @@ private fun LexicalMetadataChip(
 private fun LexicalMetadataValue(
     label: String,
     value: String?,
+    onClick: (() -> Unit)? = null,
+    clickEnabled: Boolean = true,
 ) {
     if (value.isNullOrBlank()) return
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -4597,6 +4700,7 @@ private fun LexicalMetadataValue(
         )
         Text(
             text = value,
+            modifier = if (onClick != null) Modifier.clickable(enabled = clickEnabled, onClick = onClick) else Modifier,
             color = PrototypeColor.Ink,
             fontWeight = FontWeight.SemiBold,
             fontSize = 13.5.sp,
@@ -4610,6 +4714,9 @@ private fun WordSenseBlock(
     index: Int,
     sense: com.vocabee.android.feature.vocabulary.domain.model.WordSense,
     accent: Color,
+    hiddenExample: String? = null,
+    onAnalyzeExample: ((String) -> Unit)? = null,
+    contextAnalysisRunning: Boolean = false,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -4642,10 +4749,13 @@ private fun WordSenseBlock(
             fontSize = 14.sp,
             lineHeight = 19.sp,
         )
-        sense.examples.take(2).forEach { example ->
+        sense.examples.filterNot { it == hiddenExample }.take(2).forEach { example ->
             Text(
                 text = "“$example”",
-                color = PrototypeColor.Muted,
+                modifier = if (onAnalyzeExample != null) {
+                    Modifier.clickable(enabled = !contextAnalysisRunning) { onAnalyzeExample(example) }
+                } else Modifier,
+                color = if (onAnalyzeExample != null) PrototypeColor.PurpleText else PrototypeColor.Muted,
                 fontWeight = FontWeight.Medium,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
@@ -4929,7 +5039,8 @@ private fun PracticeScreen(
     onSpeakWord: (word: String, languageTag: String) -> Unit,
     /** Відповідь на картку = одна дельта на ВСЮ сенс-групу (представник перший). */
     onAnswerSenseGroup: (topicId: String, memberWordIds: List<String>, deltaPercent: Int) -> Unit,
-    onRequestContextGlossary: (topicId: String, wordId: String) -> Unit,
+    onRequestContextAnalysis: (topicId: String, wordId: String, sentence: String) -> Unit,
+    isContextAnalysisRunning: (topicId: String, wordId: String) -> Boolean,
     beeBalance: Int,
     onSaveBookmarks: (bookmarks: List<PracticeBookmark>, topicId: String) -> Boolean,
     onRoundCompleted: () -> Unit,
@@ -5033,17 +5144,6 @@ private fun PracticeScreen(
     val pendingBookmarks = pendingPracticeBookmarks(bookmarks, savedBookmarkKeys)
     var bookmarkSelection by remember {
         mutableStateOf<PracticeBookmarkSelection?>(null)
-    }
-    val currentCardForEnrichment = deck.getOrNull(index)
-    LaunchedEffect(
-        currentCardForEnrichment?.topicId,
-        currentCardForEnrichment?.word?.id,
-        currentCardForEnrichment?.word?.details?.contextGlossary,
-    ) {
-        val card = currentCardForEnrichment ?: return@LaunchedEffect
-        if (needsContextGlossaryEnrichment(card.word)) {
-            onRequestContextGlossary(card.topicId, card.word.id)
-        }
     }
     LaunchedEffect(deckKeys) {
         cardFlipEnabled = false
@@ -5252,6 +5352,10 @@ private fun PracticeScreen(
                         onSpeak = {
                             onSpeakWord(card.word.source, card.sourceLanguageTag)
                         },
+                        onAnalyzeContext = { sentence ->
+                            onRequestContextAnalysis(card.topicId, card.contextWord.id, sentence)
+                        },
+                        contextAnalysisRunning = isContextAnalysisRunning(card.topicId, card.contextWord.id),
                         bookmarkedKeys = bookmarkedKeys,
                         onBookmark = { token, glossary ->
                             toggleBookmark(
@@ -5687,6 +5791,7 @@ internal data class PracticeDeckCard(
     /** `topicId` + [WordGroup.stableKey] — ідентичність СЕНСУ, а не рядка. */
     val key: String,
     val word: WordEntry,
+    val contextWord: WordEntry,
     val details: WordDetails?,
     val ipa: String?,
     val topicId: String,
@@ -5717,6 +5822,7 @@ internal fun buildPracticeDeckCards(topics: List<DictionaryTopic>): List<Practic
             PracticeDeckCard(
                 key = "${topic.id}:${group.stableKey}",
                 word = representative,
+                contextWord = group.displayDetailsEntry ?: representative,
                 details = group.displayDetails,
                 ipa = group.ipa,
                 topicId = topic.id,
@@ -5809,6 +5915,8 @@ private fun PracticeFlipCard(
     flipEnabled: Boolean,
     onFlip: (PracticeFlipDirection) -> Unit,
     onSpeak: () -> Unit,
+    onAnalyzeContext: (sentence: String) -> Unit,
+    contextAnalysisRunning: Boolean,
     bookmarkedKeys: Set<String>,
     onBookmark: (com.vocabee.android.feature.vocabulary.domain.model.ContextGlossaryToken, ContextGlossary) -> Unit,
     modifier: Modifier = Modifier,
@@ -5914,7 +6022,7 @@ private fun PracticeFlipCard(
                             modifier = Modifier.padding(top = 24.dp),
                         )
                     }
-                    card.details?.usageExampleTranslation
+                    card.details?.usageExampleTranslationForDisplay()
                         ?.takeIf { it.isNotBlank() }
                         ?.let { translatedExample ->
                             Text(
@@ -6023,24 +6131,34 @@ private fun PracticeFlipCard(
                                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
                             )
                         } else {
-                            Text(
-                                text = highlightedSentence(sentence, card.word.source),
+                            Column(
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
-                                    .pointerInput(sentence) {
-                                        // Legacy entries are enriched lazily. The context area
-                                        // must never reveal the answer while that request runs.
-                                        detectTapGestures(onTap = {})
+                                    .pointerInput(sentence, contextAnalysisRunning) {
+                                        detectTapGestures(onTap = {
+                                            if (!contextAnalysisRunning) onAnalyzeContext(sentence)
+                                        })
                                     },
-                                color = PrototypeColor.Muted,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
-                                lineHeight = 20.sp,
-                                textAlign = TextAlign.Center,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(
+                                    text = highlightedSentence(sentence, card.word.source),
+                                    color = PrototypeColor.Muted,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = if (contextAnalysisRunning) "Розбираю речення…" else "Торкнись, щоб розібрати слова",
+                                    color = PrototypeColor.PurpleText,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(top = 5.dp),
+                                )
+                            }
                         }
                     }
                 }

@@ -122,17 +122,16 @@ private fun WordDetails?.toMetadata(): JsonObject {
         lexiconSchemaVersion = details.lexiconSchemaVersion,
         lexiconRevision = details.lexiconRevision,
     )
+    val visibleDetails = details.copy(
+        translationId = null,
+        lexiconSchemaVersion = null,
+        lexiconRevision = null,
+    )
     return buildJsonObject {
-        if (!details.isEmpty) {
+        if (visibleDetails.shouldPersist) {
             put(
                 DetailsMetadataKey,
-                syncJson.encodeToJsonElement(
-                    details.copy(
-                        translationId = null,
-                        lexiconSchemaVersion = null,
-                        lexiconRevision = null,
-                    ),
-                ),
+                syncJson.encodeToJsonElement(visibleDetails),
             )
         }
         if (lexiconSnapshot.hasContent) {

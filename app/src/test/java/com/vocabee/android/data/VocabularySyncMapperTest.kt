@@ -11,7 +11,10 @@ import com.vocabee.android.feature.vocabulary.domain.model.VocabularySyncSnapsho
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
+import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
+import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossaryToken
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,11 +29,19 @@ class VocabularySyncMapperTest {
             translationId = "translation-obvious",
             lexiconSchemaVersion = 1,
             lexiconRevision = "sha256:obvious-v2",
+            senseKeys = listOf("sense-obvious"),
             senses = listOf(
                 WordSense(
                     definition = "Easy to see, understand, or recognize.",
                     examples = listOf("The answer seems obvious now."),
                 ),
+            ),
+            contextGlossary = ContextGlossary(
+                sentence = "The answer seems obvious now.", sourceLang = "en", targetLang = "uk",
+                tokens = listOf(ContextGlossaryToken(
+                    "obvious", "obvious", 17, 24, "очевидний", "obvious",
+                    translationId = "translation-obvious", senseKey = "sense-obvious",
+                )),
             ),
         )
         val request = snapshot(details).toApplySyncRequest(
@@ -91,6 +102,25 @@ class VocabularySyncMapperTest {
         assertTrue(restored.isEmpty)
         assertTrue(restored.shouldPersist)
         assertEquals(details, restored)
+    }
+
+    @Test
+    fun senseIdentityWithoutVisibleEnrichmentSurvivesSync() {
+        listOf(
+            WordDetails(senseKeys = listOf("sense-obvious")),
+            WordDetails(translationId = "translation-obvious", senseKeys = listOf("sense-obvious")),
+        ).forEach { details ->
+            val metadata = snapshot(details).toApplySyncRequest(UserId, false).words.single().metadata
+            val visible = requireNotNull(metadata["details"]).jsonObject
+            assertEquals("sense-obvious", visible.getValue("senseKeys").jsonArray.single().jsonPrimitive.content)
+            assertFalse("translationId" in visible)
+            assertEquals(details.translationId, metadata["lexiconSnapshot"]
+                ?.jsonObject?.get("translationId")?.jsonPrimitive?.content)
+
+            val restored = response(metadata).toVocabularySyncSnapshot(SupportedLanguages)
+                .topics.single().words.single().details
+            assertEquals(details, restored)
+        }
     }
 
     private fun snapshot(details: WordDetails): VocabularySyncSnapshot =

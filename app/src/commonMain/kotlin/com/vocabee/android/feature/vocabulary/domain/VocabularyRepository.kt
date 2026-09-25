@@ -61,6 +61,9 @@ interface VocabularyRepository {
         translation: String,
     ): Boolean
 
+    /** Remove exactly one personal row, including when another sense has identical text. */
+    fun removeWordById(userKey: String, topicId: String, wordId: String): Boolean
+
     /**
      * Очищення словника (шит «Очистити словник?»): прибирає ВСІ слова разом із
      * прогресом засвоєння, сам словник лишається. Повертає кількість прибраних

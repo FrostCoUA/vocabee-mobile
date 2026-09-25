@@ -52,6 +52,9 @@ data class ContextGlossaryToken(
     val endExclusive: Int,
     val translation: String,
     val lemma: String? = null,
+    /** Dictionary identity of this concrete contextual meaning, when available. */
+    val translationId: String? = null,
+    val senseKey: String? = null,
 )
 
 /** Offline snapshot used by the clickable practice sentence. */
@@ -117,7 +120,7 @@ data class WordDetails(
     /** Natural usage example in the learning language and its translation. */
     val usageExample: String? = null,
     val usageExampleTranslation: String? = null,
-    /** Background batch enrichment for the exact sentence used in practice. */
+    /** User-confirmed batch enrichment for the exact sentence used in practice. */
     val contextGlossary: ContextGlossary? = null,
 ) {
     val isEmpty: Boolean
@@ -142,7 +145,8 @@ data class WordDetails(
      * прапорець керує розгортанням деталей у UI.
      */
     val shouldPersist: Boolean
-        get() = !isEmpty || hasLexiconSnapshot || senseGroupTranslations.isNotEmpty()
+        get() = !isEmpty || hasLexiconSnapshot || senseMergeKeys().isNotEmpty() ||
+            senseGroupTranslations.isNotEmpty()
 }
 
 /**
@@ -213,6 +217,42 @@ data class WordEntry(
  */
 fun savedWordKey(source: String, translation: String): String =
     "${source.trim().lowercase()}\u0000${translation.trim().lowercase()}"
+
+/** Resolve a saved meaning by stable sense, then translation ID, then legacy text. */
+fun WordEntry.matchesSavedMeaning(
+    candidateSource: String,
+    candidateTranslation: String,
+    candidateDetails: WordDetails?,
+): Boolean {
+    if (!source.trim().equals(candidateSource.trim(), ignoreCase = true)) return false
+    val savedKeys = details.senseMergeKeys()
+    val candidateKeys = candidateDetails.senseMergeKeys()
+    if (savedKeys.isNotEmpty() && candidateKeys.isNotEmpty()) {
+        return savedKeys.any(candidateKeys::contains)
+    }
+    val savedId = details?.translationId?.takeIf(String::isNotBlank)
+    val candidateId = candidateDetails?.translationId?.takeIf(String::isNotBlank)
+    if (savedId != null && candidateId != null) return savedId == candidateId
+    if (savedKeys.isNotEmpty() || candidateKeys.isNotEmpty() ||
+        savedId != null || candidateId != null
+    ) return false
+    return translation.trim().equals(candidateTranslation.trim(), ignoreCase = true)
+}
+
+/** Storage cannot safely add an identical text pair if either side lacks identity. */
+fun WordEntry.conflictsWithCandidate(
+    candidateSource: String,
+    candidateTranslation: String,
+    candidateDetails: WordDetails?,
+): Boolean {
+    if (matchesSavedMeaning(candidateSource, candidateTranslation, candidateDetails)) return true
+    if (savedWordKey(source, translation) != savedWordKey(candidateSource, candidateTranslation)) return false
+    val savedHasIdentity = details.senseMergeKeys().isNotEmpty() ||
+        !details?.translationId.isNullOrBlank()
+    val candidateHasIdentity = candidateDetails.senseMergeKeys().isNotEmpty() ||
+        !candidateDetails?.translationId.isNullOrBlank()
+    return !savedHasIdentity || !candidateHasIdentity
+}
 
 /** Набір ключів [savedWordKey] для всіх слів словника. */
 fun List<WordEntry>.savedWordKeys(): Set<String> =

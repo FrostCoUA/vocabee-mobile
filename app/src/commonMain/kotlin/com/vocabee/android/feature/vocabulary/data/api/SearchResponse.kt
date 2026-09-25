@@ -84,6 +84,15 @@ data class SearchMeta(
     val triedProvider: Boolean = false,
     /** `exact_cached` — з бази; `translated` — згенеровано; `not_a_word`/`echo`/`no_provider_data` — без перекладу. */
     val providerReason: String? = null,
+    val generation: GenerationMeta? = null,
+)
+
+@Serializable
+data class GenerationMeta(
+    val id: String,
+    val status: String,
+    val retryAfterMs: Long? = null,
+    val error: String? = null,
 )
 
 @Serializable

@@ -64,6 +64,7 @@ import com.vocabee.android.core.presentation.designsystem.prototypeTopicTheme
 import com.vocabee.android.feature.vocabulary.domain.model.DictionaryTopic
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
 import kotlin.random.Random
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -161,6 +162,35 @@ private fun normalizePeekWord(raw: String): String =
 
 internal fun WordEntry.contextSentence(): String? = details.contextSentence()
 
+/** Sentences owned by this saved meaning, including older unattributed snapshots. */
+internal fun WordDetails?.contextSentences(): List<String> {
+    val details = this ?: return emptyList()
+    val ownGlossary = details.contextGlossary
+    val ownGlossarySentence = ownGlossary?.sentence?.trim()?.takeIf { sentence ->
+        sentence.isNotBlank() && ownGlossary.tokens.any { token ->
+            (!details.translationId.isNullOrBlank() && token.translationId == details.translationId) ||
+                (!token.senseKey.isNullOrBlank() && token.senseKey in details.senseKeys)
+        }
+    }
+    val attributed = details.attributedSenseIndexes()
+    if (attributed.isNotEmpty()) {
+        return (attributed.flatMap { details.senses[it].examples } + listOfNotNull(ownGlossarySentence))
+            .map(String::trim).filter(String::isNotBlank).distinct()
+    }
+    // A context-token save has stable identity but no full dictionary senses yet.
+    // Its own confirmed glossary is still a valid example for this partial entry.
+    if (details.senses.isEmpty() && ownGlossary != null &&
+        ownGlossary.sentence == details.usageExample &&
+        ownGlossarySentence != null
+    ) return listOfNotNull(details.usageExample.trim().takeIf(String::isNotBlank))
+    if (details.senseMergeKeys().isNotEmpty()) return emptyList()
+    return buildList {
+        details.contextGlossary?.sentence?.let(::add)
+        details.usageExample?.let(::add)
+        details.senses.flatMapTo(this) { it.examples }
+    }.map(String::trim).filter(String::isNotBlank).distinct()
+}
+
 /**
  * Те саме правило, але від БЛОБА деталей: класична картка тренування показує
  * деталі сенс-групи (`WordGroup.displayDetails`), а не обов'язково блоб
@@ -168,19 +198,11 @@ internal fun WordEntry.contextSentence(): String? = details.contextSentence()
  */
 internal fun WordDetails?.contextSentence(): String? {
     val details = this ?: return null
-    details.contextGlossary?.sentence?.takeIf { it.isNotBlank() }?.let { return it.trim() }
-    // Спершу — приклад ВЛАСНОГО значення пари (бекендова атрибуція): саме він
-    // робить картку чесною, коли інші переклади слова живуть в інших sense'ах.
-    val ownExample = details.attributedSenseIndexes()
-        .asSequence()
-        .mapNotNull { details.senses.getOrNull(it) }
-        .flatMap { it.examples.asSequence() }
-        .firstOrNull { it.isNotBlank() }
-    if (ownExample != null) return ownExample.trim()
-    details.usageExample?.takeIf { it.isNotBlank() }?.let { return it.trim() }
-    return details.senses
-        .firstNotNullOfOrNull { sense -> sense.examples.firstOrNull { it.isNotBlank() } }
-        ?.trim()
+    val candidates = details.contextSentences()
+    // A selected glossary may replace the initial example, but it must still
+    // belong to the saved meaning before it can drive dictionary or practice UI.
+    details.contextGlossary?.sentence?.trim()?.takeIf { it in candidates }?.let { return it }
+    return candidates.firstOrNull()
 }
 
 private fun normalizedSource(word: WordEntry): String = word.source.trim().lowercase()

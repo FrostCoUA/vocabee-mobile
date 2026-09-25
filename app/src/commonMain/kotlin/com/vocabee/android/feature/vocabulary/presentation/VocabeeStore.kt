@@ -205,6 +205,8 @@ sealed interface VocabeeEvent {
         val source: String,
         /** Translation text — keys the row to delete (case-insensitive). */
         val translation: String,
+        /** Exact personal row when same text belongs to more than one meaning. */
+        val wordId: String? = null,
     ) : VocabeeEvent
 
     /**
@@ -291,7 +293,7 @@ class VocabeeStore(
             is VocabeeEvent.RemoveTopic -> removeTopic(event.topicId)
             is VocabeeEvent.ClearTopicWords -> clearTopicWords(event.topicId)
             is VocabeeEvent.AddWord -> addWord(event.topicId, event.source, event.translation, event.ipa, event.details)
-            is VocabeeEvent.RemoveWord -> removeWord(event.topicId, event.source, event.translation)
+            is VocabeeEvent.RemoveWord -> removeWord(event.topicId, event.source, event.translation, event.wordId)
             is VocabeeEvent.AdjustSenseGroupKnowledge ->
                 adjustSenseGroupKnowledge(event.topicId, event.memberWordIds, event.deltaPercent)
             is VocabeeEvent.SelectSpeakingLanguage -> selectSpeakingLanguage(event.language)
@@ -637,9 +639,10 @@ class VocabeeStore(
      * різні, сенс той самий. З тієї ж причини йдемо по ВСІХ `topic.words`, а не
      * по представниках груп: запис-місток інакше лишився б непоміченим.
      *
-     * Кандидат БЕЗ атрибуції (легасі-видача, `details == null` або без ключів)
-     * сюди не потрапляє свідомо: сенсу в нього немає, і його дедуп лишається
-     * парою (слово, переклад) на рівні репозиторію — як було до сенс-груп.
+     * Кандидат БЕЗ жодної ідентичності (легасі-видача) сюди не потрапляє:
+     * його дедуп лишається парою (слово, переклад) на рівні репозиторію.
+     * Translation ID без senseKey також відсікає повторне збереження того ж
+     * варіанта з іншим текстом перекладу.
      * Інакше друге значення легасі-слова (`run→бігти` + `run→гнати`) стало б
      * незберіганим.
      */
@@ -648,7 +651,7 @@ class VocabeeStore(
         source: String,
         details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?,
     ): Boolean {
-        if (details.senseMergeKeys().isEmpty()) return false
+        if (details.senseMergeKeys().isEmpty() && details?.translationId.isNullOrBlank()) return false
         val topic = state.topics.firstOrNull { it.id == topicId } ?: return false
         return topic.words.any { word -> word.overlapsSenseGroup(source, details) }
     }
@@ -660,7 +663,7 @@ class VocabeeStore(
         }
     }
 
-    private fun removeWord(topicId: String, source: String, translation: String) {
+    private fun removeWord(topicId: String, source: String, translation: String, wordId: String?) {
         val cleanedSource = source.trim()
         val cleaned = translation.trim()
         if (cleanedSource.isBlank() || cleaned.isBlank()) return
@@ -668,6 +671,7 @@ class VocabeeStore(
             topicId = topicId,
             source = cleanedSource,
             translation = cleaned,
+            wordId = wordId,
         )
         if (!removed) return
         state = state.copy(topics = loadUserTopicsUseCase())

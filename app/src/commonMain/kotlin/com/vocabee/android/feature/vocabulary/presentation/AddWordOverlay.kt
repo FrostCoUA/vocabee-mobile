@@ -54,6 +54,7 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import com.vocabee.android.feature.vocabulary.domain.model.conflictsWithCandidate
 import com.vocabee.android.feature.vocabulary.domain.model.attributionSignature
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
 import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
@@ -113,7 +114,7 @@ internal data class WordGroup(
      */
     val stableKey: String
         get() {
-            val keys = representative.senseMergeKeys()
+            val keys = representative.groupMergeKeys()
             val signature = if (keys.isEmpty()) "legacy" else keys.sorted().joinToString(separator = "\u0000")
             return "${sourceWord.trim().lowercase()}\u0000$signature"
         }
@@ -128,16 +129,19 @@ internal data class WordGroup(
      * сенсами. Неатрибутований (легасі) представник обмежувати нічим — там
      * фолбек лишається вільним, як і було.
      */
-    val displayDetails: WordDetails?
+    val displayDetailsEntry: WordEntry?
         get() {
-            representative.details?.takeUnless(WordDetails::isEmpty)?.let { return it }
-            val representativeKeys = representative.senseMergeKeys()
-            return entries.firstNotNullOfOrNull { entry ->
+            representative.details?.takeUnless(WordDetails::isEmpty)?.let { return representative }
+            val representativeKeys = representative.groupMergeKeys()
+            return entries.firstOrNull { entry ->
                 val sameSense = representativeKeys.isEmpty() ||
-                    entry.senseMergeKeys().any(representativeKeys::contains)
-                if (sameSense) entry.details?.takeUnless(WordDetails::isEmpty) else null
+                    entry.groupMergeKeys().any(representativeKeys::contains)
+                sameSense && entry.details?.isEmpty == false
             }
         }
+
+    val displayDetails: WordDetails?
+        get() = displayDetailsEntry?.details
 
     /**
      * Решта перекладів групи для другого рядка картки — без власного перекладу
@@ -193,6 +197,7 @@ internal fun List<com.vocabee.android.feature.vocabulary.domain.model.WordEntry>
  */
 internal fun WordEntry.senseGroupKey(): String {
     val signature = details?.attributionSignature()
+        ?: details?.translationId?.takeIf(String::isNotBlank)?.let(::translationGroupKey)
     val base = source.trim().lowercase()
     return if (signature.isNullOrBlank()) base else "$base\u0000$signature"
 }
@@ -202,6 +207,14 @@ internal fun WordEntry.senseGroupKey(): String {
  * відповіді пошуку; правило атрибуції живе в домені й тут лише перевикористане.
  */
 internal fun WordEntry.senseMergeKeys(): Set<String> = details.senseMergeKeys()
+
+/** A translation ID separates partial identified rows from the no-ID legacy bucket. */
+private fun translationGroupKey(id: String): String = "\u0001translation-id:$id"
+
+private fun WordEntry.groupMergeKeys(): Set<String> = senseMergeKeys().ifEmpty {
+    details?.translationId?.takeIf(String::isNotBlank)?.let { setOf(translationGroupKey(it)) }
+        ?: emptySet()
+}
 
 /**
  * Чи належать збережений запис і КАНДИДАТ (нова опція перекладу) до одного
@@ -221,8 +234,11 @@ internal fun WordEntry.senseMergeKeys(): Set<String> = details.senseMergeKeys()
  */
 internal fun WordEntry.overlapsSenseGroup(candidateSource: String, candidate: WordDetails?): Boolean {
     if (source.trim().lowercase() != candidateSource.trim().lowercase()) return false
-    val savedKeys = senseMergeKeys()
-    val candidateKeys = candidate.senseMergeKeys()
+    val savedKeys = groupMergeKeys()
+    val candidateKeys = candidate.senseMergeKeys().ifEmpty {
+        candidate?.translationId?.takeIf(String::isNotBlank)?.let { setOf(translationGroupKey(it)) }
+            ?: emptySet()
+    }
     if (savedKeys.isEmpty() || candidateKeys.isEmpty()) {
         return savedKeys.isEmpty() && candidateKeys.isEmpty()
     }
@@ -257,7 +273,7 @@ internal fun List<WordEntry>.groupBySense(): List<WordGroup> {
     val bucketsBySource = mutableMapOf<String, MutableList<SenseBucket>>()
     for ((index, entry) in withIndex()) {
         val sourceKey = entry.source.trim().lowercase()
-        val mergeKeys = entry.senseMergeKeys()
+        val mergeKeys = entry.groupMergeKeys()
         val sourceBuckets = bucketsBySource.getOrPut(sourceKey) { mutableListOf() }
         val matches = sourceBuckets.filter { bucket ->
             if (mergeKeys.isEmpty()) bucket.senseKeys.isEmpty() else bucket.senseKeys.any(mergeKeys::contains)
@@ -281,23 +297,20 @@ internal fun List<WordEntry>.groupBySense(): List<WordGroup> {
     }
 }
 
-/**
- * Чи збережена САМЕ ця пара (слово, переклад) — від цього залежить ✓ «вже
- * додано» і те, що ховається за кнопкою (додати проти видалити). Збережений
- * `run→серія` не робить «доданим» варіант `series→серія`.
- *
- * Єдине джерело правди — ЖИВИЙ набір `WordEntry.savedWordKeys()` зі стану
- * словника. Прапорець
- * `TranslationOption.alreadyAdded` навмисно НЕ враховується: він заморожений на
- * момент пошуку (і рахується з того самого набору), тож у суміші робив би
- * toggle однобічним — після видалення рядка ✓ лишалась би назавжди, і додати
- * слово назад без нового пошуку було б неможливо. Сам `alreadyAdded` (як і
- * `note`) досі обчислюється в `toOption`, але продакшн-споживача в UI наразі
- * НЕ має — жодного підпису «додано раніше» на екрані немає; поля лишені для
- * сумісності й тестів.
- */
+/** Legacy pair-only lookup retained for older callers and tests. */
 internal fun TranslationOption.isSavedIn(savedWordKeys: Set<String>): Boolean =
     savedWordKeys.contains(savedWordKey(learningWord, value))
+
+/** Match the repository's insert conflict rule, including legacy pairs without identity. */
+internal fun TranslationOption.savedWordIn(savedWords: List<WordEntry>): WordEntry? {
+    val candidateId = details?.translationId?.takeIf(String::isNotBlank)
+        ?: translationId.takeIf(String::isNotBlank)
+    val candidateDetails = details?.copy(translationId = candidateId)
+        ?: candidateId?.let { WordDetails(translationId = it) }
+    return savedWords.firstOrNull { word ->
+        word.conflictsWithCandidate(learningWord, value, candidateDetails)
+    }
+}
 
 /** Result returned by the async backend search. The overlay drives its loading/error UI off this. */
 internal data class AddWordSearchState(
@@ -382,11 +395,18 @@ internal fun AddWordLoadingState() {
             trackColor = PrototypeColor.Tint,
         )
         Text(
-            text = "Шукаю переклад…",
+            text = "AI готує значення та приклади…",
             modifier = Modifier.padding(top = 16.dp),
             color = PrototypeColor.Muted,
             fontWeight = FontWeight.SemiBold,
             fontSize = 14.sp,
+        )
+        Text(
+            text = "Перший пошук може тривати кілька хвилин",
+            modifier = Modifier.padding(top = 6.dp),
+            color = PrototypeColor.Muted2,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -430,9 +450,9 @@ internal fun AddWordResultsList(
     tier: String?,
     maxResults: Int?,
     accent: Color,
-    savedWordKeys: Set<String>,
+    savedWords: List<WordEntry>,
     onAdd: (TranslationOption) -> Unit,
-    onRemove: (TranslationOption) -> Unit,
+    onRemove: (WordEntry) -> Unit,
     onDislike: (TranslationOption) -> Unit = {},
 ) {
     if (results.isEmpty()) {
@@ -468,11 +488,9 @@ internal fun AddWordResultsList(
     ) {
         items(keyedResults, key = { it.key }) { keyedOption ->
             val option = keyedOption.option
-            // Live "is this (word, translation) pair in the topic right now?" check
-            // against the current topic state — щойно доданий рядок дає ✓, щойно
-            // видалений повертає `+` без нового пошуку. Заморожений `alreadyAdded`
-            // сюди не входить навмисно (див. [isSavedIn]).
-            val isAdded = option.isSavedIn(savedWordKeys)
+            // Resolve against current topic meanings, not the frozen search snapshot.
+            val savedWord = option.savedWordIn(savedWords)
+            val isAdded = savedWord != null
             AddWordResultRow(
                 query = query,
                 option = option,
@@ -480,11 +498,13 @@ internal fun AddWordResultsList(
                 isAdded = isAdded,
                 // «Близькі за значенням» — такі самі опції, тож і ✓, і додавання
                 // йдуть тими самими колбеками, лише з іншим перекладом.
-                isAlternativeAdded = { alternative -> alternative.isSavedIn(savedWordKeys) },
+                isAlternativeAdded = { alternative -> alternative.savedWordIn(savedWords) != null },
                 onAdd = { onAdd(option) },
-                onRemove = { onRemove(option) },
+                onRemove = { savedWord?.let(onRemove) },
                 onAddAlternative = onAdd,
-                onRemoveAlternative = onRemove,
+                onRemoveAlternative = { alternative ->
+                    alternative.savedWordIn(savedWords)?.let(onRemove)
+                },
                 onDislike = { onDislike(option) },
             )
         }
@@ -522,7 +542,9 @@ private data class KeyedTranslationOption(
 private fun List<TranslationOption>.withStableTranslationKeys(): List<KeyedTranslationOption> {
     val seen = mutableMapOf<String, Int>()
     return map { option ->
-        val baseKey = "${option.value.normalizedTranslationKey()}|${option.learningWord.normalizedTranslationKey()}"
+        val identity = option.translationId.takeIf(String::isNotBlank)
+            ?: option.details?.senseKeys?.sorted()?.joinToString(",").orEmpty()
+        val baseKey = "${option.value.normalizedTranslationKey()}|${option.learningWord.normalizedTranslationKey()}|$identity"
         val occurrence = seen[baseKey] ?: 0
         seen[baseKey] = occurrence + 1
         KeyedTranslationOption(

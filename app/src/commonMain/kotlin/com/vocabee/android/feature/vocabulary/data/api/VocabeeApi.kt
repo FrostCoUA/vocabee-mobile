@@ -30,6 +30,13 @@ interface VocabeeApi {
         learnLang: String,
     ): SearchResponse
 
+    /** Polls an existing search generation without starting or charging a new search. */
+    suspend fun pollSearchGeneration(
+        id: String,
+        speakLang: String? = null,
+        learnLang: String? = null,
+    ): SearchResponse
+
     /** Records one idempotent user dislike for a translation or example. */
     suspend fun submitQualityFeedback(
         request: QualityFeedbackRequest,
@@ -41,6 +48,9 @@ interface VocabeeApi {
         sourceLang: String,
         targetLang: String,
     ): ContextGlossaryResponse
+
+    /** Polls an existing sentence analysis without starting another AI request. */
+    suspend fun pollContextGlossaryGeneration(id: String): ContextGlossaryResponse
 
     suspend fun loginWithGoogle(
         idToken: String,

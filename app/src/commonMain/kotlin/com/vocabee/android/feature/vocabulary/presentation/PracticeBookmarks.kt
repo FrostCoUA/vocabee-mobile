@@ -3,6 +3,8 @@ package com.vocabee.android.feature.vocabulary.presentation
 import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossary
 import com.vocabee.android.feature.vocabulary.domain.model.ContextGlossaryToken
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
+import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import com.vocabee.android.feature.vocabulary.domain.model.conflictsWithCandidate
 
 internal data class PracticeBookmark(
     val key: String,
@@ -13,11 +15,18 @@ internal data class PracticeBookmark(
     val targetLang: String,
     val originTopicId: String,
     val glossary: ContextGlossary,
+    val translationId: String? = null,
+    val senseKey: String? = null,
 ) {
     fun toWordDetails(): WordDetails = WordDetails(
+        translationId = translationId,
+        senseKeys = listOfNotNull(senseKey),
         usageExample = sentence,
         contextGlossary = glossary,
     )
+
+    fun savedWordIn(words: List<WordEntry>): WordEntry? =
+        words.firstOrNull { it.conflictsWithCandidate(source, translation, toWordDetails()) }
 }
 
 internal fun practiceBookmark(
@@ -35,6 +44,8 @@ internal fun practiceBookmark(
         targetLang = glossary.targetLang,
         originTopicId = originTopicId,
         glossary = glossary,
+        translationId = token.translationId,
+        senseKey = token.senseKey,
     )
 }
 

@@ -102,29 +102,22 @@ interface VocabularyDao {
         topicId: String,
     ): TopicEntity?
 
-    /**
-     * Reject only EXACT (source, translation) pair duplicates. The same
-     * English source can map to multiple Ukrainian translations (different
-     * senses of "play": "грати", "гра", "вистава" …) — we want all of them.
-     * Previously this also blocked source-vs-source matches, which silently
-     * dropped every variant after the first.
-     */
+    /** Same text can denote distinct stable meanings; caller checks their IDs. */
     @Query(
         """
-        SELECT COUNT(*)
-        FROM vocabulary_words
-        WHERE user_key = :userKey
-            AND topic_id = :topicId
+        SELECT * FROM vocabulary_words
+        WHERE user_key = :userKey AND topic_id = :topicId
             AND LOWER(source) = LOWER(:source)
             AND LOWER(translation) = LOWER(:translation)
+            AND sync_status != 'PendingDelete'
         """,
     )
-    suspend fun duplicateWordCount(
+    suspend fun wordsByPair(
         userKey: String,
         topicId: String,
         source: String,
         translation: String,
-    ): Int
+    ): List<WordEntity>
 
     @Query(
         """
@@ -230,14 +223,7 @@ interface VocabularyDao {
         syncStatus: SyncStatus,
     )
 
-    /**
-     * Hard-delete by the (source, translation) pair. We key off the text rather
-     * than the id because the caller (Add Word overlay) holds `option.learningWord`
-     * / `option.value`, not a word id. Пара обовʼязкова: у словнику законно
-     * живуть `run→серія` і `series→серія`, і видалення однієї не сміє зачепити
-     * іншу. Локальний hard-delete — для аноніма; авторизований користувач іде
-     * через [markWordDeletedByTranslation], щоб сервер побачив видалення.
-     */
+    /** Legacy pair-only delete. Current UI passes the exact personal word ID. */
     @Query(
         """
         DELETE FROM vocabulary_words
@@ -252,6 +238,25 @@ interface VocabularyDao {
         topicId: String,
         source: String,
         translation: String,
+    ): Int
+
+    @Query("DELETE FROM vocabulary_words WHERE user_key = :userKey AND topic_id = :topicId AND id = :wordId")
+    suspend fun deleteWordById(userKey: String, topicId: String, wordId: String): Int
+
+    @Query(
+        """
+        UPDATE vocabulary_words
+        SET sync_status = :syncStatus, updated_at_epoch_millis = :updatedAtEpochMillis
+        WHERE user_key = :userKey AND topic_id = :topicId AND id = :wordId
+            AND sync_status != 'PendingDelete'
+        """,
+    )
+    suspend fun markWordDeletedById(
+        userKey: String,
+        topicId: String,
+        wordId: String,
+        updatedAtEpochMillis: Long,
+        syncStatus: SyncStatus,
     ): Int
 
     @Query(

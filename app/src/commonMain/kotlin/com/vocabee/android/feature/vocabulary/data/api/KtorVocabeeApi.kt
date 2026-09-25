@@ -54,6 +54,21 @@ class KtorVocabeeApi(
         }
     }
 
+    override suspend fun pollSearchGeneration(
+        id: String,
+        speakLang: String?,
+        learnLang: String?,
+    ): SearchResponse =
+        withOptionalAccessToken { accessToken ->
+            executeRequest {
+                client.get("${config.baseUrl}/v1/search/generations/$id") {
+                    speakLang?.let { parameter("speak", it) }
+                    learnLang?.let { parameter("learn", it) }
+                    accessToken?.let { token -> bearerAuth(token) }
+                }.body()
+            }
+        }
+
     override suspend fun submitQualityFeedback(
         request: QualityFeedbackRequest,
     ): QualityFeedbackResponse {
@@ -89,6 +104,15 @@ class KtorVocabeeApi(
             }
         }
     }
+
+    override suspend fun pollContextGlossaryGeneration(id: String): ContextGlossaryResponse =
+        withOptionalAccessToken { accessToken ->
+            executeRequest {
+                client.get("${config.baseUrl}/v1/search/context-glossary/generations/$id") {
+                    accessToken?.let { token -> bearerAuth(token) }
+                }.body()
+            }
+        }
 
     override suspend fun loginWithGoogle(
         idToken: String,

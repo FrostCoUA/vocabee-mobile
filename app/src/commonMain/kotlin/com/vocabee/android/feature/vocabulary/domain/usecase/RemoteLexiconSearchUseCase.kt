@@ -17,6 +17,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.WordForm
 import com.vocabee.android.feature.vocabulary.domain.model.WordSense
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
 import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
+import kotlinx.coroutines.CancellationException
 
 /** Тег для `adb logcat -s VocabeeSearch` — звідки прийшов кожен переклад. */
 internal const val SearchLogTag = "VocabeeSearch"
@@ -50,10 +51,15 @@ class RemoteLexiconSearchUseCase(
         }
         return try {
             val startedAt = currentEpochMillis()
-            val response = api.search(
+            val initial = api.search(
                 query = query,
                 speakLang = speakLang,
                 learnLang = learnLang,
+            )
+            val response = awaitGeneration(
+                initial = initial,
+                generationOf = { it.meta.generation },
+                poll = { id -> api.pollSearchGeneration(id, speakLang, learnLang) },
             )
             trackSearchResult(response, currentEpochMillis() - startedAt)
             val options = response.results.toSenseGroupedOptions(savedWordKeys)
@@ -64,6 +70,8 @@ class RemoteLexiconSearchUseCase(
                 maxResults = response.maxResults,
                 beeBalance = response.meta.beeBalance,
             )
+        } catch (cause: CancellationException) {
+            throw cause
         } catch (cause: VocabeeApiException) {
             analytics.track(
                 "translation_search_failed",

@@ -305,6 +305,23 @@ routes не викликає.
 
 ### 1.3.2 Dictionary administration + API consumers (`dictionary-gateway /v1/admin`)
 
+**[ЗАРАЗ, локальний код; 2026-09-25] Адміністративні дії та інтерфейс.**
+Масове видалення, оцінка перекладу й оцінка прикладу передають стабільні callback-и,
+які зберігають прив'язку до `DictionaryAdminApi`. Передавання його методів без
+об'єкта спричиняло помилку `this.request` ще до HTTP-запиту; регресійні тести
+проходять від діалогу до справжнього API-класу з підставленим транспортом.
+Спільний діалог обох адмінок пояснює контрольовані HTTP-помилки та показує
+безпечний `requestId`; довільний текст винятків і серверних повідомлень не
+відображається. Введені дані зберігаються для повторної спроби.
+
+Фільтри перекладів згруповані за пошуком, мовним напрямком і статусом.
+Лічильник зворотного зв'язку підписано «Скарги», дія — «Позначити неякісним».
+Масове видалення та повний reset містяться в секції «Керування даними» після
+таблиці; кнопка біля заголовка переводить фокус до неї без зміни hash-route.
+Назви дій та інші UI-рядки не закінчуються трикрапками, важливий текст переноситься.
+Шрифти обох production-збірок зберігаються окремими файлами, щоб відповідати
+чинному `font-src 'self'` без послаблення CSP.
+
 `vocabee-gateway/src/dictionary-admin/*`, `src/dictionary-access/*`. **[ЗАРАЗ]**
 Dictionary admin UI та звичайні admin routes приймають окремий RS256
 `admin-access-token`; consumer `X-API-Key` не дає доступу до них. Єдина
@@ -502,6 +519,51 @@ export і optional MCP
 
 ### 1.5 [ЗАРАЗ] Client search facade + Dictionary search (`/v1/search`)
 
+**[ЗАРАЗ · локальна реалізація 2026-09-25, ще не підтверджено на DEV]**
+`LEXICON_AI_ONLY=true` за замовчуванням перемикає dictionary-gateway на цілісні
+AI-статті. Старий provider pipeline і бібліотеки збережені, але не викликаються
+для перекладів, IPA, форм, перевірки існування слова або fallback. Мовна
+маршрутизація та технічна валідація запитів залишаються. Імпорт V1/V2, seed та
+застосування старого audit-repair заблоковані; їхній опис нижче є контрактом
+тимчасово вимкненого шляху. Повний узгоджений обсяг —
+`service/tasks/ai-lexicon-and-admin-reset.md` у корені workspace.
+
+AI генерує статтю та окремо перевіряє її цілісність: атомарні значення, IPA,
+частини мови, граматичні форми, тип/регістр, синоніми/антоніми та унікальні
+двомовні приклади. Після обмеженої невдалої спроби виправлення повертається
+помилка, а не часткова стаття. Позначка `complete` означає проходження цих
+перевірок, а не математичну гарантію всіх можливих історичних значень.
+Приклади не містять автоматично згенерованого розбору слів.
+
+`lexicon_ai_entries` (міграція `0024`) зберігає напрямок, нормалізований запит,
+payload, `partial/generating/complete/failed`, revision і lease генерації.
+Для слова ключ — `(entry, sourceLang, targetLang, normalizedWord)`, для речення
+— точне обрізане по краях речення зі збереженим регістром і пунктуацією.
+Конкурентні запити отримують одну роботу; повна стаття повторно читається з БД.
+Контекстні значення записуються як `partial`; повний пошук додає відсутні
+значення та метадані, зберігаючи вже відомі `senseKey`/`translationId`.
+Перевірка revision не дозволяє генерації затерти контекст, доданий під час її
+виконання. Усі записи перевіряють generation epoch міграції `0023`: робота,
+розпочата до повного reset, не може опублікувати результат після нього.
+
+Тривала робота повертає одразу стан генерації. Порожні `results` або `tokens`
+зі станом `generating` не є завершеною порожньою відповіддю. Mobile робить
+початковий запит один раз і опитує окремий endpoint до завершення, скасування
+або обмеження очікування; повторне опитування не списує монетки. DTO:
+
+```text
+SearchResponse.meta.generation = { id, status, retryAfterMs, error? }
+ContextGlossaryResponse.generation = { id, status, retryAfterMs, error? }
+status = generating | complete | failed
+```
+
+Сенси та близькі переклади мають окремі стабільні ID; кожен response variant
+містить лише метадані свого значення. Точні двомовні projections зберігаються
+разом із translation metadata, щоб sync не збирав їх заново зі спільного
+пулу всіх значень. У цьому режимі старі неузгоджені corpus snapshots не
+замінюють персональну картку. Відсутній після reset авторитетний translation ID
+не можна переприв'язати до нової текстової пари зі збереженням старого прогресу.
+
 Mobile-контракт обслуговує
 `vocabee-gateway/src/client-search/client-search.controller.ts`; контролер не
 імпортує lexicon service, а викликає
@@ -512,8 +574,11 @@ Mobile-контракт обслуговує
 |---|---|---|---|
 | GET | `client-gateway /v1/search?q=&speak=&learn=` | Optional JWT: без header / active bearer | Mobile compatibility facade: tier/wallet + делегація; supplied invalid/expired/inactive credential → 401 |
 | GET | `dictionary-gateway /v1/search?q=&speak=&learn=&limit=` | `X-API-Key` | App-neutral lexicon search; `limit` 1..50, default 50 |
+| GET | `client-gateway /v1/search/generations/:id?speak=&learn=` | Optional JWT | Стан уже створеного пошуку без повторного списання; зберігає напрямок відображення початкового запиту |
+| GET | `dictionary-gateway /v1/search/generations/:id?speak=&learn=` | `X-API-Key` | Готовий результат або стан тієї самої генерації; без нового AI-запиту |
 | POST | `client-gateway /v1/search/context-glossary` | Optional JWT | Безкоштовний mobile facade: один batch для exact прикладу; wallet не викликається |
-| POST | `dictionary-gateway /v1/search/context-glossary` | `X-API-Key`, scope `dictionary:search` | Детермінована токенізація + один contextual provider request; один quota admission на речення |
+| POST | `dictionary-gateway /v1/search/context-glossary` | `X-API-Key`, scope `dictionary:search` | Одна контекстна AI-робота для речення, без повної статті для кожного токена; за потреби додаткове узгодження знайдених lemma з наявними ID |
+| GET | `/v1/search/context-glossary/generations/:id` на обох gateway | Optional JWT на client / `X-API-Key` на dictionary | Стан або готовий розбір тієї самої роботи; client зберігає приватний snapshot лише після завершення |
 | POST | `dictionary-gateway /v1/snapshots` | `X-API-Key` fixed protected `client-gateway` consumer | До 200 provider-free canonical saved-word projections для vocabulary sync; зовнішній search key отримує 403 |
 
 Dictionary guard спершу шукає DB key за public id і timing-safe звіряє HMAC повного
@@ -529,8 +594,11 @@ outcome, HTTP status, duration і timestamp — ніколи `q`, мови, URL,
 trimmed sentence Unicode-регексом у максимум 64 слова (апостроф/дефіс усередині слова
 зберігаються) і повертає `{ sentence, sourceLang, targetLang, tokens[] }`. Кожен token:
 `surface`, `normalized`, UTF-16 `start/endExclusive`, короткий контекстний `translation`,
-`lemma|null`. Неповна відповідь провайдера не персиститься: endpoint відповідає помилкою,
-а клієнт лишає вже збережене слово без glossary. Client facade свідомо не викликає
+`lemma|null`, опційні `senseKey` і `translationId` конкретного контекстного значення.
+Неповна відповідь провайдера не публікується: генерація має стан `failed`,
+а клієнт лишає вже збережене слово без glossary. Розбір запускається лише після
+тапу по нерозібраному реченню та підтвердження «Розібрати»; показ картки,
+відкриття деталей і save не створюють цю роботу. Client facade свідомо не викликає
 `WalletService`; dictionary quota рахує весь batch як один запит.
 
 Якщо Optional JWT визначив користувача, client facade після успішного batch атомарно
@@ -555,7 +623,7 @@ UTF-16 offsets зберігаються в `user_context_glossary_examples` з �
 | `isPhrase` | boolean | |
 | `knownLang` / `learningLang` | string | |
 | `tier` | `anonymous`\|`registered`\|`premium` | |
-| `maxResults` | number | ліміт варіантів для tier |
+| `maxResults` | number | legacy tier cap; у AI-only не менше кількості повних варіантів, без тихого обрізання значень |
 | `results` | `VariantDto[]` | |
 | `meta` | `MetaDto` | |
 
@@ -575,7 +643,7 @@ dictionary → client facade), `knownWord`, `learningWord`, `ipa?`, `audioUrl?`,
 `confidence?`, `isPrimary`, `cached`, `match` (`exact`\|`prefix`). Dictionary response
 не містить `tier`/`beeBalance`; їх додає тільки client facade.
 
-**[ЗАРАЗ]** `match="prefix"` не означає скорочений DTO. Коли exact-збігу нема,
+**[ЗАРАЗ · старий шлях, вимкнений при AI-only]** `match="prefix"` не означає скорочений DTO. Коли exact-збігу нема,
 dictionary-gateway обирає не більш як 15 підказок і read-only підтягує для них уже
 персистовані IPA/PoS, senses/examples, synonyms/antonyms, forms та V2 `senseKeys`.
 Legacy sense без записаного key лишається `senseKey=null` — gateway не видає
@@ -584,7 +652,7 @@ Autocomplete не запускає translator/dictionary, sense-attribution аб
 Це важливо, бо mobile не робить другого detail-запиту: натискання `+` зберігає саме цей
 response snapshot у `WordEntry.details`/Room.
 
-**[НОВЕ] (фаза 0) Per-variant sense scoping.** До фази 0 кожен `VariantDto` ніс
+**[ЗАРАЗ] Per-variant sense scoping (уточнено 2026-09-25).** До фази 0 кожен `VariantDto` ніс
 однаковий word-level блоб `senses`/`synonyms`/`antonyms`/`examples` незалежно
 від того, з яким конкретно сенсом повʼязаний цей переклад — усі варіанти
 одного слова отримували ідентичний список. `projectEnrichmentForVariant`
@@ -593,14 +661,29 @@ response snapshot у `WordEntry.details`/Room.
 конкретний варіант:
 - **Атрибутований варіант** (`senseKeys[]` непорожній, або legacy `senseIndex`
   вказує на існуючий сенс) несе **лише власні** сенси — і їхні `examples`,
-  `synonyms`, `antonyms` (union по відібраних сенсах). Якщо в відібраних
-  сенсів ці списки порожні — фолбек: `synonyms`/`antonyms` беруться з
-  word-level пулу, `examples` — з повного flat-списку.
+  `synonyms`, `antonyms` і `partOfSpeech` (union по відібраних сенсах).
+  Порожні `synonyms`/`antonyms` можуть доповнюватися лише справжніми
+  word-level relations, а не об'єднаними списками інших сенсів. `related`
+  не вважається антонімом. Приклади — тільки свої: якщо їх немає,
+  `examples=[]`, без підстановки першого прикладу всього слова.
+- Непорожні стабільні `senseKeys` мають пріоритет над legacy `senseIndex`.
+  Якщо ключі не резолвляться, відповідь не підставляє позиційне чи чуже
+  значення; сенси, приклади, відношення і POS порожні, `senseIndex=null`.
 - `senseIndex` для такого варіанта нормалізується в `0` (індекс у межах
   власного, вже звуженого масиву `senses` — див. вище).
-- **Без атрибуції** (немає ні `senseKeys`, ні валідного legacy `senseIndex`) —
+- **Без атрибуції** (немає ні `senseKeys`, ні legacy `senseIndex`) —
   повний word-level блоб без змін, легасі-поведінка збережена.
 - Wire-формат `SearchVariant` не змінився — лише вміст перелічених полів.
+- Той самий відбір застосовується до saved-word snapshot; форми й IPA
+  залишаються даними вихідної лексеми, а не окремого перекладу.
+
+**[ЗАРАЗ] Повторний V2-імпорт виправлених сенсів.** Приклади дедуплікуються
+в межах вихідного слова за реченням, його перекладом, цільовою мовою і ID
+сенсу. Те саме речення можна прив'язати до нового сенсу після розщеплення
+старого: імпорт не пропускає його лише через наявність тексту під старим ID.
+ID наявного перекладу зберігається, його `translation_senses` оновлюються;
+нова content revision дозволяє sync замінити lexical snapshot без зміни
+навчального прогресу.
 
 **[НОВЕ] (фаза 0) Фільтр форм.** `forms[]` більше не містить wiktextract-
 службові псевдо-форми таблиці відмінювання (текст `no-table-tags`/`glossary`,

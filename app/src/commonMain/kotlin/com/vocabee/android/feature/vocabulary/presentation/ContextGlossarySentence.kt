@@ -487,12 +487,34 @@ internal fun contextSavedTokenIndexes(
 internal fun contextBookmarkKey(
     glossary: ContextGlossary,
     token: ContextGlossaryToken,
-): String = contextTranslationKey(
+): String = contextMeaningKey(
     sourceLang = glossary.sourceLang,
     targetLang = glossary.targetLang,
     source = token.lemma?.trim()?.takeIf { it.isNotEmpty() } ?: token.normalized,
     translation = token.translation,
+    senseKey = token.senseKey,
+    translationId = token.translationId,
 )
+
+internal fun contextMeaningKey(
+    sourceLang: String,
+    targetLang: String,
+    source: String,
+    translation: String,
+    senseKey: String? = null,
+    translationId: String? = null,
+): String {
+    val prefix = listOf(
+        sourceLang.trim().lowercase(),
+        targetLang.trim().lowercase(),
+        source.trim().lowercase(),
+    ).joinToString(":")
+    val stableSense = senseKey?.trim()?.takeIf(String::isNotBlank)
+    if (stableSense != null) return "$prefix:sense:$stableSense"
+    val stableTranslation = translationId?.trim()?.takeIf(String::isNotBlank)
+    if (stableTranslation != null) return "$prefix:translation:$stableTranslation"
+    return contextTranslationKey(sourceLang, targetLang, source, translation)
+}
 
 internal fun contextTranslationKey(
     sourceLang: String,

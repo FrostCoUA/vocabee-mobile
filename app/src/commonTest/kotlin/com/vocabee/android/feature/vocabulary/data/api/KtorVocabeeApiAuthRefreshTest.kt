@@ -13,6 +13,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
+import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
@@ -29,6 +30,64 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class KtorVocabeeApiAuthRefreshTest {
+    @Test
+    fun generationPollsUseDedicatedGetEndpoints() = runBlocking {
+        val paths = mutableListOf<String>()
+        val api = apiWithEngine { request ->
+            val path = request.url.encodedPath
+            paths += path
+            val body = if (path.contains("context-glossary")) {
+                """{"sentence":"I run.","sourceLang":"en","targetLang":"uk","tokens":[],"generation":{"id":"job-2","status":"generating","retryAfterMs":2000}}"""
+            } else {
+                searchResponse().replace(
+                    "\"totalAvailable\":0",
+                    "\"totalAvailable\":0,\"generation\":{\"id\":\"job-1\",\"status\":\"complete\"}",
+                )
+            }
+            respond(body, HttpStatusCode.OK, jsonHeaders())
+        }
+
+        val search = api.pollSearchGeneration("job-1")
+        val glossary = api.pollContextGlossaryGeneration("job-2")
+
+        assertEquals(
+            listOf(
+                "/v1/search/generations/job-1",
+                "/v1/search/context-glossary/generations/job-2",
+            ),
+            paths,
+        )
+        assertEquals("complete", search.meta.generation?.status)
+        assertEquals("generating", glossary.generation?.status)
+    }
+
+    @Test
+    fun searchGenerationPollPreservesInitialLanguageOrientation() = runBlocking {
+        val requests = mutableListOf<Triple<String, String?, String?>>()
+        val api = apiWithEngine { request ->
+            requests += Triple(
+                request.url.encodedPath,
+                request.url.parameters["speak"],
+                request.url.parameters["learn"],
+            )
+            val body = if (request.url.encodedPath == "/v1/search") {
+                searchResponse().replace(
+                    "\"totalAvailable\":0",
+                    "\"totalAvailable\":0,\"generation\":{\"id\":\"job-oriented\",\"status\":\"generating\",\"retryAfterMs\":1}",
+                )
+            } else {
+                searchResponse()
+            }
+            respond(body, HttpStatusCode.OK, jsonHeaders())
+        }
+
+        RemoteLexiconSearchUseCase(api)("run", "en", "uk", emptySet())
+
+        assertEquals(listOf("/v1/search", "/v1/search/generations/job-oriented"), requests.map { it.first })
+        assertEquals(listOf("en", "en"), requests.map { it.second })
+        assertEquals(listOf("uk", "uk"), requests.map { it.third })
+    }
+
     @Test
     fun expiredAccessTokenRefreshesAndReplaysTheRequest() = runBlocking {
         val requests = mutableListOf<String>()

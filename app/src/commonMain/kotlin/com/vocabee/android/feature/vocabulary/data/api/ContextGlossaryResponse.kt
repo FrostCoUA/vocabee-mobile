@@ -15,6 +15,7 @@ data class ContextGlossaryResponse(
     val sourceLang: String,
     val targetLang: String,
     val tokens: List<ContextGlossaryTokenResponse>,
+    val generation: GenerationMeta? = null,
 )
 
 @Serializable
@@ -25,4 +26,6 @@ data class ContextGlossaryTokenResponse(
     val endExclusive: Int,
     val translation: String,
     val lemma: String? = null,
+    val translationId: String? = null,
+    val senseKey: String? = null,
 )

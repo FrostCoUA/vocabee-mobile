@@ -6,6 +6,7 @@ import com.vocabee.android.feature.vocabulary.data.api.SearchVariant
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOptionNote
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
 import com.vocabee.android.feature.vocabulary.domain.usecase.toSenseGroupedOptions
+import com.vocabee.android.feature.vocabulary.domain.usecase.toOption
 import com.vocabee.android.feature.vocabulary.presentation.firstSenseLine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -88,6 +89,17 @@ class SenseGroupedSearchResultsTest {
         assertEquals("t-гнати", alternative.translationId)
         assertEquals(listOf("бігти", "гнати"), requireNotNull(alternative.details).senseGroupTranslations)
         assertTrue(alternative.alternatives.isEmpty())
+    }
+
+    @Test
+    fun attributionOnlyVariantKeepsItsSenseIdentityWhenSaved() {
+        val option = variant(
+            translation = "бігти",
+            senseKeys = listOf("k1"),
+            translationId = "",
+        ).toOption(emptySet())
+
+        assertEquals(listOf("k1"), requireNotNull(option.details).senseKeys)
     }
 
     // Збережений `run→гнати` — сенс уже у словнику, тож ✓ отримує ГРУПА,

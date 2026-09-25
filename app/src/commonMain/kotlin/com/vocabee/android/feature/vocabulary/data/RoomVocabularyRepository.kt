@@ -19,6 +19,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.TopicUpdatedLabel
 import com.vocabee.android.feature.vocabulary.domain.model.VocabularySyncSnapshot
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
+import com.vocabee.android.feature.vocabulary.domain.model.conflictsWithCandidate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.runBlocking
@@ -169,13 +170,13 @@ class RoomVocabularyRepository(
 
         inTransaction {
             val topic = vocabularyDao.topicById(userKey, topicId) ?: return@inTransaction
-            val duplicateCount = vocabularyDao.duplicateWordCount(
+            val duplicate = vocabularyDao.wordsByPair(
                 userKey = userKey,
                 topicId = topicId,
                 source = source,
                 translation = translation,
-            )
-            if (duplicateCount > 0) return@inTransaction
+            ).any { it.toDomain().conflictsWithCandidate(source, translation, details) }
+            if (duplicate) return@inTransaction
 
             val now = currentEpochMillis()
             val word = WordEntity(
@@ -253,6 +254,30 @@ class RoomVocabularyRepository(
         }
         deleted
     }
+
+    override fun removeWordById(userKey: String, topicId: String, wordId: String): Boolean =
+        runBlocking(Dispatchers.IO) {
+            var deleted = false
+            inTransaction {
+                val topic = vocabularyDao.topicById(userKey, topicId) ?: return@inTransaction
+                val now = currentEpochMillis()
+                val affected = if (userKey == DEFAULT_LOCAL_USER_KEY) {
+                    vocabularyDao.deleteWordById(userKey, topicId, wordId)
+                } else {
+                    vocabularyDao.markWordDeletedById(
+                        userKey, topicId, wordId, now, SyncStatus.PendingDelete,
+                    )
+                }
+                if (affected == 0) return@inTransaction
+                vocabularyDao.updateTopicAfterWordInsert(
+                    userKey, topicId, now,
+                    if (topic.syncStatus == SyncStatus.PendingCreate) SyncStatus.PendingCreate
+                    else SyncStatus.PendingUpdate,
+                )
+                deleted = true
+            }
+            deleted
+        }
 
     override fun clearTopicWords(
         userKey: String,

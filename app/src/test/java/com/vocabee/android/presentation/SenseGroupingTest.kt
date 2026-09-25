@@ -93,6 +93,19 @@ class SenseGroupingTest {
         assertEquals(listOf("бігти"), groups[1].translations)
     }
 
+    @Test
+    fun translationIdOnlyRowsRemainSeparateFromEachOtherAndLegacyBucket() {
+        val groups = listOf(
+            entry("id-1", "run", "бігти", details = WordDetails(translationId = "translation-1")),
+            entry("id-2", "run", "бігти", details = WordDetails(translationId = "translation-2")),
+            entry("legacy", "run", "керувати"),
+        ).groupBySense()
+
+        assertEquals(listOf(listOf("id-1"), listOf("id-2"), listOf("legacy")),
+            groups.map { group -> group.entries.map(WordEntry::id) })
+        assertEquals(3, groups.map(WordGroup::stableKey).distinct().size)
+    }
+
     // (г) — частковий перетин ключів: ревізія лексикону могла додати сенс,
     // збережені раніше записи мусять лишитись у тій самій групі.
     @Test

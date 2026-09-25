@@ -40,6 +40,7 @@ data class WordDetails(
     val senseKeys: List<String> = emptyList(),
     val senseIndex: Int? = null,              // legacy positional attribution
     val senses: List<WordSense> = emptyList(),
+    val senseGroupTranslations: List<String> = emptyList(),
     val synonyms: List<String> = emptyList(),   // word-level
     val antonyms: List<String> = emptyList(),   // word-level
     val forms: List<WordForm> = emptyList(),
@@ -65,17 +66,19 @@ data class WordDetails(
 
     val hasLexiconSnapshot get() = !translationId.isNullOrBlank() ||
         lexiconSchemaVersion != null || !lexiconRevision.isNullOrBlank()
-    val shouldPersist get() = !isEmpty || hasLexiconSnapshot
+    val shouldPersist get() = !isEmpty || hasLexiconSnapshot ||
+        senseMergeKeys().isNotEmpty() || senseGroupTranslations.isNotEmpty()
 }
 ```
 
 - **Read-only на мобільному**: сервер — єдине джерело істини для всього всередині (`VocabularyModels.kt:23-28`). Клієнт не редагує lexical details і не маскує серверні повтори локальним дедупом; sync повністю замінює snapshot. Єдиний client-owned підоб'єкт — персональний `contextGlossary`.
-- **Контекстний снапшот**: `ContextGlossary(sentence, sourceLang, targetLang, tokens[])`; кожен `ContextGlossaryToken` має exact `surface`, normalized-форму, UTF-16 `start/endExclusive`, контекстний `translation` і опційний `lemma`. Він добудовується gateway після локального save, а не руками користувача, і дає офлайн-попапи в тренуванні.
-- `isEmpty` керує лише видимим розгортанням і навмисно ігнорує три opaque control
-  fields. `shouldPersist` додатково враховує `hasLexiconSnapshot`, тому навіть варіант
-  без видимих senses/examples не губить identity/schema/revision, потрібні наступному
-  серверному refresh (`RemoteLexiconSearchUseCase` робить `.takeIf { it.shouldPersist }`).
-- **Два рівні синонімів/антонімів:** word-level (`WordDetails.synonyms/antonyms`) і sense-level (`WordSense.synonyms/antonyms`). У бекенді обидва зберігаються в `lexicon_relations` з nullable `sense_id` (`0005:49`); у UI зараз рендеряться лише word-level (§3.3).
+- **[ЗАРАЗ, локально] Контекстний снапшот**: `ContextGlossary(sentence, sourceLang, targetLang, tokens[])`; кожен `ContextGlossaryToken` має exact `surface`, normalized-форму, UTF-16 `start/endExclusive`, контекстний `translation`, опційні `lemma`, `translationId` і `senseKey`. Старі JSON без ID десеріалізуються з `null`. Збереження слова саме по собі не запускає розбір. Лише тап по нерозібраному прикладу й підтвердження українського діалогу запускають окремий AI-запит. Готовий snapshot дає офлайн-попапи; при збереженні контекстного слова його ID потрапляють у `WordDetails.translationId`/`senseKeys`, тож sync і наступний повний пошук впізнають те саме значення.
+- `isEmpty` керує лише видимим розгортанням і навмисно ігнорує opaque control
+  fields. `shouldPersist` додатково враховує `hasLexiconSnapshot`, атрибуцію сенсу й
+  підказку сенс-групи, тому навіть варіант без видимих senses/examples не губить
+  identity/schema/revision чи `senseKeys`, потрібні наступному refresh та групуванню
+  (`RemoteLexiconSearchUseCase` робить `.takeIf { it.shouldPersist }`).
+- **Два рівні синонімів/антонімів:** word-level (`WordDetails.synonyms/antonyms`) і sense-level (`WordSense.synonyms/antonyms`). У бекенді обидва зберігаються в `lexicon_relations` з nullable `sense_id` (`0005:49`); UI показує відношення власного сенсу й справді word-level значення, але відсікає відношення сусідніх сенсів зі старого плоского snapshot (§3.2).
 
 ### 1.2 Структурний тип і регістр — різні виміри
 
@@ -123,7 +126,7 @@ data class WordForm(val text: String, val tags: List<String> = emptyList())
 
 ### 2.1 Серверні таблиці lexicon
 
-**[ЗАРАЗ]** Збагачення зливається з кількох партиціонованих (по `word_lang`) таблиць навколо `lexicon_words`:
+**[ЗАРАЗ]** Сховище складається з кількох партиціонованих (по `word_lang`) таблиць навколо `lexicon_words`. У новому локальному `LEXICON_AI_ONLY=true` (default) цілісна AI-стаття або її перевірений кеш наповнюють ці таблиці; наведений нижче складений шлях FreeDictionary/окремого перекладача — legacy-код, вимкнений цим прапорцем. Інтеграційний стан і правило неповної контекстної статті описує [канонічна задача](../../service/tasks/ai-lexicon-and-admin-reset.md); API — [doc 17](17-api-and-data-reference.md).
 
 | Таблиця | Що дає | Ключові поля |
 |---|---|---|
@@ -134,9 +137,9 @@ data class WordForm(val text: String, val tags: List<String> = emptyList())
 | `lexicon_word_forms` | словоформи | `form_text`, `tags[]` (граматика) (`lexicon.ts:186`) |
 | `lexicon_examples` | приклади | `text`, `translation_text?`, `sense_id?` (NULL = на все слово) (`lexicon.ts:98`) |
 
-- **Походження даних:** Free Dictionary API (`GET .../entries/{lang}/{word}`) — джерело форми схеми (`0005:3-6`); також provider'и `dictionary`/`translator`/`ai` і curated seed `seed` (`ENTRY_SOURCES` `lexicon.ts:24`). `source='ai'` — LLM-збагачення (напр. `openai-dictionary.provider.ts`); `source='seed'` — reviewed/imported seed data з `origin` на кшталт `vocabee-translate/...`.
-- **Curated seed є авторитетним:** V2 `seed-import` переносить reviewed IPA, якщо Kaikki має однозначну вимову, stable sense keys, examples і повну translation↔senses атрибуцію. Відсутній IPA допустимий і не запускає AI. Звичайний пошук не дописує до такого слова IPA/приклади/значення через dictionary або sense AI; прогалину виправляють у V2 batch і повторно імпортують. V1 імпорт збережений як legacy-сумісність.
-- **Runtime також V2:** dictionary senses отримують той самий детермінований key-контракт; OpenAI sense attribution повертає `senseKeys[]` і може прив'язати один переклад до кількох значень. Для старих provider-cache rows exact search робить одноразовий lazy upgrade з `sense_id` до `translation_senses`.
+- **Походження даних:** Free Dictionary API (`GET .../entries/{lang}/{word}`) був джерелом форми схеми (`0005:3-6`); provider'и `dictionary`/`translator` і curated seed `seed` лишаються для legacy-режиму. В AI-only режимі зовнішні словникові джерела й імпорт пакетів не поповнюють активний корпус. Старі записи не вважаються повними лише через наявність IPA/прикладів.
+- **[LEGACY] Curated seed:** V2 `seed-import` переносив reviewed IPA, stable sense keys, examples і translation↔senses атрибуцію; V1 лишався сумісним. У поточному AI-only режимі масовий імпорт через адмінку/API вимкнений, тому старі пакети не можуть знову заселити корпус після очищення.
+- **[LEGACY] Runtime V2:** старий provider-шлях створював детерміновані key для dictionary senses та окремо вгадував `senseKeys[]` перекладу. У новому AI-only режимі стаття породжує й перевіряє значення, переклад, приклад і відношення разом; чужі приклади чи синоніми не можна приєднувати за збігом тексту. Старий механізм лишається доступним лише при явному вимкненні AI-only.
 - **Партиціонування:** усі lexicon-таблиці партиціоновані `LIST (word_lang)` — по партиції на мову (`uk,en,de,es,fr,pl,it`, `0005:90`). PK включає `word_lang`, бо Postgres вимагає ключ партиції в PK (`lexicon.ts:36`).
 - **Без FK до партиціонованого батька:** `lexicon_examples` і relations тримають `(word_lang, word_id)` як «м'який» лінк — цілісність на рівні застосунку, бо FK до партиціонованих таблиць обмежені (`lexicon.ts:93-97`).
 - **`sense_id` опційний** усюди (examples/relations): NULL → застосовується до слова в цілому; не-NULL → до конкретного значення (`lexicon.ts:104`, `0005:49`).
@@ -153,8 +156,10 @@ details = WordDetails(
     lexiconRevision = lexiconRevision,
     senseKeys = senseKeys,
     senseIndex = senseIndex,
-    senses = senses.map { WordSense(it.definition, it.partOfSpeech, it.tags,
-        it.examples.map { ex -> ex.text }, it.synonyms, it.antonyms) },
+    senses = senses.map { WordSense(senseKey = it.senseKey,
+        definition = it.definition, partOfSpeech = it.partOfSpeech, tags = it.tags,
+        examples = it.examples.map { ex -> ex.text },
+        synonyms = it.synonyms, antonyms = it.antonyms) },
     synonyms = synonyms,
     antonyms = antonyms,
     forms = forms.map { WordForm(it.text, it.tags) },
@@ -171,10 +176,14 @@ details = WordDetails(
 ```
 
 - **Момент персисту:** коли користувач тапає «+», `RoomVocabularyRepository` кодує збагачення через свій `WordDetailsJsonCodec` і записує в Room **одним JSON-блобом** (`details_json`). `VocabeeTypeConverters` тут не бере участі — він конвертує `SyncStatus`. Це миттєвий офлайн-снапшот відповіді пошуку; для auth-користувача наступний sync зв'язує його з Dictionary translation/lexeme, додає `lexiconRevision`/`lexiconSchemaVersion` і надалі замінює свіжою канонічною проєкцією (D15, §5).
-- **Частковий пошук не створює обрізаний снапшот:** prefix-підказка (`circumstanc → circumstance`) уже містить персистовані IPA/PoS/senses/examples/forms/relations і `senseKeys` так само, як exact cache-hit. Сервер читає деталі лише для 15 варіантів, які повертає, і не запускає dictionary/AI або repair side effects під час autocomplete. Якщо старий sense ще не має персистованого key, DTO чесно несе `senseKey=null`, а не обчислений, але відсутній у БД ID.
+- **Атрибуція при відображенні:** mobile бере приклад, part of speech, синоніми й антоніми лише зі зв'язаного значення; metadata, явно пов'язані з іншим сенсом, відкидає навіть у старому спільному блобі. Невідомий stable `senseKey` не підміняється випадковим `senseIndex` чи першим сенсом. Контекстне слово, створене після розбору речення, не вважається повною статтею для наступного звичайного пошуку ([канонічна задача](../../service/tasks/ai-lexicon-and-admin-reset.md) §6–7).
+- **Частковий пошук не створює обрізаний снапшот:** prefix-підказка (`circumstanc → circumstance`) містить лише вже персистовані IPA/PoS/senses/examples/forms/relations і `senseKeys` видимих варіантів. Вона не запускає AI для кожного префікса. **Інший випадок — контекстне слово:** після явного розбору речення його лексична стаття позначається неповною; звичайний точний пошук має доповнити відсутні значення без дублювання вже збереженого сенсу ([канонічна задача](../../service/tasks/ai-lexicon-and-admin-reset.md) §6–7). Якщо старий sense ще не має персистованого key, DTO чесно несе `senseKey=null`, а не вигаданий stable ID.
 - **`WordEntry.details` nullable**: `null`, якщо слово додане до появи цього поля або
   відповідь не має ані видимого збагачення, ані opaque snapshot identity. Результат без
   senses/examples, але з `translationId`/revision, зберігає control-only `WordDetails`.
+  Sync записує навіть `senseKeys`-only деталі в `metadata.details`; `translationId`
+  окремо лишається в `metadata.lexiconSnapshot`, тож обидві частини ідентичності
+  переживають відновлення словника.
 
 ### 2.3 AI-маркування (звідки «AI»)
 
@@ -221,6 +230,10 @@ details = WordDetails(
 3. якщо представник **неатрибутований** (легасі-бакет), обмежувати нема чим —
    фолбек лишається вільним, як і до сенс-груп.
 
+Записи без sense key, але з `translationId`, мають окрему групу за цим ID;
+текстово однакові переклади з різними ID не зливаються й видаляються за
+точним UUID. Лише записи без обох ID утворюють спільний легасі-бакет.
+
 > **[ЗАРАЗ] Відома межа: представник вироджується після серверного пулу.** «Найновіший»
 > обчислюється за `addedAtEpochMillis`. Коли записи приїжджають одним серверним
 > снапшотом (перший sync після входу, відновлення на новому пристрої), у всієї групи
@@ -229,23 +242,25 @@ details = WordDetails(
 > видима лише в тому, чий переклад стоїть у заголовку, а не в складі групи, її
 > деталях чи знаннях.
 
-> **[ЗАРАЗ] Наслідок фолбеку для тренування: речення без глосарію.** Ліниве
-> збагачення контекстного словничка в колоді перевіряє речення **представника**
-> (`needsContextGlossaryEnrichment(card.word)`) і запитує його ж `word.id`. Якщо блоб
-> представника порожній і речення приїхало сюди **фолбеком з іншого члена сенсу**,
-> гейт бачить у представника порожній `contextSentence()` і збагачення не замовляє —
-> речення на картці видиме, але **не клікабельне**. Мʼяка деградація, відома межа;
-> деталі — [11](11-practice-training.md) §1.
+> **[ЗАРАЗ]** Колода тримає `contextWord` — члена групи, чий блоб реально
+> показує картка. Підтверджений користувачем розбір перевіряє та оновлює саме
+> цей запис, тому фолбек на деталі іншого члена не записує глосарій не до того сенсу.
+> Атрибутований запис без власного прикладу не бере приклад сусіднього сенсу;
+> підтверджений `contextGlossary` із токеном того самого `translationId`/`senseKey`
+> лишається доступним після збагачення, навіть якщо новий linked sense має інший
+> приклад; глосарій без такого збігу й без власного прикладу не рендериться. Word-level
+> `usageExample` і його переклад приховуються, якщо вони не відповідають
+> прикладу linked sense.
 
 ### 3.2 `WordDetailsBlock` — порядок секцій
 
 **[ЗАРАЗ]** `App.kt:3040-3078`. Картка з градієнтом + рамкою; секції в порядку:
 
 1. **Тип + регістр** — чипи «Фраза» / «Вислів» / «Абревіатура» та «Сленг» / «Неформальне» тощо; нижче — наявні «Що означає», «Розшифровка», «Розшифровка перекладу», «Дослівно», приклад і його переклад.
-2. **Контекстний приклад** — exact `contextGlossary.sentence` показується одним цілісним реченням із клікабельними span-ами, як у тренуванні. Тап по залежному слову відкриває popup із його конкретним контекстним перекладом; `+` одразу додає пару до поточного словника за 1 монетку, а вже наявна пара показує `✓` і не дублюється. Усі входження слова, яке вивчається, виділені, але не мають підказки чи дії. Окремого технічного списку `surface — translation` немає.
-3. **Senses** — backend V2 зберігає всі зв'язки перекладу через `translation_senses` і повертає `senses[].senseKey` + `variant.senseKeys[]`; перший зв'язок також проєктується в legacy `senseIndex`. Клієнт показує всі й лише linked senses; legacy/unattributed блоб відступає до `details.senses.take(3)`. **[ЗАРАЗ→змінено фазами 2–4]** Раніше групова картка (усі переклади слова разом) свідомо показувала до 3 **спільних** значень; тепер картка = ОДИН сенс, тож вона скоуплена по атрибуції представника, а «до 3 значень» лишається лише фолбеком для легасі-бакета без атрибуції.
-4. **Синоніми** — для V2-атрибутованого блоба показується union синонімів лише його linked senses; без атрибуції — word-level `synonyms.take(12)`. **Ліміт 12.**
-5. **Антоніми** — симетрично: union `antonyms` linked senses, word-level fallback для legacy. **Ліміт 12, помаранчевий акцент.**
+2. **[ЗАРАЗ, локально] Контекстний приклад** — коли готового розбору немає, тап по власному прикладу сенсу відкриває діалог «Розібрати речення на слова?»; «Скасувати» нічого не генерує, «Розібрати» запускає один окремий AI-запит. Клієнт приймає лише відповідь для точного речення/мов і чинного запису; інший приклад того самого сенсу теж можна обрати, а приклад сусіднього сенсу — ні. Під час очікування запит не дублюється, помилку можна повторити. Після збереження exact `contextGlossary.sentence` показується одним реченням із клікабельними span-ами, як у тренуванні. Тап по залежному слову відкриває popup із його контекстним перекладом; `+` додає пару до поточного словника за 1 монетку, а вже наявна пара показує `✓`. Усі входження цільового слова виділені, але не мають підказки чи дії.
+3. **Senses** — backend V2 зберігає всі зв'язки перекладу через `translation_senses` і повертає `senses[].senseKey` + `variant.senseKeys[]`; перший зв'язок також проєктується в legacy `senseIndex`. Клієнт показує всі й лише linked senses; legacy/unattributed блоб відступає до `details.senses.take(3)`. Якщо V2 key є, але в застарілому блобі відповідного sense немає, клієнт не підставляє сторонній `senseIndex` чи перші значення. **[ЗАРАЗ→змінено фазами 2–4]** Раніше групова картка (усі переклади слова разом) свідомо показувала до 3 **спільних** значень; тепер картка = ОДИН сенс, тож вона скоуплена по атрибуції представника, а «до 3 значень» лишається лише фолбеком для легасі-бакета без атрибуції.
+4. **Синоніми** — для атрибутованого блоба показуються синоніми linked senses та справді word-level значення з flat-поля. Значення, явно прив'язані до будь-якого іншого sense, відсіюються навіть зі старого спільного блоба. Без атрибуції — старий список `synonyms.take(12)`. **Ліміт 12.**
+5. **Антоніми** — те саме правило для `antonyms`: linked senses плюс word-level, без чужих sense-level значень. **Ліміт 12, помаранчевий акцент.**
 6. **Форми** — `WordChipsRow("Форми", forms.map{it.text}.distinct().take(10), accent=Muted)`. **Ліміт 10, дедуп по тексту.**
 
 > `WordSenseBlock` рендерить номер, partOfSpeech, definition та examples. Sense-level synonyms/antonyms атрибутованого сенсу показуються нижче окремими `WordChipsRow`; word-level списки лишаються fallback для legacy-блобів. Форми завжди word-level.
@@ -261,15 +276,14 @@ details = WordDetails(
 > (`App.kt:4580-4619`), який вже після факту вирізав linked senses з повного
 > блоба (і досі так робить — див. нижче).
 >
-> **[НОВЕ] (фаза 0)** `projectEnrichmentForVariant`
-> (`vocabee-gateway/src/lexicon/lexicon.service.ts:1946`) тепер сам скоупить
-> `senses`/`synonyms`/`antonyms`/`examples` під конкретний варіант ще на
-> сервері, з тим самим фолбеком на word-level пул при порожній sense-scoped
-> видачі (деталі контракту — `17-api-and-data-reference.md` §1.5). Клієнтський
-> `displayContent()` лишається без змін і без ризику: для атрибутованого
-> варіанта він тепер працює над уже звуженими даними (по суті no-op, бо
-> `senses` вже містить лише лінковані значення), для legacy/group-карток —
-> як і раніше.
+> **[ЗАРАЗ, уточнено 2026-09-25]** `projectEnrichmentForVariant` звужує
+> `senses`/`synonyms`/`antonyms`/`examples`/`partOfSpeech` під конкретний
+> переклад у пошуку й saved-word snapshot. Порожні relations можуть мати
+> fallback лише на справжні word-level дані; приклади інших сенсів не
+> підставляються. Невідомий stable key не замінюється позиційним сенсом.
+> Клієнтський `displayContent()` додатково захищає старі локальні snapshots
+> від чужих відношень і невідомих ключів. Деталі контракту —
+> `17-api-and-data-reference.md` §1.5.
 
 ### 3.3 `WordSenseBlock` — одне значення
 

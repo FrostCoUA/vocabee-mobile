@@ -71,6 +71,37 @@ class WordDetailsPresentationTest {
         assertEquals(details.antonyms, content.antonyms)
     }
 
+    @Test
+    fun staleV2SnapshotDoesNotShowUnrelatedSensesOrLegacyIndex() {
+        val details = WordDetails(
+            senseKeys = listOf("sense_missing"),
+            senseIndex = 0,
+            senses = listOf(signalSense, burstSense),
+            synonyms = listOf("signal light", "burst"),
+        )
+
+        assertEquals(emptyList<Int>(), details.attributedSenseIndexes())
+        assertEquals(emptyList<WordSense>(), details.displayContent().senses.map { it.value })
+        assertEquals(emptyList<String>(), details.displayContent().synonyms)
+        assertEquals(null, details.firstSenseLine())
+    }
+
+    @Test
+    fun attributedCardDoesNotShowWordLevelExampleFromAnotherSense() {
+        val details = WordDetails(
+            senseKeys = listOf("sense_burst"),
+            senses = listOf(
+                signalSense.copy(examples = listOf("The signal flashed.")),
+                burstSense.copy(examples = listOf("A flash lit the sky.")),
+            ),
+            usageExample = "The signal flashed.",
+            usageExampleTranslation = "Сигнал блимнув.",
+        )
+
+        assertEquals(null, details.usageExampleForDisplay())
+        assertEquals(null, details.usageExampleTranslationForDisplay())
+    }
+
     /**
      * Раніше картка групувала всі переклади слова й тому свідомо ВИМИКАЛА скоуп
      * (`displayContent(scopeToAttributedSense = false)` — «покажи всі сенси»).
@@ -139,6 +170,28 @@ class WordDetailsPresentationTest {
         assertEquals(listOf(0), content.senses.map { it.index })
         assertEquals(listOf("beacon", "flare"), content.synonyms)
         assertEquals(listOf("concealment"), content.antonyms)
+    }
+
+    @Test
+    fun attributedSenseDoesNotInheritOtherSensesFlatRelations() {
+        val details = WordDetails(
+            senseKeys = listOf("sense_program"),
+            senses = listOf(
+                WordSense(
+                    senseKey = "sense_move",
+                    definition = "move on foot",
+                    synonyms = listOf("sprint"),
+                    antonyms = listOf("walk"),
+                ),
+                WordSense(senseKey = "sense_program", definition = "execute a program"),
+            ),
+            synonyms = listOf("sprint", "operate"),
+            antonyms = listOf("walk", "stop"),
+        )
+
+        val content = details.displayContent()
+        assertEquals(listOf("operate"), content.synonyms)
+        assertEquals(listOf("stop"), content.antonyms)
     }
 
     // Підпис сенсу в рядку пошуку: лише АТРИБУТОВАНИЙ сенс, інакше нічого —
