@@ -316,11 +316,21 @@ routes не викликає.
 
 Фільтри перекладів згруповані за пошуком, мовним напрямком і статусом.
 Лічильник зворотного зв'язку підписано «Скарги», дія — «Позначити неякісним».
-Масове видалення та повний reset містяться в секції «Керування даними» після
+Масове видалення, очищення старих даних та повний reset містяться в секції «Керування даними» після
 таблиці; кнопка біля заголовка переводить фокус до неї без зміни hash-route.
 Назви дій та інші UI-рядки не закінчуються трикрапками, важливий текст переноситься.
 Шрифти обох production-збірок зберігаються окремими файлами, щоб відповідати
 чинному `font-src 'self'` без послаблення CSP.
+
+**[ЗАРАЗ] «Очистити старі дані»** зберігає новий словник `ai-coherent-entry`,
+його translation/sense ID, AI-статті, canonical aliases і розбори речень.
+Старі переклади, їхні метадані й завдання ремонту видаляються в одній транзакції;
+спільні word/form поля, які раніше могли містити seed-дані, очищуються за
+авторитетними AI-snapshot. Нові оцінки якості й видалені AI-переклади залишаються
+в чинному стані, щоб очищення не повертало відхилені дані в пошук.
+Особисті словники, картки, прогрес і баланс не змінюються. Повне очищення —
+окрема дія, яка видаляє також нові AI-дані. Обидві дії мають власну контрольну
+фразу та спільний захист від повторного очищення після втрати відповіді.
 
 `vocabee-gateway/src/dictionary-admin/*`, `src/dictionary-access/*`. **[ЗАРАЗ]**
 Dictionary admin UI та звичайні admin routes приймають окремий RS256
@@ -346,6 +356,7 @@ Dictionary admin UI та звичайні admin routes приймають окр
 | POST | `/v1/admin/lexicon/quality-feedback` | `dictionary:lexicon:write` | `{targetType: "translation"\|"example", targetId, comment?}`; адмінський dislike не видаляє рядок, додає 100 балів якості один раз для цього адміністратора й повертає поточний бал |
 | POST | `/v1/admin/lexicon/translations/:translationId/delete` | `dictionary:lexicon:write` | `{reason}` 3..500; soft-delete + pending pair repair + audit в одній transaction; repeated state →409 |
 | POST | `/v1/admin/lexicon/translations/:translationId/restore` | `dictionary:lexicon:write` | `{reason}` 3..500; відновлює останній рядок і скасовує pending repair slot, якщо його ще не спожито; audit atomically |
+| POST | `/v1/admin/lexicon/reset` | `dictionary:lexicon:write` | `{reason, confirm, idempotencyKey}`; `RESET_LEGACY_LEXICON_DATA` видаляє старі дані зі збереженням нового AI-словника, `RESET_ALL_LEXICON_DATA` очищує весь спільний лексикон. Відповідь: receipt, `scope`, кількість видалених рядків `counts`, для legacy — залишок `preservedCounts`. Повтор того самого ключа повертає receipt; інша причина, автор або scope з тим самим ключем →409. |
 | GET | `/v1/admin/providers` | `dictionary:providers:read` | Лише configured/active/model/masked hint; provider-secret write route немає |
 | GET | `/v1/admin/api-usage` | `dictionary:usage:read` | Consumer/key/outcome/status/duration; `consumerId?`, `keyId?`, `outcome?`, `from?`, `to?`; без query/URL/IP/UA |
 | GET | `/v1/admin/audit-events` | `dictionary:audit:read` | Append-only журнал; `actor?`, `action?`, `target?`, inclusive `from?`, exclusive `to?` |
