@@ -24,6 +24,38 @@
 | `translation_search` | `client-search.controller.ts` після відповіді dictionary-gateway | **query**, мови, tier, bee_balance, results_count, provider_reason, translation_origin і головне — **`data_source`: `database` / `ai` / `provider` / `none`** |
 | `lexicon_search_served` | `lexicon/search-observability.ts` (поруч із Sentry-логом; покриває й не-AI провайдерів) | provider_reason, data_source, translation_origin, мови, results_count — сервісна подія dictionary-gateway без персони |
 
+### [ЗАРАЗ, 2026-09-26] Діагностика AI-only генерацій
+
+`lexicon_ai_generation` — personless-подія PostHog та однойменний структурований
+JSON-лог dictionary-gateway. `generation_id` пов'язує роботу з початковим
+пошуком і polling; `generation_run_id` розділяє повторні запуски тієї самої
+роботи. Спільні поля: `generation_kind`, `source_language`, `target_language`,
+`phase`, `outcome`, `elapsed_ms`.
+
+- `generate`, `repair`, `review`: початок і отримання відповіді; модель, номер
+  спроби, `duration_ms`, timeout, залишок спільного ліміту, вимкнені SDK retries,
+  input/output/reasoning/cached token counts і безпечний provider request ID.
+- `review` та `validation`: прийняття/відхилення, кількість і категорії проблем
+  (покриття значень, граматика, IPA, приклади, зв'язки, переклади тощо).
+- `publication`, `revision`, `lease`, `provider`, `generation`: збереження,
+  конфлікт ревізії, втрата lease, підсумковий успіх/помилка та кількість значень.
+- Помилки класифікуються: timeout, загальний ліміт, 429, відмова авторизації
+  провайдера, серверна/мережева помилка, невалідний або обрізаний JSON.
+
+Ці нові події не містять самого слова, prompt, прикладів, відповіді AI,
+довільних текстів помилок або ключів. Збій аналітики/логування не перериває
+генерацію. Весь пошук має один ліміт AI-роботи 20 хвилин, включно з повтором
+після конфлікту ревізії; один AI HTTP-запит обмежений 5 хвилинами та залишком
+цього ліміту.
+
+AI-only початковий пошук і polling також викликають `lexicon_search_served`
+(раніше цей шлях обходив спільну подію): `generation_id`, `generation_status`,
+`lookup_operation=initial|poll`, `total_ms` і результат видачі. Початковий
+`translation_search` client-gateway отримав `generation_id/status` для зв'язку
+з уже наявним `query`. `exact_cached` під час фінального polling означає
+читання готової статті; попередню AI-роботу видно в `lexicon_ai_generation`.
+Час окремого polling не є тривалістю всієї генерації.
+
 **Мобайл (Android):**
 | Подія | Де | Що всередині |
 |---|---|---|
@@ -89,7 +121,19 @@ adb logcat -s VocabeeSearch:D
 # q='quokka' source=none ms=205 n=0 cached=0/0 triedProvider=false reason=not_a_word
 ```
 
-Орієнтири латентності (заміряно на dev): з бази — 0.2–1.5 с, генерація AI — 10–12 с, відсіяне спелчекером слово — 0.2 с.
+**Історичні заміри попереднього provider-пайплайна:** з бази — 0.2–1.5 с,
+генерація AI — 10–12 с, відсіяне спелчекером слово — 0.2 с. Вони не є
+очікуваним часом нового AI-only режиму: він генерує повну статтю, запускає
+окрему AI-перевірку й за потреби виправлення.
+
+**[ЗАРАЗ, DEV-перевірка 2026-09-26]** `beefy` має 7 збережених значень;
+створення generation row — `2026-09-25T21:11:31.263Z`, завершення —
+`21:13:37.703Z` (126 440 мс). Окремий GET готової генерації через client-gateway
+повернув `complete`, `exact_cached`, `triedProvider=false` та 7 результатів
+за 520 мс. Це підтверджує тривалість первинної обробки, але старі журнали не
+дозволяють відновити розподіл часу між AI-викликами. Обидві моделі в DEV:
+генерація `gpt-6-sol`, перевірка `gpt-6-astra`. PostHog ingest налаштований
+на dictionary-gateway; значення ключа не виводилося.
 
 **Що визначає латентність видачі з бази.** Не кількість результатів, а кількість унікальних слів, що реально потребують runtime-добудови. **Відсутній IPA більше не запускає dictionary/AI-виклик:** exact-запис повертається з `ipa=null`, а поле дозаповнюється окремим curated re-import. `dictionaryMissAt` локалізує повтори після спроби, де весь dictionary-ланцюг не дав корисних даних.
 
