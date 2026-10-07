@@ -1213,3 +1213,5 @@ protected plans — два, protected system consumers — два, system key co
 6. `UpdateTopicDto` ще містить `sourceLang/targetLang` для сумісності, але service
    відхиляє фактичну зміну пари з `400`; семантика D6 «існуючі незмінні» виконується.
 7. Promo API (`/v1/promos*`) ще не існує — **[НОВЕ]** за D4 (doc 05).
+
+**[ЗАРАЗ, локальна конфігурація 2026-10-08] Профіль AI-only.** Defaults повної генерації — `gpt-6.1-sol/high`, незалежного рев’ю та виправлень — `gpt-6.1-sol/xhigh`. Overrides: `LEXICON_AI_MODEL`, `LEXICON_AI_REVIEW_MODEL`, `LEXICON_AI_REASONING_EFFORT`, `LEXICON_AI_REVIEW_REASONING_EFFORT`; допустимі рівні `low/medium/high/xhigh`. `GET /v1/admin/providers` для OpenAI в AI-only додає `generationEffort`, `reviewModel`, `reviewEffort`; `model` лишається моделлю генерації. Адмінка показує фактичний runtime-профіль, включно з overrides. Зміна default не доводить оновлення живого DEV і не змінює bounded repair flow сервера.
