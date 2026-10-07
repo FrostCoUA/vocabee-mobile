@@ -315,6 +315,21 @@ routes не викликає.
 відображається. Введені дані зберігаються для повторної спроби.
 
 Фільтри перекладів згруповані за пошуком, мовним напрямком і статусом.
+**[ЗАРАЗ, локальний код; 2026-10-07]** Список перекладів має навігатор
+із кроком назад/вперед, номерами та трикрапками. Перший і останній номери
+завжди клікабельні, тому окремих кнопок «на початок/у кінець» немає.
+Поточний номер виділено; на великому екрані видно по п'ять номерів на обох
+краях і до шести сусідів з кожного боку поточного. Коли діапазони зближуються,
+вони зливаються без дублювання; трикрапки позначають лише пропущені діапазони.
+Кількість номерів залежить від доступної ширини: на телефоні рядок компактний.
+Однакові навігатори розташовані над і під таблицею та використовують спільний
+стан сторінки й завантаження; перейти можна без прокручування до кінця списку.
+Перехід за номером виконує один запит `GET /v1/admin/lexicon/translations?page=N`
+з поточними фільтрами й `limit=50`. `page` — ціле від 1 до 1 000 000,
+не сумісне з `cursor`; старий cursor-контракт збережено. Numbered-відповіді
+містять актуальний `total`; якщо запитана сторінка вже зникла після видалень,
+сервер відкриває останню наявну. Зміна фільтрів або оновлення після дії повертає
+на першу сторінку, а помилка переходу залишає попередні дані та номер.
 Лічильник зворотного зв'язку підписано «Скарги», дія — «Позначити неякісним».
 Масове видалення, очищення старих даних та повний reset містяться в секції «Керування даними» після
 таблиці; кнопка біля заголовка переводить фокус до неї без зміни hash-route.
@@ -385,7 +400,7 @@ Dictionary admin UI та звичайні admin routes приймають окр
 | Метод | Шлях | Scope | Семантика |
 |---|---|---|---|
 | GET | `/v1/admin/dictionary/dashboard` | `dictionary:usage:read` | Consumers, active/retiring/revoked keys, calls і quota failures від UTC midnight |
-| GET | `/v1/admin/lexicon/translations` | `dictionary:lexicon:read` | Cursor-list; `status=active\|deleted\|all` (default active), `sourceLang?`, `targetLang?`, `source?`, `origin?`, `providerTier?`, `q?` |
+| GET | `/v1/admin/lexicon/translations` | `dictionary:lexicon:read` | Numbered-list через `page?` (1–1 000 000) або legacy `cursor?`, взаємовиключні; `limit` 1–100 (default 50). `total` є на першій/номерних сторінках. Фільтри: `status=active\|deleted\|all` (default active), `sourceLang?`, `targetLang?`, `source?`, `origin?`, `providerTier?`, `q?` |
 | GET | `/v1/admin/lexicon/translation-filter-options` | `dictionary:lexicon:read` | Sorted distinct non-empty `origins` і `providerTiers`, які реально є в translation rows; без metadata/credentials |
 | GET | `/v1/admin/lexicon/translations/:translationId` | `dictionary:lexicon:read` | Останній active або soft-deleted рядок: source/target lexical entry, IPA, senses/examples, synonyms/antonyms/forms, alternatives, provenance і safe metadata; не повна immutable history |
 | POST | `/v1/admin/lexicon/import` | `dictionary:lexicon:write` | Legacy reviewed `.jsonl`; перевіряє мови, `needsReview`/review status і структуру рядків, додає source/target lexical entries та enrichment, пропускає дублікати за нормалізованою парою слово+переклад |
