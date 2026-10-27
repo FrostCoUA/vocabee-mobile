@@ -52,12 +52,14 @@ import com.vocabee.android.core.presentation.designsystem.PrototypeColor
 import com.vocabee.android.core.presentation.designsystem.PrototypeIcon
 import com.vocabee.android.core.presentation.designsystem.PrototypeLineIcon
 import com.vocabee.android.feature.vocabulary.domain.model.TranslationOption
+import com.vocabee.android.feature.vocabulary.domain.model.TranslationOptionNote
 import com.vocabee.android.feature.vocabulary.domain.model.WordDetails
 import com.vocabee.android.feature.vocabulary.domain.model.WordEntry
 import com.vocabee.android.feature.vocabulary.domain.model.conflictsWithCandidate
 import com.vocabee.android.feature.vocabulary.domain.model.attributionSignature
 import com.vocabee.android.feature.vocabulary.domain.model.savedWordKey
 import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
+import com.vocabee.android.feature.vocabulary.domain.usecase.SearchHintsUseCase
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -320,7 +322,22 @@ internal data class AddWordSearchState(
     val errorMessage: String? = null,
     val tier: String? = null,
     val maxResults: Int? = null,
+    /** Інші слова, що починаються з введеного; тап лише вставляє слово в поле. */
+    val hints: List<String> = emptyList(),
+    /**
+     * Введене ще не слово (`ther`): переклад не шукали, показуємо підказки й
+     * рядок «Перекласти «ther»» для явного пошуку.
+     */
+    val awaitingChoice: Boolean = false,
 )
+
+/**
+ * Шукати переклад зараз чи лише показати підказки: явний запит (тап, клавіша
+ * пошуку, голос), відоме слово чи фраза — шукаємо; сервер не дав підказок
+ * (старий gateway) — шукаємо, як і раніше.
+ */
+internal fun shouldLookUpNow(forced: Boolean, hints: SearchHintsUseCase.Hints?): Boolean =
+    forced || hints == null || hints.lookup
 
 /**
  * Animated waveform — the redesign's static picture brought to life. The mock
@@ -395,14 +412,14 @@ internal fun AddWordLoadingState() {
             trackColor = PrototypeColor.Tint,
         )
         Text(
-            text = "AI готує значення та приклади…",
+            text = "Готуємо значення та приклади…",
             modifier = Modifier.padding(top = 16.dp),
             color = PrototypeColor.Muted,
             fontWeight = FontWeight.SemiBold,
             fontSize = 14.sp,
         )
         Text(
-            text = "Перший пошук може тривати кілька хвилин",
+            text = "Нове слово може готуватися до хвилини",
             modifier = Modifier.padding(top = 6.dp),
             color = PrototypeColor.Muted2,
             fontSize = 12.sp,
@@ -454,7 +471,28 @@ internal fun AddWordResultsList(
     onAdd: (TranslationOption) -> Unit,
     onRemove: (WordEntry) -> Unit,
     onDislike: (TranslationOption) -> Unit = {},
+    hints: List<String> = emptyList(),
+    onHintClick: (String) -> Unit = {},
 ) {
+    if (results.isEmpty() && hints.isNotEmpty()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+            contentPadding = PaddingValues(bottom = 18.dp),
+        ) {
+            item {
+                Text(
+                    text = "Нічого не знайдено для «$query»",
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                    color = PrototypeColor.Muted2,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.5.sp,
+                )
+            }
+            searchHintItems(title = "Можливо, ви шукали", hints = hints, onHintClick = onHintClick)
+        }
+        return
+    }
     if (results.isEmpty()) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -524,13 +562,99 @@ internal fun AddWordResultsList(
                 )
                 Spacer(modifier = Modifier.width(7.dp))
                 Text(
-                    text = footerCaptionFor(tier = tier, maxResults = maxResults),
+                    text = footerCaptionFor(results),
                     color = PrototypeColor.Muted2,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.5.sp,
+                    textAlign = TextAlign.Center,
                 )
             }
         }
+        searchHintItems(title = "Інші слова на «$query»", hints = hints, onHintClick = onHintClick)
+    }
+}
+
+/**
+ * Введене ще не слово: переклад не шукали. Згори — явний пошук саме цього
+ * тексту (рідкісне слово, якого немає в списку), нижче — слова на цей префікс.
+ */
+@Composable
+internal fun AddWordHintsList(
+    query: String,
+    hints: List<String>,
+    onTranslateQuery: () -> Unit,
+    onHintClick: (String) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+        contentPadding = PaddingValues(bottom = 18.dp),
+    ) {
+        item(key = "translate-query") {
+            SearchHintRow(
+                text = "Перекласти «$query»",
+                icon = PrototypeIcon.Search,
+                emphasized = true,
+                onClick = onTranslateQuery,
+            )
+        }
+        searchHintItems(title = "Слова на «$query»", hints = hints, onHintClick = onHintClick)
+    }
+}
+
+private fun androidx.compose.foundation.lazy.LazyListScope.searchHintItems(
+    title: String,
+    hints: List<String>,
+    onHintClick: (String) -> Unit,
+) {
+    if (hints.isEmpty()) return
+    item(key = "hints-title") {
+        Text(
+            text = title,
+            modifier = Modifier.padding(start = 4.dp, top = 10.dp, bottom = 1.dp),
+            color = PrototypeColor.Muted2,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.5.sp,
+        )
+    }
+    items(hints, key = { "hint:$it" }) { hint ->
+        SearchHintRow(text = hint, icon = PrototypeIcon.ChevronRight, emphasized = false, onClick = { onHintClick(hint) })
+    }
+}
+
+@Composable
+private fun SearchHintRow(
+    text: String,
+    icon: PrototypeIcon,
+    emphasized: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(15.dp))
+            .background(if (emphasized) PrototypeColor.Tint else PrototypeColor.White)
+            .border(BorderStroke(1.5.dp, PrototypeColor.Line), RoundedCornerShape(15.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.weight(1f),
+            color = if (emphasized) PrototypeColor.PurpleText else PrototypeColor.Ink,
+            fontWeight = if (emphasized) FontWeight.ExtraBold else FontWeight.Bold,
+            fontSize = 16.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        PrototypeLineIcon(
+            icon = icon,
+            modifier = Modifier.size(16.dp),
+            color = if (emphasized) PrototypeColor.PurpleText else PrototypeColor.Muted2,
+            strokeWidth = 1.9f,
+        )
     }
 }
 
@@ -556,12 +680,14 @@ private fun List<TranslationOption>.withStableTranslationKeys(): List<KeyedTrans
 
 private fun String.normalizedTranslationKey(): String = trim().lowercase()
 
-private fun footerCaptionFor(tier: String?, maxResults: Int?): String {
-    // Per-tier caps were lifted server-side — anonymous/registered/premium all
-    // see whatever the provider returns. Keep the AI-attribution line; drop the
-    // misleading "до N варіантів" + "увійди для більше" copy.
-    return "Переклади та приклади згенеровано AI"
-}
+private fun footerCaptionFor(results: List<TranslationOption>): String =
+    // AI-переклад приходить із приміткою Additional; решту (API-режим, D17) зібрано
+    // з Вікісловника й машинного перекладу — його ліцензія вимагає атрибуції.
+    if (results.any { it.note == TranslationOptionNote.Additional }) {
+        "Переклади та приклади згенеровано AI"
+    } else {
+        "Значення — Вікісловник (CC BY-SA 4.0) · переклад — DeepL"
+    }
 
 /**
  * Рядок одного СЕНСУ: головний переклад згори, «близькі за значенням» —

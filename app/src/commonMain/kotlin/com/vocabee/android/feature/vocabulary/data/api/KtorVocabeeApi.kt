@@ -54,6 +54,18 @@ class KtorVocabeeApi(
         }
     }
 
+    override suspend fun searchHints(
+        query: String,
+        speakLang: String,
+        learnLang: String,
+    ): SearchHintsResponse = executeRequest {
+        client.get("${config.baseUrl}/v1/search/hints") {
+            parameter("q", query)
+            parameter("speak", speakLang)
+            parameter("learn", learnLang)
+        }.body()
+    }
+
     override suspend fun pollSearchGeneration(
         id: String,
         speakLang: String?,

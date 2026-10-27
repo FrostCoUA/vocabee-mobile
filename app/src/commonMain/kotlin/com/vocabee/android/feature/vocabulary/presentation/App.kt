@@ -60,6 +60,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
@@ -114,7 +115,9 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -168,6 +171,7 @@ import com.vocabee.android.feature.vocabulary.domain.model.savedWordKeys
 import com.vocabee.android.feature.vocabulary.domain.model.senseMergeKeys
 import com.vocabee.android.feature.vocabulary.domain.usecase.ContextGlossaryUseCase
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
+import com.vocabee.android.feature.vocabulary.domain.usecase.SearchHintsUseCase
 import com.vocabee.android.feature.vocabulary.presentation.navigation.AppTab
 import com.vocabee.android.feature.vocabulary.presentation.navigation.VocabeeRoute
 import com.vocabee.android.feature.vocabulary.presentation.navigation.selectedTabFor
@@ -493,6 +497,7 @@ private fun MainApp(
         )
     }
     val contextGlossaryUseCase = remember(api) { api?.let(::ContextGlossaryUseCase) }
+    val searchHintsUseCase = remember(api) { api?.let(::SearchHintsUseCase) }
     val contextAnalysisGate = remember { ContextAnalysisGate() }
     val backStack = rememberNavBackStack(
         vocabeeSavedStateConfiguration,
@@ -1040,6 +1045,13 @@ private fun MainApp(
                                     } else {
                                         PrototypeSheet.NeedBees(BeeGateReason.TranslationSearch)
                                     }
+                                },
+                                searchHints = { input ->
+                                    searchHintsUseCase?.invoke(
+                                        query = input,
+                                        speakLang = state.userLanguage.code,
+                                        learnLang = state.learningLanguage.code,
+                                    )
                                 },
                                 searchRemote = { input ->
                                     searchRemotely(
@@ -3169,6 +3181,8 @@ private fun DictionaryDetailScreen(
     onSpendSearchBee: () -> Boolean,
     onTranslationSearchBlocked: () -> Unit,
     searchRemote: suspend (query: String) -> AddWordSearchState,
+    /** Підказки під час набору; `null` — сервер їх не дав, тоді шукаємо введене, як раніше. */
+    searchHints: suspend (query: String) -> SearchHintsUseCase.Hints? = { null },
     onAddWord: (source: String, translation: String, ipa: String?, details: com.vocabee.android.feature.vocabulary.domain.model.WordDetails?) -> Unit,
     onAddContextWord: (glossary: ContextGlossary, token: ContextGlossaryToken) -> Unit,
     onRemoveWord: (WordEntry) -> Unit,
@@ -3189,6 +3203,9 @@ private fun DictionaryDetailScreen(
     var query by remember(topic.id) { mutableStateOf(initialQuery.orEmpty()) }
     val cleanedQuery = query.trim()
     var searchState by remember(topic.id) { mutableStateOf(AddWordSearchState()) }
+    // Текст, який користувач явно попросив перекласти: тап по підказці, «Перекласти «…»»,
+    // кнопка пошуку на клавіатурі або голос. Його шукаємо одразу, без перевірки «чи це слово».
+    var forcedLookup by remember(topic.id) { mutableStateOf<String?>(null) }
     var partialText by remember(topic.id) { mutableStateOf("") }
     var isListening by remember(topic.id) { mutableStateOf(false) }
     var speechError by remember(topic.id) { mutableStateOf<String?>(null) }
@@ -3276,15 +3293,28 @@ private fun DictionaryDetailScreen(
         onDispose { speechInputController.stopListening() }
     }
 
-    LaunchedEffect(cleanedQuery) {
+    LaunchedEffect(cleanedQuery, forcedLookup) {
         if (cleanedQuery.isEmpty()) {
             searchState = AddWordSearchState()
             return@LaunchedEffect
         }
         speechError = null
-        searchState = searchState.copy(query = cleanedQuery, isLoading = true, errorMessage = null)
         val requestQuery = cleanedQuery
-        delay(700)
+        val forced = forcedLookup == requestQuery
+        // Підказки дешеві й швидкі — показуємо їх на короткій паузі. Переклад (і монетку)
+        // витрачаємо лише на відоме слово чи фразу, і лише після довшої паузи: поки
+        // користувач дописує `the` до `there`, статтю для `the` не збираємо.
+        if (!forced) delay(250)
+        if (query.trim() != requestQuery) return@LaunchedEffect
+        val hints = searchHints(requestQuery)
+        if (query.trim() != requestQuery) return@LaunchedEffect
+        val hintWords = hints?.words.orEmpty()
+        if (!shouldLookUpNow(forced, hints)) {
+            searchState = AddWordSearchState(query = requestQuery, hints = hintWords, awaitingChoice = true)
+            return@LaunchedEffect
+        }
+        searchState = AddWordSearchState(query = requestQuery, isLoading = true, hints = hintWords)
+        if (!forced) delay(450)
         if (query.trim() != requestQuery) return@LaunchedEffect
         if (!onSpendSearchBee()) {
             searchState = AddWordSearchState(
@@ -3296,7 +3326,7 @@ private fun DictionaryDetailScreen(
         }
         val result = searchRemote(requestQuery)
         if (query.trim() == requestQuery) {
-            searchState = result
+            searchState = result.copy(hints = hintWords)
         }
     }
 
@@ -3336,7 +3366,10 @@ private fun DictionaryDetailScreen(
                 val text = recognized.trim()
                 partialText = ""
                 isListening = false
-                if (text.isNotBlank()) query = text
+                if (text.isNotBlank()) {
+                    query = text
+                    forcedLookup = text
+                }
             },
             onError = { message ->
                 partialText = ""
@@ -3475,6 +3508,11 @@ private fun DictionaryDetailScreen(
                     onRemove = onRemoveWord,
                     onRetryVoice = ::startListening,
                     onDislike = onDislikeTranslation,
+                    onTranslateQuery = { forcedLookup = cleanedQuery },
+                    onHintClick = { hint ->
+                        query = hint
+                        forcedLookup = hint
+                    },
                 )
             }
         }
@@ -3523,6 +3561,7 @@ private fun DictionaryDetailScreen(
                     inputBarHeight = height
                 }
             },
+            onSubmit = { if (cleanedQuery.isNotEmpty()) forcedLookup = cleanedQuery },
             onCancel = ::cancelSearch,
             onStartListening = ::startListening,
             onStopListening = { scope.launch { stopListeningWithGrace() } },
@@ -3572,11 +3611,17 @@ private fun InlineAddWordBar(
     onValueChange: (String) -> Unit,
     onFocusChanged: (Boolean) -> Unit,
     onHeightChanged: (Dp) -> Unit,
+    onSubmit: () -> Unit = {},
     onCancel: () -> Unit,
     onStartListening: () -> Unit,
     onStopListening: () -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
+    // Слово, вставлене підказкою, приходить ззовні: курсор ставимо в кінець, а не
+    // лишаємо там, де користувач зупинився («ther|e»). Власне редагування (і IME-
+    // композиція) живе в [fieldValue], поки текст збігається з [value].
+    var fieldValue by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    val shownValue = if (fieldValue.text == value) fieldValue else TextFieldValue(value, TextRange(value.length))
     val density = LocalDensity.current
 
     Row(
@@ -3631,8 +3676,11 @@ private fun InlineAddWordBar(
                     strokeWidth = 2f,
                 )
                 BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
+                    value = shownValue,
+                    onValueChange = { next ->
+                        fieldValue = next
+                        if (next.text != value) onValueChange(next.text)
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .onFocusChanged { onFocusChanged(it.isFocused) }
@@ -3646,7 +3694,8 @@ private fun InlineAddWordBar(
                         fontSize = 17.sp,
                         lineHeight = 22.sp,
                     ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
                     cursorBrush = androidx.compose.ui.graphics.SolidColor(PrototypeColor.PurpleText),
                     decorationBox = { inner ->
                         Box(contentAlignment = Alignment.CenterStart) {
@@ -3733,6 +3782,8 @@ private fun InlineTranslationPanel(
     onRemove: (WordEntry) -> Unit,
     onRetryVoice: () -> Unit = {},
     onDislike: (TranslationOption) -> Unit = {},
+    onTranslateQuery: () -> Unit = {},
+    onHintClick: (String) -> Unit = {},
 ) {
     // Помилка розпізнавання займає всю панель: сирий текст помилки лишається
     // тільки в снекбарі, а тут — локалізована підказка і повтор запису (борд 4).
@@ -3766,7 +3817,11 @@ private fun InlineTranslationPanel(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = if (voiceErrorVisible) "Спробуй ще раз" else "Варіанти перекладу",
+                        text = when {
+                            voiceErrorVisible -> "Спробуй ще раз"
+                            searchState.awaitingChoice -> "Обери слово"
+                            else -> "Варіанти перекладу"
+                        },
                         modifier = Modifier.padding(top = 2.dp),
                         color = PrototypeColor.Muted2,
                         fontWeight = FontWeight.SemiBold,
@@ -3793,6 +3848,12 @@ private fun InlineTranslationPanel(
                     searchState.errorMessage != null -> AddWordErrorState(
                         message = searchState.errorMessage,
                     )
+                    searchState.awaitingChoice -> AddWordHintsList(
+                        query = query,
+                        hints = searchState.hints,
+                        onTranslateQuery = onTranslateQuery,
+                        onHintClick = onHintClick,
+                    )
                     else -> AddWordResultsList(
                         query = query,
                         results = searchState.results,
@@ -3803,6 +3864,8 @@ private fun InlineTranslationPanel(
                         onAdd = onAdd,
                         onRemove = onRemove,
                         onDislike = onDislike,
+                        hints = searchState.hints,
+                        onHintClick = onHintClick,
                     )
                 }
             }

@@ -30,6 +30,16 @@ interface VocabeeApi {
         learnLang: String,
     ): SearchResponse
 
+    /**
+     * Calls `GET /v1/search/hints`: words that start with [query] and whether the
+     * text is complete enough to look up. Free — no lookup, no bee charge.
+     */
+    suspend fun searchHints(
+        query: String,
+        speakLang: String,
+        learnLang: String,
+    ): SearchHintsResponse
+
     /** Polls an existing search generation without starting or charging a new search. */
     suspend fun pollSearchGeneration(
         id: String,

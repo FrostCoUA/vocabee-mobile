@@ -56,6 +56,7 @@ cutover.
 
 ```http
 GET  client-gateway /v1/search                         # compatibility facade
+GET  client-gateway /v1/search/hints                   # typing hints, free
 GET  dictionary-gateway /v1/search                    # X-API-Key, app-neutral
 POST client-gateway /v2/translation-lookups           # [НОВЕ] free lookup receipt
 POST client-gateway /v2/topics/{topicId}/words/from-result # [НОВЕ]
@@ -641,6 +642,8 @@ Mobile-контракт обслуговує
 |---|---|---|---|
 | GET | `client-gateway /v1/search?q=&speak=&learn=` | Optional JWT: без header / active bearer | Mobile compatibility facade: tier/wallet + делегація; supplied invalid/expired/inactive credential → 401 |
 | GET | `dictionary-gateway /v1/search?q=&speak=&learn=&limit=` | `X-API-Key` | App-neutral lexicon search; `limit` 1..50, default 50 |
+| GET | `client-gateway /v1/search/hints?q=&speak=&learn=&limit=` | Optional JWT | Безкоштовні підказки під час набору: `{query, exact, lookup, hints[{text, lang}]}`; без пошуку, без монеток, без запиту до провайдерів |
+| GET | `dictionary-gateway /v1/search/hints?q=&speak=&learn=&limit=` | `X-API-Key`, scope `dictionary:search` | Статичний частотний список слів обох мов пари (`HeadwordIndex`); `lookup=true` для відомого слова чи фрази; квота не списується; `limit` 1..20, default 8 |
 | GET | `client-gateway /v1/search/generations/:id?speak=&learn=` | Optional JWT | Стан уже створеного пошуку без повторного списання; зберігає напрямок відображення початкового запиту |
 | GET | `dictionary-gateway /v1/search/generations/:id?speak=&learn=` | `X-API-Key` | Готовий результат або стан тієї самої генерації; без нового AI-запиту |
 | POST | `client-gateway /v1/search/context-glossary` | Optional JWT | Безкоштовний mobile facade: один batch для exact прикладу; wallet не викликається |

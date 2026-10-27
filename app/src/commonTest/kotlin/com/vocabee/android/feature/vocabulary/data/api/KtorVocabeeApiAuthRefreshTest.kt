@@ -14,6 +14,7 @@ import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import com.vocabee.android.feature.vocabulary.data.preferences.InMemoryPreferencesManager
 import com.vocabee.android.feature.vocabulary.domain.usecase.RemoteLexiconSearchUseCase
+import com.vocabee.android.feature.vocabulary.domain.usecase.SearchHintsUseCase
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
@@ -528,6 +529,30 @@ class KtorVocabeeApiAuthRefreshTest {
         assertEquals(listOf<String?>("Bearer account-a-access"), searchBearers)
         assertEquals("account-b-access", tokenStore.current())
         assertEquals("account-b-refresh", tokenStore.refreshToken())
+    }
+
+    @Test
+    fun searchHintsAsksWithoutTokenAndFallsBackToNullOnFailure() = runBlocking {
+        val requests = mutableListOf<HttpRequestData>()
+        val api = apiWithEngine { request ->
+            requests += request
+            respond(
+                content = """{"query":"ther","exact":null,"lookup":false,"hints":[{"text":"there","lang":"en"},{"text":"there","lang":"en"},{"text":" ","lang":"en"}]}""",
+                headers = jsonHeaders(),
+            )
+        }
+        val hints = SearchHintsUseCase(api)("ther", "uk", "en")
+
+        assertEquals(SearchHintsUseCase.Hints(lookup = false, words = listOf("there")), hints)
+        val request = requests.single()
+        assertEquals("/v1/search/hints", request.url.encodedPath)
+        assertEquals("ther", request.url.parameters["q"])
+        assertEquals("uk", request.url.parameters["speak"])
+        assertEquals("en", request.url.parameters["learn"])
+        assertNull(request.headers[HttpHeaders.Authorization])
+
+        val failing = apiWithEngine { respond(content = "", status = HttpStatusCode.NotFound) }
+        assertNull(SearchHintsUseCase(failing)("ther", "uk", "en"))
     }
 
     private fun apiWithEngine(
