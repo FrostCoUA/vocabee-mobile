@@ -403,6 +403,7 @@ Dictionary admin UI та звичайні admin routes приймають окр
 | GET | `/v1/admin/lexicon/translations` | `dictionary:lexicon:read` | Numbered-list через `page?` (1–1 000 000) або legacy `cursor?`, взаємовиключні; `limit` 1–100 (default 50). `total` є на першій/номерних сторінках. Фільтри: `status=active\|deleted\|all` (default active), `sourceLang?`, `targetLang?`, `source?`, `origin?`, `providerTier?`, `q?` |
 | GET | `/v1/admin/lexicon/translation-filter-options` | `dictionary:lexicon:read` | Sorted distinct non-empty `origins` і `providerTiers`, які реально є в translation rows; без metadata/credentials |
 | GET | `/v1/admin/lexicon/translations/:translationId` | `dictionary:lexicon:read` | Останній active або soft-deleted рядок: source/target lexical entry, IPA, senses/examples, synonyms/antonyms/forms, alternatives, provenance і safe metadata; не повна immutable history |
+| POST | `/v1/admin/lexicon/import-vocabee2` | Admin bearer · `dictionary:lexicon:write` | Повний перевірений JSON-пакет `vocabee2-v1`, EN→UK, 1–100 лем, до 20 МБ. Працює в AI-only без модельних викликів. Увесь пакет валідується перед записом; кожна стаття атомарно зберігає всі сенси, альтернативи, метадані та приклади в AI-сховище й нормалізовані таблиці, статус `complete`. Точний replay пропускається; відмінна наявна стаття, модерація або активна генерація дають явний конфлікт без перезапису. Відповідь містить SHA/bytes і результат кожної леми. |
 | POST | `/v1/admin/lexicon/import` | `dictionary:lexicon:write` | Legacy reviewed `.jsonl`; перевіряє мови, `needsReview`/review status і структуру рядків, додає source/target lexical entries та enrichment, пропускає дублікати за нормалізованою парою слово+переклад |
 | POST | `/v1/admin/lexicon/import-v1` | `dictionary:lexicon:write` | Multipart `file` з `formatVersion: "v1"` JSONL; звичайне word вимагає reviewed `partOfSpeech`, senses і приклад для кожного sense, а IPA є best-effort і може бути відсутнім; multi-sense translations вимагають `senseIndex`. Імпорт сам не викликає AI/провайдера: однозначний reviewed IPA з Kaikki дозаповнює старе значення, але конфлікт двох seed IPA відхиляється; reviewed `senseIndex` одразу встановлює/виправляє translation→sense. `seed-import` після цього immutable у звичайному search; знайдена прогалина створює personless `lexicon_curated_data_missing` для перегенерації batch, без provider fallback. |
 | POST | `/v1/admin/lexicon/import-v2` | `X-API-Key` · `dictionary:lexicon:write` | Multipart `file` з `formatVersion: "v2"` JSONL. Кожен sense має stable `senseKey`, кожен example — `senseKey`, а кожен translation — непорожній `senseKeys[]`; positional `senseIndex`, дублікати нормалізованого translation text і `confidence: null` заборонені. Опційний `X-Content-SHA256` звіряє raw bytes до імпорту; відповідь завжди містить `fileSha256` і `fileSizeBytes`. Увесь файл спочатку проходить структурну перевірку, а кожен прийнятий запис імпортується у власній DB-транзакції: stable keys upsert-яться, `translation_senses` авторитетно замінюються в межах запису, а перший link проєктується у legacy `translations.sense_id`. Наявний provider-row атомарно стає curated разом із target linkage/provenance/metadata; точний повтор є no-op і не викликає AI/провайдера. Неочікувана DB-помилка повертає клієнту загальне повідомлення, а оригінал із безпечним контекстом потрапляє у Sentry. |
@@ -460,6 +461,8 @@ stdin і не потрапляє в argv/state/manifests. HTTP 200 сам по �
 source/package або часткове перекриття пакетів зупиняють upload без втрати попередніх
 receipts. Це at-least-once resume з безпечним row replay, а не whole-file
 transaction або server-side exactly-once receipt.
+
+**[ЗАРАЗ] Імпорт повних Vocabee2-записів.** На окремій сторінці «Імпорт» доступна панель нового формату, навіть коли legacy V2 заблокований AI-only. Пакет має `formatVersion="vocabee2-v1"`, `sourceLang="en"`, `targetLang="uk"`, `entries[]`. Кожний елемент містить повний wire `entry` за AI-контрактом і `review={approved:true,coverageComplete:true,issues:[],model,effort,candidateSha256}`. Хеш — SHA-256 від UTF-8 compact JSON із рекурсивно відсортованими ключами; порядок масивів зберігається. Це контроль цілісності перевіреного запису, не криптографічний підпис аудитора: право публікації належить автентифікованому адміністратору. Неперевірені raw-чернетки не приймаються. Панель показує слова/сенси/переклади/пари прикладів і відсутню IPA до запису, результат після та JSON-квитанцію. Повтор після обриву безпечний; пакет не є однією великою транзакцією. Стабільні UUID виділяє сервер, `existingSenseId` в новому пакеті мусить бути null. Контекстні часткові та наявні відмінні статті автоматично не зливаються. Старий V2-імпорт і його прапорець залишені без зміни.
 
 **[ЗАРАЗ] Manual V2 import UI.** На сторінці «Переклади» є окрема V2-панель:
 оператор вставляє one-time `translation-uploader` key, який живе тільки в
@@ -1215,3 +1218,23 @@ protected plans — два, protected system consumers — два, system key co
 7. Promo API (`/v1/promos*`) ще не існує — **[НОВЕ]** за D4 (doc 05).
 
 **[ЗАРАЗ, локальна конфігурація 2026-10-08] Профіль AI-only.** Defaults повної генерації — `gpt-6.1-sol/high`, незалежного рев’ю та виправлень — `gpt-6.1-sol/xhigh`. Overrides: `LEXICON_AI_MODEL`, `LEXICON_AI_REVIEW_MODEL`, `LEXICON_AI_REASONING_EFFORT`, `LEXICON_AI_REVIEW_REASONING_EFFORT`; допустимі рівні `low/medium/high/xhigh`. `GET /v1/admin/providers` для OpenAI в AI-only додає `generationEffort`, `reviewModel`, `reviewEffort`; `model` лишається моделлю генерації. Адмінка показує фактичний runtime-профіль, включно з overrides. Зміна default не доводить оновлення живого DEV і не змінює bounded repair flow сервера.
+
+### [ЗАРАЗ] Точкові ревізії Vocabee2 і записи без IPA — 2026-10-09
+
+`GET /v1/admin/lexicon/vocabee2-maintenance` (`dictionary:lexicon:read`) віддає поточні перевірені
+wire-записи (по 200 вихідних рядків, `?cursor` і `nextCursor` для наступної сторінки), review, candidateSha256, contentRevision та readiness. Записи після модерації або
+незвірених конкурентних змін не включаються. Панель імпорту дає завантажити цю вибірку для окремого
+проходу виправлень. Старі імпорти без збереженого wire можна виправляти від їхнього локального пакета.
+
+`POST /v1/admin/lexicon/import-vocabee2` також приймає `vocabee2-revisions-v1` (en→uk, 1–100 слів):
+кожний запис містить entry, новий незалежний review та revision={baseEntry,baseCandidateSha256,changedPaths}.
+Дозволені зміни IPA, визначень, прикладів, форм, відношень і класифікації. Лема, POS, кількість та порядок
+сенсів/альтернатив, persisted identities не змінюються. Сервер звіряє базовий хеш, реальні зміни і поточний
+зміст під блокуванням, зберігає UUID і відмовляє для застарілої або модерованої версії. Повтор того самого
+успішного виправлення пропускається. Експорт чи HTTP 200 самі по собі не доводять успішність усіх записів.
+
+Незалежно перевірені переклади без IPA можна імпортувати звичайним vocabee2-v1. `review.scope=lexical`
+дозволений тільки коли всі IPA відсутні; approved, coverageComplete та issues=[] стосуються всього
+лексичного змісту. Готовність вимови сервер визначає окремо: `ready` або `ipa_pending`. Receipt results[]
+містить candidateSha256/readiness для успішного запису; `ipa_pending` не вважається повністю готовою
+генерацією. Кеш usable-перекладу лишається complete, щоб не запускати генерацію наново лише через IPA.
